@@ -15,6 +15,14 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 - TS is strict + extras; `exactOptionalPropertyTypes` is deliberately off (ADR 0003) — don't re-enable it.
 - `checkJs` must also stay off: `worker-configuration.d.ts` imports the built worker entry, so after any build the JS bundle artifacts enter the TS program and would fail `pnpm check`.
 - Navigation needs `resolve()` from `$app/paths` (eslint `svelte/no-navigation-without-resolve`); the rule is disabled only for the generic `ui/` primitives.
+- Reactive collections use `SvelteMap`/`SvelteSet` from `svelte/reactivity` (eslint enforces it in `.svelte.ts`); a transient non-reactive `Set` still trips the rule, so avoid it — prefer `.clear()` + repopulate.
+
+## Data layer (Phases 2–3)
+
+- **The Y.Doc is the source of truth.** Three layers, one direction: `model/` = plain types + pure functions (no Yjs, no runes); `sync/` = the only place that (de)serialises a `Y.Map`; `state/` = the runes bridge that observes Yjs and projects into a `SvelteMap`. `sync/` must never import from `state/` or `components/`; `model/` has zero runtime deps.
+- **Never mutate the projection directly.** UI writes go through `IssueStore.create/update/remove` → the CRDT → `observeDeep` → the projection. The `SvelteMap` is derived state, not a store.
+- **Issue field writes stay in a `doc.transact()`** so one issue change is one observer batch. Order keys come from `fractional-indexing` (`generateKeyBetween`) — append with `nextOrderKey`; never reuse a key.
+- **Persistence attaches synchronously** (static `y-indexeddb` import, browser-guarded) — a dynamic import reintroduces a lost-write window (see the comment in `persistence.ts`).
 
 ## Styling
 
