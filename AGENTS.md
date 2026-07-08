@@ -6,7 +6,7 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 
 - **pnpm only** (`packageManager` pins `pnpm@11.10.0`). Use `pnpm dlx` / `pnpm exec`, never npm/npx. Node 24 via `.nvmrc` (fnm auto-switches).
 - Postinstall build scripts are allowlisted in `pnpm-workspace.yaml` (`allowBuilds`: workerd, esbuild, …). If `pnpm install` reports newly blocked builds, add them there — don't run interactive `pnpm approve-builds`.
-- `pnpm check` must pass; it runs `wrangler types --check` first, so run `pnpm cf-typegen` after touching `wrangler.jsonc` (the generated `worker-configuration.d.ts` is committed, prettier-ignored).
+- `pnpm check` must pass; both `check` and `build` regenerate `worker-configuration.d.ts` (`wrangler types`) rather than validate it — its content legitimately varies with build state (wrangler adds a `mainModule` import only when `.svelte-kit/cloudflare/_worker.js` exists), so `--check` can never be stable across CI and local. The file is committed (IDE needs it), prettier- and eslint-ignored; don't fight small diffs in it.
 
 ## Svelte / TypeScript
 
