@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Reads the pnpm version from the "packageManager" field in package.json
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm # setup-node v6 auto-caches npm only; pnpm must be installed first (step above)
+
+      - run: pnpm install --frozen-lockfile # `prepare` runs svelte-kit sync
+
+      - name: Typecheck (wrangler types --check + svelte-check)
+        run: pnpm check
+
+      - name: Lint (prettier + eslint)
+        run: pnpm lint
+
+      # Needed by BOTH the Vitest browser-mode component tests and Playwright e2e
+      - name: Install Playwright chromium
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Unit & component tests (Vitest)
+        run: pnpm test:unit --run
+
+      - name: E2E tests (Playwright; webServer = build + wrangler dev on :4173)
+        run: pnpm exec playwright test
+
+      - name: Build (adapter-cloudflare)
+        run: pnpm build
+
+      - name: Validate worker bundle (dry-run, no credentials)
+        run: pnpm exec wrangler deploy --dry-run --outdir=.wrangler/dist
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 30
