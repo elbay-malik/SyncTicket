@@ -1,0 +1,23 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "syncticket",
+	// Max supported by the workerd bundled with the pinned wrangler; bump alongside wrangler upgrades.
+	"compatibility_date": "2026-07-06",
+	"compatibility_flags": ["nodejs_compat"],
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"assets": {
+		"binding": "ASSETS",
+		"directory": ".svelte-kit/cloudflare"
+	},
+	"workers_dev": true,
+	"preview_urls": true,
+	"observability": {
+		"enabled": true
+	}
+	// FUTURE (Phase 9 — realtime relay): cross-script Durable Object binding to the separate
+	// relay worker. The DO class and its migrations (new_sqlite_classes — the free plan only
+	// allows SQLite-backed DOs) live in workers/relay/wrangler.jsonc, NOT here (ADR 0002).
+	// "durable_objects": {
+	// 	"bindings": [{ "name": "Y_DOC", "class_name": "YDocRoom", "script_name": "syncticket-relay" }]
+	// }
+}

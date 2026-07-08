@@ -1,0 +1,26 @@
+{
+	"extends": "./.svelte-kit/tsconfig.json",
+	"compilerOptions": {
+		"rewriteRelativeImportExtensions": true,
+		"allowJs": true,
+		// checkJs must stay off: wrangler's generated worker-configuration.d.ts imports the
+		// built worker entry (.svelte-kit/cloudflare/_worker.js), so after any build the JS
+		// bundle artifacts enter the TS program and would fail checking.
+		"checkJs": false,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true,
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		// exactOptionalPropertyTypes is deliberately off: bits-ui/shadcn-svelte prop
+		// forwarding is incompatible with it (see ADR 0003).
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"moduleResolution": "bundler",
+		"types": ["./worker-configuration.d.ts"]
+	}
+}
