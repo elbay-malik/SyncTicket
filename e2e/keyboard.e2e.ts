@@ -102,7 +102,7 @@ test('one Tab enters the list at the cursor rather than walking every row', asyn
 
 test('the palette toggles with the same chord and runs a command', async ({ page }) => {
 	await seeded(page, ['Something']);
-	const palette = page.getByPlaceholder('Type a command or search…');
+	const palette = page.getByPlaceholder('Search issues or run a command…');
 
 	await page.keyboard.press('ControlOrMeta+k');
 	await expect(palette).toBeVisible();

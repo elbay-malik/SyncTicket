@@ -19,7 +19,7 @@ test('command menu opens with the keyboard shortcut', async ({ page }) => {
 	// Retry the shortcut: the document-level listener only exists once Svelte has hydrated.
 	await expect(async () => {
 		await page.keyboard.press('ControlOrMeta+k');
-		await expect(page.getByPlaceholder('Type a command or search…')).toBeVisible({
+		await expect(page.getByPlaceholder('Search issues or run a command…')).toBeVisible({
 			timeout: 1000
 		});
 	}).toPass({ timeout: 15_000 });
