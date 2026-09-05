@@ -9,10 +9,7 @@
 	import { Kbd } from '$lib/components/ui/kbd/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 
-	const planned = [
-		{ label: 'Board', phase: 'Phase 5', icon: SquareKanbanIcon },
-		{ label: 'Search', phase: 'Phase 8', icon: SearchIcon }
-	];
+	const planned = [{ label: 'Search', phase: 'Phase 8', icon: SearchIcon }];
 </script>
 
 <Sidebar.Root>
@@ -33,6 +30,16 @@
 								<a href={resolve('/issues')} {...props}>
 									<CircleDotIcon />
 									<span>Issues</span>
+								</a>
+							{/snippet}
+						</Sidebar.MenuButton>
+					</Sidebar.MenuItem>
+					<Sidebar.MenuItem>
+						<Sidebar.MenuButton isActive={page.url.pathname.startsWith('/board')}>
+							{#snippet child({ props })}
+								<a href={resolve('/board')} {...props}>
+									<SquareKanbanIcon />
+									<span>Board</span>
 								</a>
 							{/snippet}
 						</Sidebar.MenuButton>

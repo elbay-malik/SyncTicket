@@ -1,9 +1,11 @@
 <script lang="ts">
 	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
+	import SquareKanbanIcon from '@lucide/svelte/icons/square-kanban';
 	import MonitorIcon from '@lucide/svelte/icons/monitor';
 	import MoonIcon from '@lucide/svelte/icons/moon';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SunIcon from '@lucide/svelte/icons/sun';
+	import { tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { resetMode, setMode } from 'mode-watcher';
@@ -35,8 +37,9 @@
 			<Command.Item
 				onSelect={() =>
 					run(async () => {
-						// The dialog is mounted in the issues layout, so make sure we're there first.
-						await goto(resolve('/issues'));
+						// Let this dialog finish closing first: opening another in the same tick lets
+						// the palette's focus restore fire inside the new dialog's focus scope.
+						await tick();
 						issueUi.createOpen = true;
 					})}
 			>
@@ -49,6 +52,10 @@
 			<Command.Item onSelect={() => run(() => goto(resolve('/issues')))}>
 				<CircleDotIcon />
 				Go to Issues
+			</Command.Item>
+			<Command.Item onSelect={() => run(() => goto(resolve('/board')))}>
+				<SquareKanbanIcon />
+				Go to Board
 			</Command.Item>
 		</Command.Group>
 		<Command.Group heading="Theme">

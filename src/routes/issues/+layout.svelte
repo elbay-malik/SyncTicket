@@ -16,7 +16,6 @@
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { STATUS_UI } from '$lib/components/issues/meta.js';
-	import IssueCreateDialog from '$lib/components/issues/issue-create-dialog.svelte';
 	import IssueRow from '$lib/components/issues/issue-row.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -65,30 +64,7 @@
 		store.create({ title });
 		draft = '';
 	}
-
-	// Temporary home for the "c" shortcut; Phase 7 moves it into a shortcut registry.
-	function onKeydown(event: KeyboardEvent) {
-		if (event.key.toLowerCase() !== 'c' || event.shiftKey) return;
-		if (event.metaKey || event.ctrlKey || event.altKey) return;
-		if (event.isComposing || event.repeat || event.defaultPrevented) return;
-		if (issueUi.createOpen || page.params.id) return;
-		const target = event.target;
-		// Menus and comboboxes run type-ahead on plain characters, and a dialog's own
-		// controls must not summon a second dialog on top.
-		if (
-			target instanceof Element &&
-			target.closest(
-				'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="combobox"]'
-			)
-		) {
-			return;
-		}
-		event.preventDefault();
-		issueUi.createOpen = true;
-	}
 </script>
-
-<svelte:document onkeydown={onKeydown} />
 
 <svelte:head>
 	<title>{activeIssue ? `${activeIssue.title} · ` : ''}Issues · SyncTicket</title>
@@ -206,7 +182,5 @@
 		</ul>
 	{/if}
 </div>
-
-<IssueCreateDialog {store} bind:open={issueUi.createOpen} />
 
 {@render children()}
