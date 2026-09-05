@@ -21,6 +21,7 @@
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import BoardColumn from '$lib/components/issues/board-column.svelte';
 	import {
+		columnView,
 		reduceConsider,
 		reduceFinalize,
 		type DragOutcome
@@ -32,6 +33,13 @@
 
 	/** Per-column drag previews. Empty means "no drag in flight; render the projection". */
 	let previews = $state<Partial<Record<IssueStatus, Issue[]>>>({});
+
+	/** Each column capped to what it renders, plus the ids ordered behind the cap. */
+	const columns = $derived(
+		Object.fromEntries(
+			ISSUE_STATUSES.map((status) => [status, columnView(query.byStatus[status])])
+		) as Record<IssueStatus, ReturnType<typeof columnView>>
+	);
 
 	// The library leaves focus on <body> after a keyboard drop, which would send the next Tab
 	// back to the top of the page.
@@ -46,7 +54,11 @@
 			return;
 		}
 		if (outcome.kind === 'commit') {
-			store.move(outcome.id, outcome.status, outcome.orderedIds);
+			// The cards behind the cap are not rendered but still order the column: without
+			// them a drop at the bottom of a capped column would sort after the whole column
+			// rather than in front of the first card the user cannot see.
+			const hidden = columns[outcome.status].hiddenIds.filter((id: string) => id !== outcome.id);
+			store.move(outcome.id, outcome.status, [...outcome.orderedIds, ...hidden]);
 			if (outcome.source === 'keyboard') void refocus(outcome.id);
 		}
 		// Any ending clears every column, not just this one: a drag the pointer merely passed
@@ -86,7 +98,8 @@
 			{#each ISSUE_STATUSES as status (status)}
 				<BoardColumn
 					{status}
-					items={previews[status] ?? query.byStatus[status]}
+					items={previews[status] ?? columns[status].visible}
+					total={columns[status].total}
 					onconsider={(event) => onconsider(status, event)}
 					onfinalize={(event) => onfinalize(status, event)}
 				/>

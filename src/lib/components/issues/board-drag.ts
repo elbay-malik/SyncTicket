@@ -17,6 +17,42 @@
 import { SOURCES, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
 import type { Issue, IssueStatus } from '$lib/model/issue.js';
 
+/**
+ * How many cards a column renders at once.
+ *
+ * The board cannot be virtualized the way the list is: svelte-dnd-action requires every
+ * item to be a direct child of the drop zone, so rendering a window would hide the rest from
+ * the drag machinery entirely. Measured at 10,000 issues, one column held 2,028 cards and
+ * cost 907 ms and 39,000 DOM nodes to render — five of those is worse than the unvirtualized
+ * list was. Capping keeps the board bounded, and nobody drags a card at position 1,800
+ * anyway; the list view is where a large workspace is worked.
+ */
+export const BOARD_COLUMN_LIMIT = 100;
+
+/** A column split into what is rendered and what is merely ordered behind it. */
+export interface ColumnView {
+	visible: Issue[];
+	/** Ids after the cap, in order. Ordering context for a drop, never rendered. */
+	hiddenIds: string[];
+	total: number;
+}
+
+/**
+ * Splits a column at the render cap.
+ *
+ * The hidden ids matter for correctness, not just for the count: dropping a card at the
+ * bottom of a capped column must place it before the first hidden issue, not after every
+ * issue in the column, so the drop handler passes them along as the tail of the new order.
+ */
+export function columnView(issues: Issue[], limit: number = BOARD_COLUMN_LIMIT): ColumnView {
+	if (issues.length <= limit) return { visible: issues, hiddenIds: [], total: issues.length };
+	return {
+		visible: issues.slice(0, limit),
+		hiddenIds: issues.slice(limit).map((issue) => issue.id),
+		total: issues.length
+	};
+}
+
 /** What the board should do in response to one drag event. */
 export type DragOutcome =
 	/** Show these items in this column; the drag is still in flight. */

@@ -26,6 +26,7 @@
 	let {
 		status,
 		items,
+		total = items.length,
 		flipDurationMs = 150,
 		onconsider,
 		onfinalize
@@ -33,6 +34,8 @@
 		status: IssueStatus;
 		/** Already resolved by the board: the drag preview when one is in flight, else live. */
 		items: Issue[];
+		/** Issues in this status overall; larger than `items` once the render cap applies. */
+		total?: number;
 		flipDurationMs?: number;
 		onconsider: (event: CustomEvent<DndEvent<Issue>>) => void;
 		onfinalize: (event: CustomEvent<DndEvent<Issue>>) => void;
@@ -50,7 +53,7 @@
 	<header class="flex items-center gap-2 px-3 py-2.5">
 		<ui.icon class="size-4 {ui.class}" aria-hidden="true" />
 		<h2 class="text-sm font-medium">{label}</h2>
-		<Badge variant="secondary" class="ml-auto">{items.length}</Badge>
+		<Badge variant="secondary" class="ml-auto">{total}</Badge>
 	</header>
 
 	<div class="relative flex-1">
@@ -108,4 +111,10 @@
 			{/each}
 		</div>
 	</div>
+
+	{#if total > items.length}
+		<p class="text-muted-foreground border-t px-3 py-2 text-xs">
+			Showing the first {items.length}. Use the list view to work through all {total}.
+		</p>
+	{/if}
 </section>

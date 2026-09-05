@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { SOURCES, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
 import type { Issue } from '$lib/model/issue.js';
-import { reduceConsider, reduceFinalize } from './board-drag.js';
+import { columnView, reduceConsider, reduceFinalize } from './board-drag.js';
 
 const issue = (id: string): Issue => ({
 	id,
@@ -143,5 +143,36 @@ describe('a full keyboard drag across columns', () => {
 			).kind
 		);
 		expect(outcomes).toEqual(['preview', 'preview', 'preview', 'commit']);
+	});
+});
+
+describe('columnView', () => {
+	const many = (n: number) => Array.from({ length: n }, (_, i) => issue(`i${i}`));
+
+	it('passes a short column through untouched', () => {
+		const view = columnView(many(3), 100);
+		expect(view.visible).toHaveLength(3);
+		expect(view.hiddenIds).toEqual([]);
+		expect(view.total).toBe(3);
+	});
+
+	it('caps a long column and keeps the remainder as ordering context', () => {
+		const view = columnView(many(250), 100);
+		expect(view.visible).toHaveLength(100);
+		expect(view.hiddenIds).toHaveLength(150);
+		expect(view.total).toBe(250);
+		// The split is in order, so the first hidden id follows the last visible one.
+		expect(view.visible.at(-1)?.id).toBe('i99');
+		expect(view.hiddenIds[0]).toBe('i100');
+	});
+
+	it('keeps a drop at the bottom of a capped column above the hidden tail', () => {
+		// The board hands moveIssue the visible order plus the hidden tail, so a card dropped
+		// last among the visible cards still sorts before issue 100 rather than after 249.
+		const view = columnView(many(250), 100);
+		const dropped = [...view.visible.slice(1).map((i) => i.id), 'i0'];
+		const orderedIds = [...dropped, ...view.hiddenIds];
+		expect(orderedIds.indexOf('i0')).toBe(99);
+		expect(orderedIds.indexOf('i100')).toBe(100);
 	});
 });
