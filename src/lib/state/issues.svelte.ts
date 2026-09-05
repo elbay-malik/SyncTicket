@@ -11,6 +11,7 @@ import { currentWorkspaceId } from '$lib/model/workspace.js';
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
 import { createDoc, getIssuesMap, type YIssue } from '$lib/sync/doc.js';
 import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib/sync/issues.js';
+import { seedIssues, type SeedOptions } from '$lib/sync/seed.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
 
 export class IssueStore {
@@ -69,6 +70,11 @@ export class IssueStore {
 	 */
 	move(id: string, status: IssueStatus, orderedIds: readonly string[]): void {
 		moveIssue(this.#map, id, status, orderedIds);
+	}
+
+	/** Bulk-appends generated issues in one transaction. Benchmarks now, demo data later. */
+	seed(count: number, options?: SeedOptions): string[] {
+		return seedIssues(this.#map, count, options);
 	}
 
 	destroy(): void {
