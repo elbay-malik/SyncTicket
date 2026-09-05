@@ -2,11 +2,13 @@
 	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
 	import MonitorIcon from '@lucide/svelte/icons/monitor';
 	import MoonIcon from '@lucide/svelte/icons/moon';
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SunIcon from '@lucide/svelte/icons/sun';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { resetMode, setMode } from 'mode-watcher';
 	import * as Command from '$lib/components/ui/command/index.js';
+	import { issueUi } from '$lib/state/ui.svelte.js';
 
 	let open = $state(false);
 
@@ -29,6 +31,20 @@
 	<Command.Input placeholder="Type a command or search…" />
 	<Command.List>
 		<Command.Empty>No results found.</Command.Empty>
+		<Command.Group heading="Issues">
+			<Command.Item
+				onSelect={() =>
+					run(async () => {
+						// The dialog is mounted in the issues layout, so make sure we're there first.
+						await goto(resolve('/issues'));
+						issueUi.createOpen = true;
+					})}
+			>
+				<PlusIcon />
+				New issue
+				<Command.Shortcut>C</Command.Shortcut>
+			</Command.Item>
+		</Command.Group>
 		<Command.Group heading="Navigation">
 			<Command.Item onSelect={() => run(() => goto(resolve('/issues')))}>
 				<CircleDotIcon />
