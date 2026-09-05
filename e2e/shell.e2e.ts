@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.js';
 
 test('root redirects to /issues and renders the shell', async ({ page }) => {
 	await page.goto('/');

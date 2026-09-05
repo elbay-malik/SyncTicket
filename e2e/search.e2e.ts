@@ -2,7 +2,7 @@
 // separately — that a query issues no network request at all, and that lexical results are
 // there before (and without) the language model.
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 
 const ISSUES = [
 	{ title: 'Palette keeps stale highlight', description: 'focus is stranded after closing' },

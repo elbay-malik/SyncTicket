@@ -1,8 +1,30 @@
 import { defineConfig } from '@playwright/test';
 
+/** Where the relay listens during tests; the app is built pointing at it. */
+const RELAY_PORT = 8787;
+const APP_PORT = 4173;
+
 export default defineConfig({
-	// The webServer runs the production build under workerd via `wrangler dev` — cold
-	// build + runtime boot can exceed Playwright's 60s default, hence the longer timeout.
-	webServer: { command: 'pnpm build && pnpm preview', port: 4173, timeout: 180_000 },
+	// Pinned explicitly. Playwright only infers baseURL from a single webServer object, and
+	// with an array it infers nothing — every relative page.goto would break.
+	use: { baseURL: `http://localhost:${APP_PORT}` },
+	webServer: [
+		{
+			// The relay first, so the app has something to connect to. `port` gives a plain TCP
+			// readiness check; a URL check would follow the 404 rules and never settle.
+			command: `pnpm --filter syncticket-relay exec wrangler dev --port ${RELAY_PORT} --persist-to .wrangler/e2e-state`,
+			port: RELAY_PORT,
+			timeout: 120_000,
+			reuseExistingServer: !process.env.CI
+		},
+		{
+			// The built worker under real workerd, built against the relay above. Cold build
+			// plus runtime boot can exceed Playwright's 60s default.
+			command: `PUBLIC_RELAY_HOST=localhost:${RELAY_PORT} pnpm build && pnpm preview`,
+			port: APP_PORT,
+			timeout: 180_000,
+			reuseExistingServer: !process.env.CI
+		}
+	],
 	testMatch: '**/*.e2e.{ts,js}'
 });

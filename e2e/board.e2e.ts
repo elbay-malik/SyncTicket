@@ -7,11 +7,9 @@
 // it doubles as the accessibility proof — the assertions on the live region below are the
 // same text a screen-reader user hears.
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 
-const DB_NAME = 'syncticket:default';
-
-function committedUpdates(page: Page): Promise<number> {
+function committedUpdates(page: Page, DB_NAME: string): Promise<number> {
 	return page.evaluate(
 		(db) =>
 			new Promise<number>((resolve) => {
@@ -39,7 +37,7 @@ function committedUpdates(page: Page): Promise<number> {
 	);
 }
 
-async function waitForCommitAbove(page: Page, baseline: number) {
+async function waitForCommitAbove(page: Page, DB_NAME: string, baseline: number) {
 	await page.waitForFunction(
 		({ db, base }) =>
 			new Promise<boolean>((resolve) => {
@@ -91,13 +89,16 @@ async function seed(page: Page, titles: string[]) {
 
 const column = (page: Page, name: string) => page.getByRole('list', { name });
 
-test('a card moves between columns with the keyboard and survives a reload', async ({ page }) => {
+test('a card moves between columns with the keyboard and survives a reload', async ({
+	page,
+	workspaceDb
+}) => {
 	await seed(page, ['Alpha', 'Bravo']);
 	const backlog = column(page, 'Backlog');
 	const todo = column(page, 'Todo');
 	await expect(backlog.getByRole('listitem')).toHaveCount(2);
 
-	const baseline = await committedUpdates(page);
+	const baseline = await committedUpdates(page, workspaceDb);
 
 	// Space picks the card up. The library announces it through its own live region.
 	await backlog.getByRole('listitem').first().focus();
@@ -116,18 +117,18 @@ test('a card moves between columns with the keyboard and survives a reload', asy
 	await expect(todo.getByRole('listitem').first()).toBeFocused();
 
 	// The status really changed, not just the rendering.
-	await waitForCommitAbove(page, baseline);
+	await waitForCommitAbove(page, workspaceDb, baseline);
 	await page.reload();
 	await expect(column(page, 'Todo').getByRole('listitem').first()).toHaveText(/Alpha/);
 	await expect(column(page, 'Backlog').getByRole('listitem')).toHaveCount(1);
 });
 
-test('reordering within a column persists', async ({ page }) => {
+test('reordering within a column persists', async ({ page, workspaceDb }) => {
 	await seed(page, ['First', 'Second', 'Third']);
 	const backlog = column(page, 'Backlog');
 	await expect(backlog.getByRole('listitem')).toHaveCount(3);
 
-	const baseline = await committedUpdates(page);
+	const baseline = await committedUpdates(page, workspaceDb);
 	await backlog.getByRole('listitem').first().focus();
 	await page.keyboard.press('Space');
 	await page.keyboard.press('ArrowDown'); // swaps with the card below
@@ -136,19 +137,23 @@ test('reordering within a column persists', async ({ page }) => {
 	await expect(backlog.getByRole('listitem').nth(0)).toHaveText(/Second/);
 	await expect(backlog.getByRole('listitem').nth(1)).toHaveText(/First/);
 
-	await waitForCommitAbove(page, baseline);
+	await waitForCommitAbove(page, workspaceDb, baseline);
 	await page.reload();
 	const reloaded = column(page, 'Backlog');
 	await expect(reloaded.getByRole('listitem').nth(0)).toHaveText(/Second/);
 	await expect(reloaded.getByRole('listitem').nth(1)).toHaveText(/First/);
 });
 
-test('a card can be moved with the network off and still persists', async ({ page, context }) => {
+test('a card can be moved with the network off and still persists', async ({
+	page,
+	context,
+	workspaceDb
+}) => {
 	await seed(page, ['Offline card']);
 	const backlog = column(page, 'Backlog');
 	await expect(backlog.getByRole('listitem')).toHaveCount(1);
 
-	const baseline = await committedUpdates(page);
+	const baseline = await committedUpdates(page, workspaceDb);
 	await context.setOffline(true);
 
 	await backlog.getByRole('listitem').first().focus();
@@ -159,7 +164,7 @@ test('a card can be moved with the network off and still persists', async ({ pag
 
 	// Reloading needs the network; the write above was always local-only.
 	await context.setOffline(false);
-	await waitForCommitAbove(page, baseline);
+	await waitForCommitAbove(page, workspaceDb, baseline);
 	await page.reload();
 	await expect(column(page, 'Todo').getByRole('listitem').first()).toHaveText(/Offline card/);
 });

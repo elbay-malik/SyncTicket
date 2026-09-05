@@ -4,7 +4,7 @@
 // convention and matters doubly here: shortcuts are registered on mount, so they simply do
 // not exist until the client has hydrated.
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 
 async function seeded(page: Page, titles: string[]) {
 	await page.goto('/issues');

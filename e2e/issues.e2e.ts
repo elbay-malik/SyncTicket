@@ -1,11 +1,10 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures.js';
 
-const DB_NAME = 'syncticket:default';
 /** Any well-formed id that cannot exist, used to warm the detail route. */
 const ABSENT_ID = '00000000-0000-4000-8000-000000000000';
 
 /** Number of Yjs update rows y-indexeddb has committed for the default workspace. */
-function committedUpdates(page: Page): Promise<number> {
+function committedUpdates(page: Page, DB_NAME: string): Promise<number> {
 	return page.evaluate(
 		(db) =>
 			new Promise<number>((resolve) => {
@@ -38,7 +37,7 @@ function committedUpdates(page: Page): Promise<number> {
  * without this races the async IndexedDB write. Re-baseline immediately before the write
  * you care about: a stale baseline is already satisfied by an earlier mutation.
  */
-async function waitForCommitAbove(page: Page, baseline: number) {
+async function waitForCommitAbove(page: Page, DB_NAME: string, baseline: number) {
 	await page.waitForFunction(
 		({ db, base }) =>
 			new Promise<boolean>((resolve) => {
@@ -78,19 +77,19 @@ async function warmDetailRoute(page: Page) {
 	await expect(page).toHaveURL(/\/issues$/);
 }
 
-test('quick-add creates an issue that persists across a reload', async ({ page }) => {
+test('quick-add creates an issue that persists across a reload', async ({ page, workspaceDb }) => {
 	await page.goto('/issues');
 	// Empty state implies the store has finished its initial IndexedDB sync, so the
 	// baseline update count is stable.
 	await expect(page.getByText('No issues yet')).toBeVisible();
-	const baseline = await committedUpdates(page);
+	const baseline = await committedUpdates(page, workspaceDb);
 
 	const input = page.getByPlaceholder('Add an issue and press Enter…');
 	await input.fill('Persisted issue');
 	await input.press('Enter');
 	await expect(page.getByRole('listitem').filter({ hasText: 'Persisted issue' })).toBeVisible();
 
-	await waitForCommitAbove(page, baseline);
+	await waitForCommitAbove(page, workspaceDb, baseline);
 
 	// A hard reload re-hydrates from IndexedDB — the issue must reappear.
 	await page.reload();
@@ -116,7 +115,11 @@ test('status filter narrows the list via the derived query index', async ({ page
 	await expect(page.getByText('No matching issues')).toBeVisible();
 });
 
-test('full CRUD works offline and the result survives a reload', async ({ page, context }) => {
+test('full CRUD works offline and the result survives a reload', async ({
+	page,
+	context,
+	workspaceDb
+}) => {
 	await page.goto('/issues');
 	await expect(page.getByText('No issues yet')).toBeVisible();
 	await warmDetailRoute(page);
@@ -166,7 +169,7 @@ test('full CRUD works offline and the result survives a reload', async ({ page, 
 	await expect(page.getByRole('link', { name: 'Offline issue, renamed' })).toHaveCount(0);
 
 	// One more issue, so the reload has something to prove.
-	const baseline = await committedUpdates(page);
+	const baseline = await committedUpdates(page, workspaceDb);
 	const input = page.getByPlaceholder('Add an issue and press Enter…');
 	await input.fill('Survivor');
 	await input.press('Enter');
@@ -174,17 +177,17 @@ test('full CRUD works offline and the result survives a reload', async ({ page, 
 
 	// Reloading needs the network back; the writes above were already local-only.
 	await context.setOffline(false);
-	await waitForCommitAbove(page, baseline);
+	await waitForCommitAbove(page, workspaceDb, baseline);
 	await page.reload();
 
 	await expect(page.getByRole('link', { name: 'Survivor' })).toBeVisible();
 	await expect(page.getByRole('link', { name: 'Offline issue, renamed' })).toHaveCount(0);
 });
 
-test('a detail sheet URL can be shared and reloaded', async ({ page }) => {
+test('a detail sheet URL can be shared and reloaded', async ({ page, workspaceDb }) => {
 	await page.goto('/issues');
 	await expect(page.getByText('No issues yet')).toBeVisible();
-	const baseline = await committedUpdates(page);
+	const baseline = await committedUpdates(page, workspaceDb);
 
 	const input = page.getByPlaceholder('Add an issue and press Enter…');
 	await input.fill('Deep linked');
@@ -194,7 +197,7 @@ test('a detail sheet URL can be shared and reloaded', async ({ page }) => {
 
 	const url = page.url();
 	expect(url).toMatch(/\/issues\/[0-9a-f-]{36}$/);
-	await waitForCommitAbove(page, baseline);
+	await waitForCommitAbove(page, workspaceDb, baseline);
 
 	// Loading the URL cold must rebuild the same view from IndexedDB alone.
 	await page.goto(url);
