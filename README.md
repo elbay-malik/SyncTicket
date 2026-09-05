@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 5 of 13 complete — list and board, both local-first.** Issues are created, edited, filtered, sorted, reordered, and deleted entirely in the browser (Yjs + IndexedDB). The Kanban board drags by mouse or keyboard, every drop writes through the CRDT, and the whole thing works with the network off. Next up is virtualization at 10k issues (Phase 6). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 6 of 13 complete — and it holds 10,000 issues.** Issues are created, edited, filtered, sorted, reordered, and deleted entirely in the browser (Yjs + IndexedDB). The Kanban board drags by mouse or keyboard, the list is virtualized, and the whole thing works with the network off. Next up is the command palette and keyboard registry (Phase 7). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 
@@ -81,6 +81,7 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - [0002 — Deploy target: Cloudflare Workers free plan, two-worker layout](docs/adr/0002-deploy-target-cloudflare-workers-free-plan.md)
 - [0003 — UI stack: Svelte 5 runes, Tailwind v4, shadcn-svelte](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)
 - [0004 — No auth: workspace ID as capability URL](docs/adr/0004-no-auth-workspace-id-demo-mode.md)
+- [0005 — Virtualized lists: virtua, and a cap for the board](docs/adr/0005-virtual-list-virtua-over-tanstack-and-svelte-virtuallists.md)
 
 ## Engineering notes
 
@@ -110,6 +111,23 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - **A dragged card is a drag item first and a link second.** svelte-dnd-action drops the zone's direct children out of the tab order during a drag but not their descendants — and tabbing onto a column is the only way to move a card between columns with the keyboard. A card built like the list row (a link between two dropdown triggers) would put two tab stops per card between the user and the next column. So board cards have no focusable children: status and priority are static badges, the card opens the detail sheet itself, and Space is registered as the drag trigger so Enter stays free.
 - **A drag that changes nothing writes nothing.** Dropping a card back where it started, or abandoning one outside every column, still fires a drop event. Because keys carry random jitter, comparing the new key to the old one would always differ, so `moveIssue` asks the question that matters instead: does the key it already has still sort it into the slot it now occupies?
 - **The board is driven by the keyboard in tests.** The library detects pointer drop zones on a 200 ms polling timer and animates the drop before reporting it, so a synthetic mouse drag is a timing bet. The keyboard path is exact, and the e2e asserts the text of the library's live region, which is the same sentence a screen-reader user hears.
+
+### Phase 6 — measuring before optimising
+
+Ten thousand issues, measured in Chromium before changing anything:
+
+| Measurement (10,000 issues)            | Before   | After     |
+| -------------------------------------- | -------- | --------- |
+| `filterIssues` + `sortIssues` over 10k | 2.0 ms   | 1.6 ms    |
+| Render the list                        | 5,019 ms | **33 ms** |
+| `<li>` elements in the DOM             | 10,000   | **20**    |
+| DOM nodes                              | 168,011  | **383**   |
+| One field edit reaching the DOM        | 0.7 ms   | 0.4 ms    |
+
+- **The reactive layer was never the bottleneck.** Filtering and sorting the entire ten thousand costs 2 ms, and a single edit still reaches the DOM in under a millisecond with everything mounted. The CRDT-to-runes bridge from Phase 3 simply scales. What did not scale was seventeen DOM nodes per row rendered ten thousand times — most of them belonging to the two dropdown pickers. Measuring first meant the fix was one component instead of a rewrite of the query index.
+- **The library choice came down to a house rule.** The roadmap's pin has not shipped since March 2025, and its documented fallback — `@tanstack/svelte-virtual` — returns a `svelte/store` `Readable`, which this project banned in ADR 0003. virtua is runes-native, actively developed, and its `Virtualizer` lets the item element be a real `<li>` inside a real `<ul>`, so the rows keep their list semantics and every existing test still finds them ([ADR 0005](docs/adr/0005-virtual-list-virtua-over-tanstack-and-svelte-virtuallists.md)).
+- **Virtualization and drag-and-drop cannot coexist here.** svelte-dnd-action indexes the drop zone's direct children positionally, so rendering only a window would hide the rest of the column from the drag machinery. The board is therefore capped at 100 cards per column rather than virtualized — 194 ms and 1,922 nodes instead of 907 ms and 38,979 — and a drop still sorts correctly against the cards behind the cap, because the handler passes their ids along as the tail of the new order.
+- **The list is now its own scroll container**, because virtua measures the virtualizer's direct parent. The toolbar stays put and only the list scrolls, which is the layout this project is imitating anyway.
 
 ## License
 

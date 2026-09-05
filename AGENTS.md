@@ -38,6 +38,15 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 - bits-ui notes: `AlertDialog.Action` does **not** close its dialog (manage `open` yourself); menu options are `menuitemradio`, not `menuitem`; a Sheet/Dialog needs a `Title` in _every_ branch or it has no accessible name.
 - The global `c` shortcut is temporary and moves into `keyboard/` in Phase 7.
 
+## Virtualization (Phase 6)
+
+- **The issue list is virtualized with `virtua/svelte`'s `Virtualizer`** ([ADR 0005](docs/adr/0005-virtual-list-virtua-over-tanstack-and-svelte-virtuallists.md)) — not `VList`, because only `Virtualizer` takes `as` / `item`, which keeps the rows a real `<ul>`/`<li>` for assistive tech and for every `listitem` locator in the tests.
+- **`issue-row.svelte` renders the row's contents, not the `<li>`.** virtua owns the item element so it can position and measure it, and absolutely-positioned items mean parent-based styling (`divide-y`) does not apply — per-item borders come from `itemProps`.
+- **The virtualizer sizes itself from its direct parent**, so that parent needs a real height. In the app the layout gives it `min-h-0 flex-1`; in a browser test, mount into a host with an explicit height **and import `routes/layout.css`**, or Tailwind is absent, the container has no height, and the list renders every row while appearing to pass.
+- **Do not virtualize the board.** svelte-dnd-action indexes the drop zone's direct children positionally, so a rendered window would hide the rest of the column from the drag machinery. Columns are capped at `BOARD_COLUMN_LIMIT` instead, and the drop handler appends the ids behind the cap so a drop at the bottom of a capped column still sorts correctly.
+- **Measure before optimising here.** At 10k the query index costs 2 ms and a single edit 0.7 ms; the DOM was the whole problem. `store.seed(n)` bulk-creates issues in one transaction for benchmarks (and, from Phase 12, demo data).
+- Virtualized lists make Chromium emit `ResizeObserver loop completed with undelivered notifications`. It is benign — the browser has already recovered, and the real app logs nothing — but Vitest's error catcher surfaces it as an unhandled error in browser-mode output. It does not fail the run; ignore it.
+
 ## Board & ordering (Phase 5)
 
 - **Order-key maths lives in `sync/order.ts`**, not `model/` (it needs `fractional-indexing`, and `model/` keeps zero runtime deps). Generated keys carry a random suffix so two replicas cannot mint the same key; `planRepairs` heals equal or blank keys that already exist, rewriting only the offending run.
