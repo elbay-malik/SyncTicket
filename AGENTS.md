@@ -37,6 +37,18 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 - **Icon-only controls must name their value** — `aria-label="Status: Backlog"`, not "Change status" — and `<Kbd>` inside a button needs `aria-hidden="true"` or it pollutes the accessible name.
 - bits-ui notes: `AlertDialog.Action` does **not** close its dialog (manage `open` yourself); menu options are `menuitemradio`, not `menuitem`; a Sheet/Dialog needs a `Title` in _every_ branch or it has no accessible name.
 
+## Relay (Phase 9)
+
+- **The relay is its own workspace package** (`workers/relay`), with its own `wrangler.jsonc`, `tsconfig.json` (standalone — the app's pulls in the DOM lib and the app worker's `Env`) and CI steps. The root `pnpm check` and dry-run never touch it, so it has its own `check` and `dry-run` scripts and CI runs both.
+- **The party name is the Durable Object binding name, kebab-cased.** Binding `YDocRoom` ⇒ `/parties/y-doc-room/:room`, and the client must pass `party: RELAY_PARTY`; the provider's default (`main`) is answered with HTTP 400. Rename one and you must rename the other in the same commit.
+- **`routePartykitRequest` is async.** `routePartykitRequest(req, env) ?? fallback` is dead code — a Promise is never nullish — and returning it unawaited resolves to `null`, which workerd rejects. Await it, and keep the `satisfies ExportedHandler<Env>` that catches this at compile time.
+- **The provider is the default export of `y-partyserver/provider`**, not a named one, and `partysocket` has no Yjs provider despite what older notes said.
+- **`PUBLIC_RELAY_HOST` is `host[:port]`, read at build time** through `import.meta.env` (with `envPrefix` widened in `vite.config.ts`). `$env/static/public` hard-fails when unset, and `$env/dynamic/public` does not resolve in browser-mode unit tests. The port matters locally: the provider only picks `ws://` for hosts it recognises as local.
+- **Status needs three events, not one.** `status` alone never reports a relay that was never reachable, so `connection-close` and `connection-error` also map to offline. `connected` fires when the socket opens, _before_ state has been exchanged — gate on `synced` for anything that needs the data.
+- **Teardown order: relay, then persistence, then the doc.** The provider does not detach on `doc.destroy()`, so a socket left open would apply an inbound sync message to a destroyed document.
+- **Every e2e gets its own workspace** (`e2e/fixtures.ts`). A shared relay room otherwise leaks state between tests and across local runs, since the room's storage outlives the process.
+- Playwright runs two servers; `use.baseURL` must be set explicitly, because Playwright only infers it from a _single_ `webServer` object. `unrouteAll()` does not remove `routeWebSocket()` routes — switch such a handler with a flag instead.
+
 ## Search (Phase 8)
 
 - **Search runs in a module Web Worker** (`search/`), reached only through `new URL('./worker.ts', import.meta.url)` so FlexSearch and the embedding library never enter the server bundle. `vite.config.ts` sets `worker: { format: 'es' }` — the default `iife` cannot code-split a worker and silently inlines dynamic imports, which would ship the embedding library to every visitor.
