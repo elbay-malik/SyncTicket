@@ -22,6 +22,7 @@
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
 		"@fontsource-variable/geist": "^5.2.9",
+		"@huggingface/transformers": "4.2.0",
 		"@internationalized/date": "^3.12.2",
 		"@lucide/svelte": "^1.23.0",
 		"@playwright/test": "^1.60.0",
@@ -37,6 +38,7 @@
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.19.0",
 		"fake-indexeddb": "6.2.5",
+		"flexsearch": "0.8.212",
 		"globals": "^17.6.0",
 		"playwright": "^1.60.0",
 		"prettier": "^3.8.3",

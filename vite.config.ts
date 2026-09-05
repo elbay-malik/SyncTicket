@@ -5,6 +5,11 @@ import adapter from '@sveltejs/adapter-cloudflare';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
+	// Module workers must be code-split, not inlined. Vite's default worker format is 'iife',
+	// which cannot split a worker bundle and so silently inlines any dynamic import into it —
+	// that would ship the whole embedding library to every visitor the moment the search
+	// worker starts, which is exactly what loading it on demand is meant to avoid.
+	worker: { format: 'es' },
 	plugins: [
 		tailwindcss(),
 		sveltekit({

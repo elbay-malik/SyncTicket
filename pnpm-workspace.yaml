@@ -3,3 +3,8 @@ allowBuilds:
   workerd: true
   sharp: true
   esbuild: true
+  # Pulled in by @huggingface/transformers but never used: the embedding model runs in the
+  # browser through onnxruntime-web. Declared false so the native build is skipped on
+  # purpose rather than merely warned about on every install.
+  onnxruntime-node: false
+  protobufjs: false
