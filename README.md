@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 4 of 13 complete — the tracker is usable.** Issues are created, edited, filtered, sorted, deleted, and persisted entirely in the browser (Yjs + IndexedDB). Every field round-trips through the CRDT, the detail view is a shareable URL, and the whole flow works with the network off. Next up is the Kanban board (Phase 5). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 5 of 13 complete — list and board, both local-first.** Issues are created, edited, filtered, sorted, reordered, and deleted entirely in the browser (Yjs + IndexedDB). The Kanban board drags by mouse or keyboard, every drop writes through the CRDT, and the whole thing works with the network off. Next up is virtualization at 10k issues (Phase 6). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 
@@ -57,7 +57,7 @@ src/
 ├── lib/
 │   ├── components/
 │   │   ├── ui/          shadcn-svelte components (owned code)
-│   │   ├── issues/      issue UI: row, create dialog, detail sheet, pickers, badges
+│   │   ├── issues/      issue UI: row, create dialog, detail sheet, board, pickers, badges
 │   │   └── shell/       app chrome: sidebar, theme toggle, command menu
 │   ├── hooks/           shared runes hooks
 │   ├── model/           plain TS types/enums + pure filter/sort — no Yjs, no runes
@@ -65,7 +65,7 @@ src/
 │   ├── state/           .svelte.ts runes bridge + derived query index
 │   ├── keyboard/        (Phase 7)  shortcut registry + actions
 │   └── search/          (Phase 8)  web worker: FlexSearch + Transformers.js embeddings
-├── routes/              SvelteKit routes (/ redirects to /issues; /issues/[id] is the detail sheet)
+├── routes/              SvelteKit routes (/ redirects to /issues; /issues/[id] is the detail sheet; /board)
 workers/
 └── relay/               (Phase 9)  separate Worker exporting the Yjs Durable Object
 docs/
@@ -101,6 +101,15 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - **Write invariants belong in the CRDT layer.** `patchIssue` now drops fields already equal to their stored value and ignores a blank title ([sync/issues.ts](src/lib/sync/issues.ts)). Both started as UI concerns and both are wrong there: re-selecting the current status from a picker would otherwise mint a new Y item, bump `updatedAt` (silently reshuffling the "recent" sort) and, from Phase 9, cost a relay message and a fresh last-writer-wins window; and since `readIssue` only defaults a _missing_ title, a persisted `''` would render as an empty row forever. Pushing both into the one place that serialises a `Y.Map` makes them true for every caller, and testable on a bare `Y.Doc` in Node.
 - **Closing the sheet has three exits, and only one of them fires `blur`.** Overlay click, Back button and route change all unmount the editor without it, so an uncommitted draft would vanish. The editor flushes pending drafts in `onDestroy`, which is what makes "it saved what I typed" true on every path. Escape is handled per field instead of on the sheet: it reverts the field being edited and stops propagating, so a second Escape — with no draft in flight — reaches bits-ui's document-level listener and closes the sheet.
 - **"Within one frame" is asserted synchronously.** Yjs fires `observeDeep` synchronously inside `transact`, and the `SvelteMap` write schedules a microtask flush. The component test writes through the store, calls `flushSync()`, then asserts with a plain `expect` on the DOM node — a polling `expect.element` would pass even if the update landed several frames later, which is exactly the property under test.
+
+### Phase 5 — the board, and why fractional indexing is the hard part
+
+- **Two replicas will mint the same order key, and that key is a crash.** Fractional indexing assigns each issue a string that sorts between its neighbours, so a reorder is one write instead of renumbering a column. The catch is that the keys are deterministic: two browsers creating their first issue offline both produce `"a0"`. Sorting already coped with that (the id tiebreak from Phase 3), but `generateKeyBetween` _throws_ when its two bounds are equal, so the first drag between those two cards would take the board down. The fix is two-layered ([sync/order.ts](src/lib/sync/order.ts)): every generated key carries a short random suffix so replicas stop colliding, and `planRepairs` heals equal keys that already exist, rewriting only the offending run rather than the column — Phase 6 targets 10k issues, where a full rewrite would be thousands of CRDT writes.
+- **The suffix cannot simply be appended.** `generateKeyBetween` often returns a proper _prefix_ of its upper bound, and appending to a prefix sorts past it. Guarding by falling back to the bare key looked correct and was almost useless: dropping a card at the top of a column is the single most common gesture, and there the bound is always a suffixed key, so the guard fired essentially every time and handed both replicas the same deterministic key again. `orderKeyBetween` instead descends toward the bound and retries, so the jitter survives.
+- **A drag does not report itself the way the docs suggest.** A keyboard drop arrives as a `consider` event with trigger `dragStopped` and no `finalize` at all, while every arrow press fires a full `finalize` mid-drag. Committing on `finalize` would mint one order key per keystroke and leave a column frozen on a stale preview forever. The rules are extracted into pure functions ([components/issues/board-drag.ts](src/lib/components/issues/board-drag.ts)) and unit-tested in Node against sequences taken from the library's source and confirmed in a real browser.
+- **A dragged card is a drag item first and a link second.** svelte-dnd-action drops the zone's direct children out of the tab order during a drag but not their descendants — and tabbing onto a column is the only way to move a card between columns with the keyboard. A card built like the list row (a link between two dropdown triggers) would put two tab stops per card between the user and the next column. So board cards have no focusable children: status and priority are static badges, the card opens the detail sheet itself, and Space is registered as the drag trigger so Enter stays free.
+- **A drag that changes nothing writes nothing.** Dropping a card back where it started, or abandoning one outside every column, still fires a drop event. Because keys carry random jitter, comparing the new key to the old one would always differ, so `moveIssue` asks the question that matters instead: does the key it already has still sort it into the slot it now occupies?
+- **The board is driven by the keyboard in tests.** The library detects pointer drop zones on a 200 ms polling timer and animates the drop before reporting it, so a synthetic mouse drag is a timing bet. The keyboard path is exact, and the e2e asserts the text of the library's live region, which is the same sentence a screen-reader user hears.
 
 ## License
 

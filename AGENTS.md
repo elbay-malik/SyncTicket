@@ -26,6 +26,7 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 
 ## UI (Phase 4)
 
+- **The create dialog and the `c` shortcut live in the root layout** so "New issue" works from the list, the board and the command menu alike. When opening it from another dialog (the command palette), `await tick()` first, or the closing dialog's focus restore fires inside the new one's focus scope.
 - **Issue components take `store` as a prop**; only routes call `getIssueStore()`. That is what lets browser-mode tests construct a throwaway `new IssueStore('test-<uuid>')` per test instead of sharing the session singleton.
 - **Enum presentation lives in `components/issues/meta.ts`** (`STATUS_UI` / `PRIORITY_UI`: icon + colour). `model/issue.ts` owns labels and ranks only — it must keep zero runtime deps.
 - **The detail sheet is a route**, `/issues/[id]`, and the list lives in `issues/+layout.svelte` so it stays mounted behind the sheet. Close with `goto(resolve('/issues'), { replaceState: true, keepFocus: true })` — `replaceState` stops Back from reopening the sheet, `keepFocus` lets the focus scope return focus to the row link.
@@ -36,6 +37,22 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 - **Icon-only controls must name their value** — `aria-label="Status: Backlog"`, not "Change status" — and `<Kbd>` inside a button needs `aria-hidden="true"` or it pollutes the accessible name.
 - bits-ui notes: `AlertDialog.Action` does **not** close its dialog (manage `open` yourself); menu options are `menuitemradio`, not `menuitem`; a Sheet/Dialog needs a `Title` in _every_ branch or it has no accessible name.
 - The global `c` shortcut is temporary and moves into `keyboard/` in Phase 7.
+
+## Board & ordering (Phase 5)
+
+- **Order-key maths lives in `sync/order.ts`**, not `model/` (it needs `fractional-indexing`, and `model/` keeps zero runtime deps). Generated keys carry a random suffix so two replicas cannot mint the same key; `planRepairs` heals equal or blank keys that already exist, rewriting only the offending run.
+- **Never call `generateKeyBetween` directly from UI or board code.** It throws when its bounds are equal, and a blank `order` (which `readIssue` produces for a missing field) crashes it with a `TypeError`. Go through `appendOrderKey` / `orderKeyBetween` / `moveIssue`, which normalise both.
+- **`moveIssue` takes the target column's ids in their new order** and does all the key work: it excludes the moved card before repairing (its key is the one deliberately out of place), reads neighbours _after_ repairs, and writes repairs plus the move in one transaction. A pure reorder does not bump `updatedAt`; a status change does.
+- **A drag that changes nothing must write nothing.** Jitter means a recomputed key always differs from the stored one, so the guard asks whether the existing key still sorts into the new slot — never whether the strings match.
+- svelte-dnd-action facts that are not in its docs, all load-bearing (see `components/issues/board-drag.ts`):
+  - A **keyboard drop** arrives as `consider` with trigger `dragStopped` and sends **no** `finalize`. Handling only `finalize` leaves the column frozen on a stale preview.
+  - Every **arrow press** fires a full `finalize` mid-drag. Commit on `source === 'pointer'`, or on the `dragStopped` consider — not on every finalize.
+  - Releasing outside every column still fires `finalize`, with `droppedOutsideOfAny`. Write nothing.
+  - The zone's **direct children must be exactly the items**: the library indexes `node.children` positionally, makes each a draggable, and reads announcements from that element's `aria-label`. No wrappers (an `animate:flip` wrapper silently becomes the card), no empty-state placeholder inside the zone.
+  - **Cards must contain nothing focusable.** Only direct children leave the tab order during a drag, and tabbing onto a column is the only way to move a card between columns.
+  - Pass `zoneTabIndex: -1`, label the zone and each card with `aria-label`, and restore focus after a keyboard drop — the library leaves it on `<body>`.
+- **Drag previews live on the board page, not per column.** A drag ends untidily in the columns it merely passed through, so any ending clears every preview.
+- Test drags with the **keyboard**; pointer drop detection polls on a 200 ms timer and animates before reporting.
 
 ## Styling
 
