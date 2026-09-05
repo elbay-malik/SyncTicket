@@ -99,6 +99,10 @@ test('quick-add creates an issue that persists across a reload', async ({ page }
 
 test('status filter narrows the list via the derived query index', async ({ page }) => {
 	await page.goto('/issues');
+	// Wait for the empty state before typing: it means the client has hydrated and the store
+	// has finished its IndexedDB sync. Filling the field earlier sets the DOM value before
+	// Svelte's binding exists, so the draft stays empty and Enter submits nothing.
+	await expect(page.getByText('No issues yet')).toBeVisible();
 
 	const input = page.getByPlaceholder('Add an issue and press Enter…');
 	await input.fill('Backlog task');
