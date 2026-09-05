@@ -36,7 +36,17 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 - **`patchIssue` owns the write invariants**, not the UI: unchanged fields are dropped (a re-selected status must not bump `updatedAt` or reach the relay), and a blank title is ignored (`readIssue` only defaults a _missing_ title, so a stored `''` would render forever).
 - **Icon-only controls must name their value** — `aria-label="Status: Backlog"`, not "Change status" — and `<Kbd>` inside a button needs `aria-hidden="true"` or it pollutes the accessible name.
 - bits-ui notes: `AlertDialog.Action` does **not** close its dialog (manage `open` yourself); menu options are `menuitemradio`, not `menuitem`; a Sheet/Dialog needs a `Title` in _every_ branch or it has no accessible name.
-- The global `c` shortcut is temporary and moves into `keyboard/` in Phase 7.
+
+## Keyboard (Phase 7)
+
+- **Every shortcut is declared in `keyboard/registry.svelte.ts`**, and the root layout owns the single `keydown` listener. The palette and the `?` help sheet render the registry, so a command and its key cannot disagree.
+- **Never register `Enter` or the arrow keys globally.** `handle` calls `preventDefault` on a match, and at document level that kills button activation, link navigation and form submission across the whole app. Cursor keys belong to the widget that has focus — the list handles its own arrows, and Enter is plain link activation.
+- **Chords match the character the keyboard produces** (`event.key`), never `event.code`. Shift is ignored for punctuation, because `?` is Shift+/ on a US layout and unshifted elsewhere. Note that Playwright's `press('Shift+/')` sends `key: '/'` while a real keyboard sends `?` — write `press('?')`.
+- **A shortcut that must work inside an overlay needs both opt-ins.** `⌘K` lands on the palette's own combobox input inside a dialog, so `allowInInput` alone would make it open-only. The palette also sets `vimBindings={false}`: bits-ui's Command reads Ctrl+K as "previous item" and prevents the default.
+- **`Command.Viewport` is required** inside `Command.List`, or `Command.Input` never gets `aria-controls`/`aria-activedescendant` and the highlighted item is not announced.
+- **Suspend the registry while another widget owns the keyboard** (`shortcuts.setSuspended`). The board does this during a drag, and clears it on destroy — a stranded suspension kills every shortcut app-wide.
+- **The list cursor is roving focus**, not `aria-selected` (invalid on `listitem`, and virtua owns the `<ul>`). Moving the cursor moves real focus so screen readers announce the row; pin the cursor's index with virtua's `keepMounted` or focus cannot land on a row outside the rendered window.
+- Single-letter shortcuts are correctly inert while typing, so any text field the keyboard can get stuck in needs an escape hatch (the quick-add field blurs on Escape).
 
 ## Virtualization (Phase 6)
 

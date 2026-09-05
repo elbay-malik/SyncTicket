@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 6 of 13 complete — and it holds 10,000 issues.** Issues are created, edited, filtered, sorted, reordered, and deleted entirely in the browser (Yjs + IndexedDB). The Kanban board drags by mouse or keyboard, the list is virtualized, and the whole thing works with the network off. Next up is the command palette and keyboard registry (Phase 7). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 7 of 13 complete — and you can drive all of it from the keyboard.** Issues are created, edited, filtered, sorted, reordered, and deleted entirely in the browser (Yjs + IndexedDB). The Kanban board drags by mouse or keyboard, the list is virtualized and walks under a `j`/`k` cursor, every shortcut is declared in one registry, and the whole thing works with the network off. Next up is in-browser search (Phase 8). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 
@@ -63,7 +63,7 @@ src/
 │   ├── model/           plain TS types/enums + pure filter/sort — no Yjs, no runes
 │   ├── sync/            Y.Doc schema, CRDT read/write, y-indexeddb persistence
 │   ├── state/           .svelte.ts runes bridge + derived query index
-│   ├── keyboard/        (Phase 7)  shortcut registry + actions
+│   ├── keyboard/        chord parsing/matching + the shortcut registry
 │   └── search/          (Phase 8)  web worker: FlexSearch + Transformers.js embeddings
 ├── routes/              SvelteKit routes (/ redirects to /issues; /issues/[id] is the detail sheet; /board)
 workers/
@@ -128,6 +128,14 @@ Ten thousand issues, measured in Chromium before changing anything:
 - **The library choice came down to a house rule.** The roadmap's pin has not shipped since March 2025, and its documented fallback — `@tanstack/svelte-virtual` — returns a `svelte/store` `Readable`, which this project banned in ADR 0003. virtua is runes-native, actively developed, and its `Virtualizer` lets the item element be a real `<li>` inside a real `<ul>`, so the rows keep their list semantics and every existing test still finds them ([ADR 0005](docs/adr/0005-virtual-list-virtua-over-tanstack-and-svelte-virtuallists.md)).
 - **Virtualization and drag-and-drop cannot coexist here.** svelte-dnd-action indexes the drop zone's direct children positionally, so rendering only a window would hide the rest of the column from the drag machinery. The board is therefore capped at 100 cards per column rather than virtualized — 194 ms and 1,922 nodes instead of 907 ms and 38,979 — and a drop still sorts correctly against the cards behind the cap, because the handler passes their ids along as the tail of the new order.
 - **The list is now its own scroll container**, because virtua measures the virtualizer's direct parent. The toolbar stays put and only the list scrolls, which is the layout this project is imitating anyway.
+
+### Phase 7 — a global shortcut is mostly a list of things not to do
+
+- **`Enter` and the arrow keys must not be global.** The obvious design registers every key in one place, and it breaks the app: a document-level handler that calls `preventDefault` on Enter suppresses button activation, link navigation and implicit form submission everywhere at once — verified in Chromium before writing the code. So the registry holds only genuine commands, the issue list owns its own cursor keys, and opening an issue is a focused link being activated by the browser rather than a shortcut pretending to be one.
+- **The list cursor is focus, not an ARIA selection.** `aria-selected` is not valid on a `listitem`, and virtua renders the `<ul>` itself so nothing can be attached to it. Moving the cursor therefore moves _real_ focus to the row's link, which is what makes a screen reader announce it, with a roving `tabindex` so one Tab enters the list at the cursor rather than walking 10,000 rows. In a virtualized list the target row usually is not mounted, so the cursor's index is pinned with virtua's `keepMounted` — without it, focus silently fails to land on any row far from the viewport.
+- **`?` is a character, not a key combination.** Matching it as "Shift plus /" works under Playwright and never fires on a real keyboard, where the event reports `?` directly — and on a German or French layout it is not Shift+/ at all. Chords match the character the keyboard produces, and the shift state is ignored for punctuation, so the shortcut follows the user's layout.
+- **The palette had to be allowed to close itself.** `⌘K` lands on the palette's own input, which is a combobox inside a dialog, so the guards that keep single letters out of text fields would have made the shortcut open-only. It opts into both. On Linux and Windows there was a second trap: bits-ui's Command treats Ctrl+K as "previous item" and prevents the default, so `vimBindings` is switched off.
+- **The board stands the registry down mid-drag.** A keyboard drag has the user holding a card while pressing arrows and Tab; a stray `c` or `b` would open a dialog or navigate away and strand the gesture. Leaving the board while dragging clears the suspension, or every shortcut in the app would stay dead.
 
 ## License
 
