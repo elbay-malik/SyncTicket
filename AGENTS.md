@@ -37,6 +37,17 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 - **Icon-only controls must name their value** — `aria-label="Status: Backlog"`, not "Change status" — and `<Kbd>` inside a button needs `aria-hidden="true"` or it pollutes the accessible name.
 - bits-ui notes: `AlertDialog.Action` does **not** close its dialog (manage `open` yourself); menu options are `menuitemradio`, not `menuitem`; a Sheet/Dialog needs a `Title` in _every_ branch or it has no accessible name.
 
+## Search (Phase 8)
+
+- **Search runs in a module Web Worker** (`search/`), reached only through `new URL('./worker.ts', import.meta.url)` so FlexSearch and the embedding library never enter the server bundle. `vite.config.ts` sets `worker: { format: 'es' }` — the default `iife` cannot code-split a worker and silently inlines dynamic imports, which would ship the embedding library to every visitor.
+- **FlexSearch 0.8 traps**, all of them load-bearing ([ADR 0006](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md)): `limit` is per _field_, so merge and slice; the document generic rejects an `interface` (use a `type` alias); ids are `string | number`; and title and description must be indexed as one combined field or a query whose words span both returns nothing. Keep all of this behind `search/lexical.ts`.
+- **The worker starts at app load**, not on first search — its chunk is fetched when constructed, and an offline user could never fetch it.
+- **Query ids are minted on the client** and bumped on every call including a clear, so a slow reply can never repopulate a list the user emptied. Results are ids; resolve them through `store.get(id)` so an edited or deleted issue is never rendered from a stale snapshot.
+- **The index follows the CRDT through `IssueStore.onChange`**, which emits one delta per observer batch and a `reset` after the post-load rebuild (that rebuild fires no Y events, so a listener watching only deltas would never see the issues already in the document).
+- **Embedding must yield.** ONNX inference is synchronous on its thread; embed in small batches, hand back the message queue between them, drop a document's vector when its text changes, and abandon a batch whose generation counter moved. Only report `hybrid` when every document has a current vector.
+- **The palette does its own filtering** (`shouldFilter={false}` plus bits-ui's `computeCommandScore`): bits-ui otherwise scores items against the query and hides the rest, which deletes description-only and semantic matches. Issue items are keyed `issue:<id>`, never by title.
+- No test may download the model; the semantic path is exercised by hand, and the e2e proves the lexical path and the absence of network traffic.
+
 ## Keyboard (Phase 7)
 
 - **Every shortcut is declared in `keyboard/registry.svelte.ts`**, and the root layout owns the single `keydown` listener. The palette and the `?` help sheet render the registry, so a command and its key cannot disagree.

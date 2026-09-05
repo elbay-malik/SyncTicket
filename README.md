@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 7 of 13 complete — and you can drive all of it from the keyboard.** Issues are created, edited, filtered, sorted, reordered, and deleted entirely in the browser (Yjs + IndexedDB). The Kanban board drags by mouse or keyboard, the list is virtualized and walks under a `j`/`k` cursor, every shortcut is declared in one registry, and the whole thing works with the network off. Next up is in-browser search (Phase 8). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 8 of 13 complete — search runs entirely in your browser.** Issues are created, edited, filtered, sorted, reordered, and deleted locally (Yjs + IndexedDB). The board drags by mouse or keyboard, the list is virtualized, every shortcut lives in one registry, and ⌘K searches ten thousand issues without a single network request. Next up is the realtime relay (Phase 9). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 
@@ -64,7 +64,7 @@ src/
 │   ├── sync/            Y.Doc schema, CRDT read/write, y-indexeddb persistence
 │   ├── state/           .svelte.ts runes bridge + derived query index
 │   ├── keyboard/        chord parsing/matching + the shortcut registry
-│   └── search/          (Phase 8)  web worker: FlexSearch + Transformers.js embeddings
+│   └── search/          web worker: FlexSearch index, optional embeddings, RRF fusion
 ├── routes/              SvelteKit routes (/ redirects to /issues; /issues/[id] is the detail sheet; /board)
 workers/
 └── relay/               (Phase 9)  separate Worker exporting the Yjs Durable Object
@@ -82,6 +82,7 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - [0003 — UI stack: Svelte 5 runes, Tailwind v4, shadcn-svelte](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)
 - [0004 — No auth: workspace ID as capability URL](docs/adr/0004-no-auth-workspace-id-demo-mode.md)
 - [0005 — Virtualized lists: virtua, and a cap for the board](docs/adr/0005-virtual-list-virtua-over-tanstack-and-svelte-virtuallists.md)
+- [0006 — Search: FlexSearch, with local embeddings as an opt-in](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md)
 
 ## Engineering notes
 
@@ -136,6 +137,15 @@ Ten thousand issues, measured in Chromium before changing anything:
 - **`?` is a character, not a key combination.** Matching it as "Shift plus /" works under Playwright and never fires on a real keyboard, where the event reports `?` directly — and on a German or French layout it is not Shift+/ at all. Chords match the character the keyboard produces, and the shift state is ignored for punctuation, so the shortcut follows the user's layout.
 - **The palette had to be allowed to close itself.** `⌘K` lands on the palette's own input, which is a combobox inside a dialog, so the guards that keep single letters out of text fields would have made the shortcut open-only. It opts into both. On Linux and Windows there was a second trap: bits-ui's Command treats Ctrl+K as "previous item" and prevents the default, so `vimBindings` is switched off.
 - **The board stands the registry down mid-drag.** A keyboard drag has the user holding a card while pressing arrows and Tab; a stray `c` or `b` would open a dialog or navigate away and strand the gesture. Leaving the board while dragging clears the suspension, or every shortcut in the app would stay dead.
+
+### Phase 8 — search that never phones home
+
+- **The engine was chosen on the query that matters, not the average one.** Two libraries were measured over 10,000 issues. MiniSearch has the better API and updates its index thirteen times faster, which counts when the corpus is a live CRDT — but it scores every match, so a single-letter first keystroke costs 3.96 ms against FlexSearch's 0.005 ms, and that gap grows with the corpus. FlexSearch stops once it has enough ([ADR 0006](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md)).
+- **Title and description are indexed as one field, and the title again.** FlexSearch needs every term of a query to appear in the same field, so indexing the two separately makes "sync offline" return nothing when the words are split across them — worse than the substring filter it replaces. Indexing the title on its own as well is what keeps title matches ranked first. Its `limit` is per field too, so asking for twenty results without merging returns forty.
+- **"No network at query time" is asserted, not claimed.** An end-to-end test records every request the page makes while five queries are typed and asserts the list is empty; another turns the network off and searches anyway.
+- **The lazy import was nearly a lie.** Vite's default worker format cannot code-split, so it silently inlines dynamic imports — the embedding library would have shipped to every visitor the moment the search worker started, opt-in or not. One line of config (`worker: { format: 'es' }`) is the difference between a 51 KB worker and a 500 KB one.
+- **Embedding yields, or the type-ahead stops.** ONNX inference is synchronous on the thread that calls it, so embedding ten thousand issues in one pass would block the worker for minutes with queries queued behind it. Batches are small and hand the message queue back between them, vectors are dropped per document when its text changes, and a generation counter abandons a batch whose corpus moved underneath it. The worker only reports `hybrid` when every document actually has a current vector.
+- **The palette had to stop filtering itself.** bits-ui scores each item against the query and hides the rest — which would delete precisely the results hybrid search exists to find, since a description-only match scores zero against its title. Filtering is off, and re-implemented for the commands with bits-ui's own scoring function so they behave exactly as before.
 
 ## License
 
