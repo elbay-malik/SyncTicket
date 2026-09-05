@@ -12,6 +12,7 @@
 	import ShortcutsHelp from '$lib/components/shell/shortcuts-help.svelte';
 	import { isApple } from '$lib/keyboard/keys.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
+	import { getSearchClient } from '$lib/search/client.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { Separator } from '$lib/components/ui/separator/index.js';
@@ -31,6 +32,10 @@
 	let helpOpen = $state(false);
 
 	onMount(() => {
+		// Started here rather than on first search: the worker and its index chunk are fetched
+		// when it is constructed, and a user who has already gone offline could never fetch
+		// them. Same reasoning as the issues layout preloading the detail route.
+		getSearchClient().start(store);
 		shortcuts.setApple(isApple(navigator.platform || navigator.userAgent));
 		const off = [
 			shortcuts.register({
