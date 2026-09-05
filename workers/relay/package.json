@@ -1,0 +1,23 @@
+{
+	"name": "syncticket-relay",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "wrangler dev --port 8787",
+		"check": "wrangler types && tsc --noEmit -p .",
+		"cf-typegen": "wrangler types",
+		"deploy": "wrangler deploy",
+		"dry-run": "wrangler deploy --dry-run --outdir=.wrangler/dist"
+	},
+	"dependencies": {
+		"partyserver": "0.5.10",
+		"y-partyserver": "2.2.0",
+		"yjs": "13.6.31"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20260424.1",
+		"typescript": "^6.0.3",
+		"wrangler": "4.107.0"
+	}
+}

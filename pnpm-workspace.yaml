@@ -1,3 +1,6 @@
+packages:
+  - 'workers/*'
+
 allowBuilds:
   '@tailwindcss/oxide': true
   workerd: true

@@ -10,6 +10,10 @@ export default defineConfig({
 	// that would ship the whole embedding library to every visitor the moment the search
 	// worker starts, which is exactly what loading it on demand is meant to avoid.
 	worker: { format: 'es' },
+	// Vite only inlines VITE_-prefixed variables into import.meta.env. The relay host is read
+	// there rather than through $env/dynamic/public, because that virtual module needs the
+	// SvelteKit runtime and does not resolve in browser-mode unit tests.
+	envPrefix: ['VITE_', 'PUBLIC_'],
 	plugins: [
 		tailwindcss(),
 		sveltekit({
@@ -35,6 +39,17 @@ export default defineConfig({
 					},
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
 					exclude: ['src/lib/server/**']
+				}
+			},
+
+			{
+				// The relay is a separate workspace package; the projects below only glob src/**,
+				// so without this its tests are collected by nothing and CI stays green regardless.
+				extends: './vite.config.ts',
+				test: {
+					name: 'relay',
+					environment: 'node',
+					include: ['workers/**/*.{test,spec}.ts']
 				}
 			},
 

@@ -64,6 +64,7 @@
 		"fractional-indexing": "4.0.0",
 		"mode-watcher": "^1.1.0",
 		"y-indexeddb": "9.0.12",
+		"y-partyserver": "2.2.0",
 		"yjs": "13.6.31"
 	}
 }

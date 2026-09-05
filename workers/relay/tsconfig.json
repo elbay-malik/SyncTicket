@@ -1,0 +1,22 @@
+{
+	// Deliberately standalone. The app's tsconfig extends SvelteKit's, which pulls in the DOM
+	// lib and the app worker's generated Env — neither is right for a Durable Object.
+	"compilerOptions": {
+		"target": "esnext",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"lib": ["esnext"],
+		"types": ["./worker-configuration.d.ts"],
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"skipLibCheck": true,
+		"noEmit": true
+	},
+	"include": ["src/**/*.ts", "worker-configuration.d.ts"]
+}

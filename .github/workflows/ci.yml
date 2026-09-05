@@ -47,6 +47,14 @@ jobs:
       - name: Validate worker bundle (dry-run, no credentials)
         run: pnpm exec wrangler deploy --dry-run --outdir=.wrangler/dist
 
+      # The relay is a separate worker with its own config and TypeScript program; the root
+      # check and dry-run above never touch it, so a broken Durable Object would ship green.
+      - name: Typecheck the relay worker
+        run: pnpm --filter syncticket-relay run check
+
+      - name: Validate relay bundle (dry-run, no credentials)
+        run: pnpm --filter syncticket-relay run dry-run
+
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:

@@ -1,0 +1,19 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "syncticket-relay",
+	// Kept in step with the root worker: the date is capped by the workerd bundled with the
+	// pinned wrangler, and both workers pin the same wrangler (ADR 0002).
+	"compatibility_date": "2026-07-06",
+	"main": "src/index.ts",
+	"observability": { "enabled": true },
+	"workers_dev": true,
+	"durable_objects": {
+		// The binding name is load-bearing: partyserver derives the URL namespace by
+		// kebab-casing it, so this binding is reachable at /parties/y-doc-room/:room and the
+		// client must ask for exactly that party.
+		"bindings": [{ "name": "YDocRoom", "class_name": "YDocRoom" }]
+	},
+	// The free plan only offers SQLite-backed Durable Objects, and Wrangler requires the
+	// migration to live with the worker that defines the class — hence the separate worker.
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["YDocRoom"] }]
+}
