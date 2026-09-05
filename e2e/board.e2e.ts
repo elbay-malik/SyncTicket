@@ -1,0 +1,172 @@
+// Phase 5 acceptance: drag within and between columns, persisted through the CRDT and safe
+// offline.
+//
+// The drags here are driven by the keyboard, not the mouse. That is not a shortcut: the
+// library detects pointer drop zones on a 200 ms polling timer and animates the drop before
+// reporting it, so a synthetic mouse drag is a timing bet. The keyboard path is exact, and
+// it doubles as the accessibility proof — the assertions on the live region below are the
+// same text a screen-reader user hears.
+
+import { expect, test, type Page } from '@playwright/test';
+
+const DB_NAME = 'syncticket:default';
+
+function committedUpdates(page: Page): Promise<number> {
+	return page.evaluate(
+		(db) =>
+			new Promise<number>((resolve) => {
+				const request = indexedDB.open(db);
+				request.onsuccess = () => {
+					const conn = request.result;
+					if (!conn.objectStoreNames.contains('updates')) {
+						conn.close();
+						resolve(0);
+						return;
+					}
+					const countReq = conn.transaction('updates').objectStore('updates').count();
+					countReq.onsuccess = () => {
+						conn.close();
+						resolve(countReq.result);
+					};
+					countReq.onerror = () => {
+						conn.close();
+						resolve(0);
+					};
+				};
+				request.onerror = () => resolve(0);
+			}),
+		DB_NAME
+	);
+}
+
+async function waitForCommitAbove(page: Page, baseline: number) {
+	await page.waitForFunction(
+		({ db, base }) =>
+			new Promise<boolean>((resolve) => {
+				const request = indexedDB.open(db);
+				request.onsuccess = () => {
+					const conn = request.result;
+					if (!conn.objectStoreNames.contains('updates')) {
+						conn.close();
+						resolve(false);
+						return;
+					}
+					const countReq = conn.transaction('updates').objectStore('updates').count();
+					countReq.onsuccess = () => {
+						conn.close();
+						resolve(countReq.result > base);
+					};
+					countReq.onerror = () => {
+						conn.close();
+						resolve(false);
+					};
+				};
+				request.onerror = () => resolve(false);
+			}),
+		{ db: DB_NAME, base: baseline }
+	);
+}
+
+/**
+ * Seeds issues through the quick-add field, then opens the board.
+ *
+ * Reaching the board through the sidebar link is deliberate: a `page.goto` would reload the
+ * document and rebuild the store from IndexedDB, racing the writes just made in memory.
+ * Client-side navigation keeps the same store, and the reload assertions in each test cover
+ * hydration explicitly.
+ */
+async function seed(page: Page, titles: string[]) {
+	await page.goto('/issues');
+	await expect(page.getByText('No issues yet')).toBeVisible();
+	for (const title of titles) {
+		const input = page.getByPlaceholder('Add an issue and press Enter…');
+		await input.fill(title);
+		await input.press('Enter');
+		await expect(page.getByRole('link', { name: title })).toBeVisible();
+	}
+	await page.getByRole('link', { name: 'Board' }).click();
+	await expect(page).toHaveURL(/\/board$/);
+	await expect(page.getByRole('list', { name: 'Backlog' })).toBeVisible();
+}
+
+const column = (page: Page, name: string) => page.getByRole('list', { name });
+
+test('a card moves between columns with the keyboard and survives a reload', async ({ page }) => {
+	await seed(page, ['Alpha', 'Bravo']);
+	const backlog = column(page, 'Backlog');
+	const todo = column(page, 'Todo');
+	await expect(backlog.getByRole('listitem')).toHaveCount(2);
+
+	const baseline = await committedUpdates(page);
+
+	// Space picks the card up. The library announces it through its own live region.
+	await backlog.getByRole('listitem').first().focus();
+	await page.keyboard.press('Space');
+	await expect(page.locator('#dnd-action-aria-alert')).toContainText('Started dragging item Alpha');
+
+	// Tab is the only way to cross columns; arrows reorder within one. Moving rightwards puts
+	// the card at the top of the target column.
+	await page.keyboard.press('Tab');
+	await expect(todo.getByRole('listitem')).toHaveCount(1);
+	await page.keyboard.press('Space');
+
+	await expect(todo.getByRole('listitem').first()).toHaveText(/Alpha/);
+	await expect(backlog.getByRole('listitem')).toHaveCount(1);
+	// Focus stays on the card the user was moving, rather than falling to the top of the page.
+	await expect(todo.getByRole('listitem').first()).toBeFocused();
+
+	// The status really changed, not just the rendering.
+	await waitForCommitAbove(page, baseline);
+	await page.reload();
+	await expect(column(page, 'Todo').getByRole('listitem').first()).toHaveText(/Alpha/);
+	await expect(column(page, 'Backlog').getByRole('listitem')).toHaveCount(1);
+});
+
+test('reordering within a column persists', async ({ page }) => {
+	await seed(page, ['First', 'Second', 'Third']);
+	const backlog = column(page, 'Backlog');
+	await expect(backlog.getByRole('listitem')).toHaveCount(3);
+
+	const baseline = await committedUpdates(page);
+	await backlog.getByRole('listitem').first().focus();
+	await page.keyboard.press('Space');
+	await page.keyboard.press('ArrowDown'); // swaps with the card below
+	await page.keyboard.press('Space');
+
+	await expect(backlog.getByRole('listitem').nth(0)).toHaveText(/Second/);
+	await expect(backlog.getByRole('listitem').nth(1)).toHaveText(/First/);
+
+	await waitForCommitAbove(page, baseline);
+	await page.reload();
+	const reloaded = column(page, 'Backlog');
+	await expect(reloaded.getByRole('listitem').nth(0)).toHaveText(/Second/);
+	await expect(reloaded.getByRole('listitem').nth(1)).toHaveText(/First/);
+});
+
+test('a card can be moved with the network off and still persists', async ({ page, context }) => {
+	await seed(page, ['Offline card']);
+	const backlog = column(page, 'Backlog');
+	await expect(backlog.getByRole('listitem')).toHaveCount(1);
+
+	const baseline = await committedUpdates(page);
+	await context.setOffline(true);
+
+	await backlog.getByRole('listitem').first().focus();
+	await page.keyboard.press('Space');
+	await page.keyboard.press('Tab');
+	await page.keyboard.press('Space');
+	await expect(column(page, 'Todo').getByRole('listitem')).toHaveCount(1);
+
+	// Reloading needs the network; the write above was always local-only.
+	await context.setOffline(false);
+	await waitForCommitAbove(page, baseline);
+	await page.reload();
+	await expect(column(page, 'Todo').getByRole('listitem').first()).toHaveText(/Offline card/);
+});
+
+test('a board card opens the detail sheet', async ({ page }) => {
+	await seed(page, ['Openable']);
+	await column(page, 'Backlog').getByRole('listitem').first().click();
+	await expect(page).toHaveURL(/\/issues\/[0-9a-f-]{36}$/);
+	await expect(page.getByRole('dialog').getByLabel('Title')).toHaveValue('Openable');
+});
