@@ -8,9 +8,9 @@ import { browser } from '$app/environment';
 import { SvelteMap } from 'svelte/reactivity';
 import type * as Y from 'yjs';
 import { currentWorkspaceId } from '$lib/model/workspace.js';
-import type { Issue, IssuePatch, NewIssueInput } from '$lib/model/issue.js';
+import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
 import { createDoc, getIssuesMap, type YIssue } from '$lib/sync/doc.js';
-import { createIssue, deleteIssue, patchIssue, readIssue } from '$lib/sync/issues.js';
+import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib/sync/issues.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
 
 export class IssueStore {
@@ -61,6 +61,14 @@ export class IssueStore {
 
 	remove(id: string): void {
 		deleteIssue(this.#map, id);
+	}
+
+	/**
+	 * Board drop: put `id` into `status` at the position implied by `orderedIds` (the target
+	 * column's ids in their new display order, including `id`). Key maths lives in sync/.
+	 */
+	move(id: string, status: IssueStatus, orderedIds: readonly string[]): void {
+		moveIssue(this.#map, id, status, orderedIds);
 	}
 
 	destroy(): void {

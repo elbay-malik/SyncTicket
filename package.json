@@ -45,6 +45,7 @@
 		"shadcn-svelte": "^1.3.0",
 		"svelte": "^5.56.1",
 		"svelte-check": "^4.6.0",
+		"svelte-dnd-action": "0.9.79",
 		"tailwind-merge": "^3.6.0",
 		"tailwind-variants": "^3.2.2",
 		"tailwindcss": "^4.3.0",

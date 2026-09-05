@@ -3,7 +3,14 @@ import * as Y from 'yjs';
 import { sortIssues } from '$lib/model/query.js';
 import type { YIssue } from './doc.js';
 import { createDoc, getIssuesMap } from './doc.js';
-import { createIssue, deleteIssue, patchIssue, readAllIssues, readIssue } from './issues.js';
+import {
+	createIssue,
+	deleteIssue,
+	moveIssue,
+	patchIssue,
+	readAllIssues,
+	readIssue
+} from './issues.js';
 
 function read(map: Y.Map<YIssue>, id: string) {
 	const yIssue = map.get(id);
@@ -135,9 +142,9 @@ describe('issue CRDT helpers', () => {
 	});
 
 	it('two replicas render concurrently-created issues in the same order', () => {
-		// Concurrent first-creates mint identical order keys ("a0" on both), and Y.Map
-		// iteration order isn't stable across replicas — so display order must converge via
-		// the sort's id tiebreak, not the fractional key alone.
+		// Y.Map iteration order isn't stable across replicas, so display order must come from
+		// the sort. Order keys now carry a random suffix (see order.ts), which is what stops
+		// two offline replicas minting the same "a0"; the id tiebreak still backstops it.
 		const docA = createDoc();
 		const docB = createDoc();
 		createIssue(getIssuesMap(docA), { title: 'from A' });
@@ -148,5 +155,140 @@ describe('issue CRDT helpers', () => {
 		const idsA = sortIssues(readAllIssues(getIssuesMap(docA)), 'manual').map((i) => i.id);
 		const idsB = sortIssues(readAllIssues(getIssuesMap(docB)), 'manual').map((i) => i.id);
 		expect(idsA).toEqual(idsB);
+	});
+
+	it('gives concurrently-created issues distinct order keys across replicas', () => {
+		// The Phase 5 hazard: identical keys make a later drag between them throw.
+		const docA = createDoc();
+		const docB = createDoc();
+		createIssue(getIssuesMap(docA), { title: 'from A' });
+		createIssue(getIssuesMap(docB), { title: 'from B' });
+		Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB));
+
+		const orders = readAllIssues(getIssuesMap(docA)).map((issue) => issue.order);
+		expect(new Set(orders).size).toBe(2);
+	});
+});
+
+describe('moveIssue', () => {
+	/** Ids of `status`'s column in display order. */
+	function column(map: Y.Map<YIssue>, status: string): string[] {
+		return sortIssues(
+			readAllIssues(map).filter((issue) => issue.status === status),
+			'manual'
+		).map((issue) => issue.id);
+	}
+
+	it('reorders within a column', () => {
+		const map = getIssuesMap(createDoc());
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		const b = createIssue(map, { title: 'b', status: 'todo' });
+		const c = createIssue(map, { title: 'c', status: 'todo' });
+		expect(column(map, 'todo')).toEqual([a, b, c]);
+
+		// Drag the last card to the front.
+		moveIssue(map, c, 'todo', [c, a, b]);
+		expect(column(map, 'todo')).toEqual([c, a, b]);
+
+		// And back to the middle.
+		moveIssue(map, c, 'todo', [a, c, b]);
+		expect(column(map, 'todo')).toEqual([a, c, b]);
+	});
+
+	it('moves between columns, setting status and position together', () => {
+		const map = getIssuesMap(createDoc());
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		const b = createIssue(map, { title: 'b', status: 'done' });
+		const c = createIssue(map, { title: 'c', status: 'done' });
+
+		moveIssue(map, a, 'done', [b, a, c]);
+		expect(read(map, a).status).toBe('done');
+		expect(column(map, 'done')).toEqual([b, a, c]);
+		expect(column(map, 'todo')).toEqual([]);
+	});
+
+	it('drops into an empty column', () => {
+		const map = getIssuesMap(createDoc());
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		moveIssue(map, a, 'in_progress', [a]);
+		expect(read(map, a).status).toBe('in_progress');
+		expect(column(map, 'in_progress')).toEqual([a]);
+	});
+
+	it('does not bump updatedAt for a pure reorder, but does for a status change', async () => {
+		const map = getIssuesMap(createDoc());
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		const b = createIssue(map, { title: 'b', status: 'todo' });
+		const before = read(map, a).updatedAt;
+		await new Promise((resolve) => setTimeout(resolve, 2));
+
+		moveIssue(map, a, 'todo', [b, a]);
+		expect(read(map, a).updatedAt).toBe(before);
+
+		moveIssue(map, a, 'done', [a]);
+		expect(read(map, a).updatedAt).toBeGreaterThan(before);
+	});
+
+	it('drops between two issues that were created concurrently offline', () => {
+		// Both replicas mint a key for their first issue; after a merge the column can hold
+		// duplicates, and generateKeyBetween throws on equal bounds. The move must repair.
+		const doc = createDoc();
+		const map = getIssuesMap(doc);
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		const b = createIssue(map, { title: 'b', status: 'todo' });
+		const dragged = createIssue(map, { title: 'dragged', status: 'todo' });
+		// Force the exact collision the roadmap warns about.
+		doc.transact(() => {
+			map.get(a)?.set('order', 'a0');
+			map.get(b)?.set('order', 'a0');
+		});
+
+		expect(() => moveIssue(map, dragged, 'todo', [a, dragged, b])).not.toThrow();
+		const orders = readAllIssues(map).map((issue) => issue.order);
+		expect(new Set(orders).size).toBe(3);
+		expect(column(map, 'todo')).toEqual([a, dragged, b]);
+	});
+
+	it('ignores a missing issue or an id absent from the target order', () => {
+		const map = getIssuesMap(createDoc());
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		expect(() => moveIssue(map, 'ghost', 'todo', ['ghost'])).not.toThrow();
+		expect(() => moveIssue(map, a, 'done', [])).not.toThrow();
+		expect(read(map, a).status).toBe('todo');
+	});
+
+	it('writes nothing when a card is dropped back where it started', () => {
+		// Dropping in place, or abandoning a drag outside every column, still fires a drop
+		// event. Jitter means the recomputed key always differs from the stored one, so the
+		// guard has to ask whether the existing key still sorts correctly, not whether it
+		// matches.
+		const doc = createDoc();
+		const map = getIssuesMap(doc);
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		const b = createIssue(map, { title: 'b', status: 'todo' });
+		const c = createIssue(map, { title: 'c', status: 'todo' });
+
+		let updates = 0;
+		doc.on('update', () => (updates += 1));
+		moveIssue(map, b, 'todo', [a, b, c]); // exactly where it already is
+		expect(updates).toBe(0);
+
+		// A real move still writes.
+		moveIssue(map, b, 'todo', [b, a, c]);
+		expect(updates).toBe(1);
+	});
+
+	it('drags a card whose order field is missing without throwing', () => {
+		// readIssue tolerates a missing `order` by reporting '', which is not a valid key.
+		const doc = createDoc();
+		const map = getIssuesMap(doc);
+		const a = createIssue(map, { title: 'a', status: 'todo' });
+		const b = createIssue(map, { title: 'b', status: 'todo' });
+		doc.transact(() => map.get(a)?.delete('order'));
+		expect(read(map, a).order).toBe('');
+
+		expect(() => moveIssue(map, b, 'todo', [b, a])).not.toThrow();
+		expect(read(map, a).order).not.toBe('');
+		expect(column(map, 'todo')).toEqual([b, a]);
 	});
 });

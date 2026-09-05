@@ -5,7 +5,6 @@
 // issues merge structurally — concurrent creates never collide (distinct UUID keys), and
 // concurrent edits to different fields of one issue both survive.
 
-import { generateKeyBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
 import {
 	DEFAULT_PRIORITY,
@@ -20,6 +19,7 @@ import {
 } from '$lib/model/issue.js';
 import { labelsEqual } from '$lib/model/labels.js';
 import type { YIssue } from './doc.js';
+import { appendOrderKey, orderKeyBetween, planRepairs, type Ordered } from './order.js';
 
 function requireDoc(map: Y.Map<YIssue>): Y.Doc {
 	const doc = map.doc;
@@ -89,7 +89,7 @@ export function nextOrderKey(map: Y.Map<YIssue>): string {
 		const order = yIssue.get('order');
 		if (typeof order === 'string' && (max === null || order > max)) max = order;
 	}
-	return generateKeyBetween(max, null);
+	return appendOrderKey(max);
 }
 
 /** Creates an issue and returns its id. All field writes happen in one transaction. */
@@ -160,4 +160,73 @@ export function patchIssue(map: Y.Map<YIssue>, id: string, patch: IssuePatch): v
 
 export function deleteIssue(map: Y.Map<YIssue>, id: string): void {
 	if (map.has(id)) map.delete(id);
+}
+
+/**
+ * Moves an issue to `status` at a position described by `orderedIds` — the target column's
+ * ids in their new display order, including the moved issue. The caller (the board) knows
+ * where the card landed; every key decision happens here.
+ *
+ * The moved issue's own key is excluded before computing neighbours: it is the one key
+ * that is deliberately out of place, so feeding it to planRepairs would rekey the column
+ * around it. The remaining siblings are already consistent, so repairs are almost always
+ * empty — they exist for keys minted concurrently on another replica, where a drop between
+ * two equal keys would otherwise throw.
+ *
+ * Repairs and the move go in one transaction, so observers see a single coherent batch.
+ * A pure reorder does not bump `updatedAt`: dragging a card is not an edit to the issue,
+ * and bumping it would make the "Recently updated" sort thrash while tidying a board.
+ */
+export function moveIssue(
+	map: Y.Map<YIssue>,
+	id: string,
+	status: IssueStatus,
+	orderedIds: readonly string[]
+): void {
+	const yIssue = map.get(id);
+	if (!yIssue) return;
+	const index = orderedIds.indexOf(id);
+	if (index === -1) return;
+
+	const siblings: Ordered[] = [];
+	for (const siblingId of orderedIds) {
+		if (siblingId === id) continue;
+		const sibling = map.get(siblingId);
+		if (sibling) siblings.push({ id: siblingId, order: readString(sibling, 'order', '') });
+	}
+
+	const repairs = planRepairs(siblings);
+	if (repairs.length > 0) {
+		const repaired = new Map(repairs.map((repair) => [repair.id, repair.order]));
+		for (const sibling of siblings) sibling.order = repaired.get(sibling.id) ?? sibling.order;
+	}
+
+	// Removing the moved issue shifts every later sibling left by one, so the item now at
+	// `index` is exactly the one the card should sit in front of.
+	const previous = index > 0 ? (siblings[index - 1]?.order ?? null) : null;
+	const next = siblings[index]?.order ?? null;
+	const statusChanged = yIssue.get('status') !== status;
+
+	// A drag that changes nothing must cost nothing. Picking a card up and dropping it back,
+	// or abandoning a drag outside every column, still fires a drop event — and because keys
+	// carry random jitter the freshly computed one would differ from the stored one every
+	// time, so comparing keys is not enough. Ask the question that actually matters: does the
+	// key it already has put it where it now needs to be?
+	const current = readString(yIssue, 'order', '');
+	const alreadyInPlace =
+		current !== '' &&
+		(previous === null || current > previous) &&
+		(next === null || current < next);
+	if (!statusChanged && repairs.length === 0 && alreadyInPlace) return;
+
+	const order = orderKeyBetween(previous, next);
+	const doc = requireDoc(map);
+	doc.transact(() => {
+		for (const repair of repairs) map.get(repair.id)?.set('order', repair.order);
+		yIssue.set('order', order);
+		if (statusChanged) {
+			yIssue.set('status', status);
+			yIssue.set('updatedAt', Date.now());
+		}
+	});
 }
