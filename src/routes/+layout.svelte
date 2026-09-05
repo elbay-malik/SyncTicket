@@ -7,6 +7,7 @@
 	import { resolve } from '$app/paths';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
 	import CommandMenu from '$lib/components/shell/command-menu.svelte';
+	import RelayStatus from '$lib/components/shell/relay-status.svelte';
 	import ThemeToggle from '$lib/components/shell/theme-toggle.svelte';
 	import IssueCreateDialog from '$lib/components/issues/issue-create-dialog.svelte';
 	import ShortcutsHelp from '$lib/components/shell/shortcuts-help.svelte';
@@ -105,7 +106,8 @@
 			<Sidebar.Trigger />
 			<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
 			<span class="text-sm font-medium">SyncTicket</span>
-			<div class="ml-auto flex items-center gap-1">
+			<div class="ml-auto flex items-center gap-2">
+				<RelayStatus {store} />
 				<ThemeToggle />
 			</div>
 		</header>

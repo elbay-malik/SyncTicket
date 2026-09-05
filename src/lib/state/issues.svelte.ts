@@ -7,12 +7,17 @@
 import { browser } from '$app/environment';
 import { SvelteMap } from 'svelte/reactivity';
 import type * as Y from 'yjs';
-import { currentWorkspaceId } from '$lib/model/workspace.js';
+import {
+	DEFAULT_WORKSPACE_ID,
+	WORKSPACE_STORAGE_KEY,
+	resolveWorkspaceId
+} from '$lib/model/workspace.js';
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
 import { createDoc, getIssuesMap, type YIssue } from '$lib/sync/doc.js';
 import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib/sync/issues.js';
 import { seedIssues, type SeedOptions } from '$lib/sync/seed.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
+import { attachRelay, type ConnectionState, type RelayConnection } from '$lib/sync/provider.js';
 
 /** What changed in one CRDT batch. Emitted to listeners such as the search index. */
 export interface IssueDelta {
@@ -22,21 +27,58 @@ export interface IssueDelta {
 	reset: boolean;
 }
 
+/**
+ * The workspace this session belongs to.
+ *
+ * Read once and remembered, so ordinary navigation and reloads stay put without every
+ * internal link having to carry the id. On the server there is no URL to read and the store
+ * is empty anyway, so the default is correct there.
+ */
+function sessionWorkspaceId(): string {
+	if (!browser) return DEFAULT_WORKSPACE_ID;
+	let remembered: string | null = null;
+	try {
+		remembered = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+	} catch {
+		// Private mode or blocked storage; the URL or the default still works.
+	}
+	const id = resolveWorkspaceId(location.search, remembered);
+	try {
+		if (id !== remembered) localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
+	} catch {
+		// Not being able to remember it only costs us the id on the next reload.
+	}
+	return id;
+}
+
 export class IssueStore {
 	#doc: Y.Doc;
 	#map: Y.Map<YIssue>;
 	#persistence: WorkspacePersistence;
+	#relay: RelayConnection;
+	#connection = $state<ConnectionState>('offline');
+	#relaySynced = $state(false);
 	#byId = new SvelteMap<string, Issue>();
+	/** Which workspace this store is bound to; the relay uses it as the room name. */
+	readonly workspaceId: string;
 	// A plain array, not a Set: eslint's svelte/prefer-svelte-reactivity rejects a bare Set in
 	// a .svelte.ts module, and this collection is never read reactively anyway.
 	#listeners: Array<(delta: IssueDelta) => void> = [];
 	#synced = $state(false);
 
-	constructor(workspaceId: string = currentWorkspaceId()) {
+	constructor(workspaceId: string = sessionWorkspaceId()) {
+		this.workspaceId = workspaceId;
 		this.#doc = createDoc();
 		this.#map = getIssuesMap(this.#doc);
 		this.#map.observeDeep(this.#onChange);
 		this.#persistence = attachPersistence(this.#doc, workspaceId);
+		// Attached synchronously, like persistence: a provider that arrives late misses the
+		// updates made in the gap. A remote update arriving before IndexedDB has finished
+		// loading is safe, because the post-load rebuild re-reads the whole Y.Map.
+		this.#relay = attachRelay(this.#doc, workspaceId, {
+			onConnection: (state) => (this.#connection = state),
+			onSynced: (synced) => (this.#relaySynced = synced)
+		});
 		void this.#persistence.whenSynced.then(
 			() => {
 				this.#reindex();
@@ -48,6 +90,16 @@ export class IssueStore {
 				this.#synced = true;
 			}
 		);
+	}
+
+	/** Where the relay connection stands; 'offline' when no relay is configured at all. */
+	get connection(): ConnectionState {
+		return this.#connection;
+	}
+
+	/** True once this client and the relay have exchanged state. */
+	get relaySynced(): boolean {
+		return this.#relaySynced;
 	}
 
 	/** True once the local load has completed (immediately when there's no persistence). */
@@ -112,6 +164,9 @@ export class IssueStore {
 
 	destroy(): void {
 		this.#map.unobserveDeep(this.#onChange);
+		// The relay goes first: it does not detach itself on doc.destroy(), so a socket left
+		// open would apply an inbound sync message to a destroyed document.
+		this.#relay.destroy();
 		void this.#persistence.destroy();
 		this.#doc.destroy();
 	}
