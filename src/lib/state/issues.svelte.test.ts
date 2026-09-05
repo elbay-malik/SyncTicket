@@ -83,3 +83,45 @@ describe('IssueStore → IssueQuery reactivity', () => {
 		expect(query.results.map((i) => i.title)).toEqual(['A finished thing', 'A todo']);
 	});
 });
+
+describe('IssueStore.onChange', () => {
+	it('reports per-batch deltas and stops when unsubscribed', () => {
+		const store = makeStore();
+		const deltas: Array<{ upserted: string[]; removed: string[]; reset: boolean }> = [];
+		const off = store.onChange((delta) =>
+			deltas.push({
+				upserted: delta.upserted.map((issue) => issue.title),
+				removed: [...delta.removed],
+				reset: delta.reset
+			})
+		);
+
+		const id = store.create({ title: 'Indexed' });
+		expect(deltas.at(-1)).toEqual({ upserted: ['Indexed'], removed: [], reset: false });
+
+		store.update(id, { title: 'Reindexed' });
+		expect(deltas.at(-1)).toEqual({ upserted: ['Reindexed'], removed: [], reset: false });
+
+		store.remove(id);
+		expect(deltas.at(-1)).toEqual({ upserted: [], removed: [id], reset: false });
+
+		const before = deltas.length;
+		off();
+		store.create({ title: 'Unheard' });
+		expect(deltas).toHaveLength(before);
+	});
+
+	it('coalesces a bulk write into a single delta', () => {
+		// The search index must not receive one message per issue when seeding thousands.
+		const store = makeStore();
+		let batches = 0;
+		let total = 0;
+		store.onChange((delta) => {
+			batches += 1;
+			total += delta.upserted.length;
+		});
+		store.seed(50, { seed: 1 });
+		expect(batches).toBe(1);
+		expect(total).toBe(50);
+	});
+});

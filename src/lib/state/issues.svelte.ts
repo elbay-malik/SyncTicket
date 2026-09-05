@@ -14,11 +14,22 @@ import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib
 import { seedIssues, type SeedOptions } from '$lib/sync/seed.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
 
+/** What changed in one CRDT batch. Emitted to listeners such as the search index. */
+export interface IssueDelta {
+	upserted: readonly Issue[];
+	removed: readonly string[];
+	/** True when the whole projection was rebuilt and listeners should start over. */
+	reset: boolean;
+}
+
 export class IssueStore {
 	#doc: Y.Doc;
 	#map: Y.Map<YIssue>;
 	#persistence: WorkspacePersistence;
 	#byId = new SvelteMap<string, Issue>();
+	// A plain array, not a Set: eslint's svelte/prefer-svelte-reactivity rejects a bare Set in
+	// a .svelte.ts module, and this collection is never read reactively anyway.
+	#listeners: Array<(delta: IssueDelta) => void> = [];
 	#synced = $state(false);
 
 	constructor(workspaceId: string = currentWorkspaceId()) {
@@ -72,6 +83,28 @@ export class IssueStore {
 		moveIssue(this.#map, id, status, orderedIds);
 	}
 
+	/**
+	 * Subscribes to projection changes, returning the unsubscribe function.
+	 *
+	 * The search index needs deltas rather than a snapshot: re-sending 10,000 documents on
+	 * every keystroke is not an option, and polling `all` cannot tell what was removed. The
+	 * post-load rebuild emits a `reset` because it repopulates the projection without any Y
+	 * event, so a listener that only watched CRDT deltas would never learn about the issues
+	 * that were already in the document when it loaded.
+	 */
+	onChange(listener: (delta: IssueDelta) => void): () => void {
+		this.#listeners.push(listener);
+		return () => {
+			const index = this.#listeners.indexOf(listener);
+			if (index !== -1) this.#listeners.splice(index, 1);
+		};
+	}
+
+	#emit(delta: IssueDelta): void {
+		if (delta.upserted.length === 0 && delta.removed.length === 0 && !delta.reset) return;
+		for (const listener of this.#listeners) listener(delta);
+	}
+
 	/** Bulk-appends generated issues in one transaction. Benchmarks now, demo data later. */
 	seed(count: number, options?: SeedOptions): string[] {
 		return seedIssues(this.#map, count, options);
@@ -87,29 +120,45 @@ export class IssueStore {
 	#reindex(): void {
 		this.#byId.clear();
 		for (const [id, yIssue] of this.#map) this.#byId.set(id, readIssue(id, yIssue));
+		this.#emit({ upserted: [...this.#byId.values()], removed: [], reset: true });
 	}
 
 	// Incrementally patches only the issues each Y event touches. Top-level events carry
 	// whole-issue adds/deletes; nested events carry a field change whose path[0] is the id.
 	#onChange = (events: Array<Y.YEvent<Y.AbstractType<unknown>>>): void => {
+		const upserted: Issue[] = [];
+		const removed: string[] = [];
 		for (const event of events) {
 			if (event.path.length === 0) {
 				for (const [key, change] of event.changes.keys) {
 					if (change.action === 'delete') {
 						this.#byId.delete(key);
+						removed.push(key);
 					} else {
 						const yIssue = this.#map.get(key);
-						if (yIssue) this.#byId.set(key, readIssue(key, yIssue));
+						if (yIssue) {
+							const issue = readIssue(key, yIssue);
+							this.#byId.set(key, issue);
+							upserted.push(issue);
+						}
 					}
 				}
 			} else {
 				const id = event.path[0];
 				if (typeof id !== 'string') continue;
 				const yIssue = this.#map.get(id);
-				if (yIssue) this.#byId.set(id, readIssue(id, yIssue));
-				else this.#byId.delete(id);
+				if (yIssue) {
+					const issue = readIssue(id, yIssue);
+					this.#byId.set(id, issue);
+					upserted.push(issue);
+				} else {
+					this.#byId.delete(id);
+					removed.push(id);
+				}
 			}
 		}
+		// One emit per observer batch, so a transaction touching many issues is one message.
+		this.#emit({ upserted, removed, reset: false });
 	};
 }
 
