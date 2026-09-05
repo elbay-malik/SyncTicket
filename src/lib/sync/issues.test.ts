@@ -56,6 +56,33 @@ describe('issue CRDT helpers', () => {
 		expect(after.updatedAt).toBeGreaterThanOrEqual(before.updatedAt);
 	});
 
+	it('drops fields whose value is unchanged, leaving updatedAt alone', async () => {
+		// A picker re-selecting the current status must not cost a CRDT write: it would bump
+		// updatedAt (reshuffling the "recent" sort) and, from Phase 9, hit the relay.
+		const map = getIssuesMap(createDoc());
+		const id = createIssue(map, { title: 'x', status: 'todo', labels: ['bug'] });
+		const before = read(map, id);
+		await new Promise((resolve) => setTimeout(resolve, 2));
+		patchIssue(map, id, { status: 'todo', labels: ['bug'], title: 'x' });
+		expect(read(map, id).updatedAt).toBe(before.updatedAt);
+
+		// A patch mixing a changed and an unchanged field still applies the changed one.
+		patchIssue(map, id, { status: 'todo', priority: 'high' });
+		const after = read(map, id);
+		expect(after.priority).toBe('high');
+		expect(after.updatedAt).toBeGreaterThan(before.updatedAt);
+	});
+
+	it('trims a patched title and ignores a blank one', () => {
+		// readIssue only defaults a *missing* title, so a persisted '' would render forever.
+		const map = getIssuesMap(createDoc());
+		const id = createIssue(map, { title: 'Original' });
+		patchIssue(map, id, { title: '   ' });
+		expect(read(map, id).title).toBe('Original');
+		patchIssue(map, id, { title: '  Renamed  ' });
+		expect(read(map, id).title).toBe('Renamed');
+	});
+
 	it('ignores patches to a missing issue', () => {
 		const map = getIssuesMap(createDoc());
 		expect(() => patchIssue(map, 'ghost', { title: 'nope' })).not.toThrow();

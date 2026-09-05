@@ -18,6 +18,7 @@ import {
 	type IssueStatus,
 	type NewIssueInput
 } from '$lib/model/issue.js';
+import { labelsEqual } from '$lib/model/labels.js';
 import type { YIssue } from './doc.js';
 
 function requireDoc(map: Y.Map<YIssue>): Y.Doc {
@@ -115,19 +116,44 @@ export function createIssue(map: Y.Map<YIssue>, input: NewIssueInput = {}): stri
 
 const PATCH_KEYS = ['title', 'description', 'status', 'priority', 'assignee', 'labels'] as const;
 
+/** True when writing `next` to `key` would not change what readIssue() reports. */
+function isUnchanged(yIssue: YIssue, key: (typeof PATCH_KEYS)[number], next: unknown): boolean {
+	if (key === 'labels') {
+		return Array.isArray(next) && labelsEqual(readLabels(yIssue), next as string[]);
+	}
+	return yIssue.get(key) === next;
+}
+
 /**
- * Applies a partial update to an existing issue and bumps updatedAt. No-op if the issue is
- * missing or the patch sets no fields — an empty patch must not touch updatedAt, or a
- * "recent" sort would reshuffle on a write that changed nothing.
+ * Applies a partial update to an existing issue and bumps updatedAt.
+ *
+ * Three invariants live here rather than in the UI, so every caller gets them:
+ * - An empty patch is a no-op. Touching updatedAt on a write that changed nothing would
+ *   reshuffle the "recent" sort for free.
+ * - Fields already equal to their stored value are dropped. Every write is a new Y item —
+ *   an IndexedDB row now, a relay message and a fresh last-writer-wins clobber window from
+ *   Phase 9 — so a picker re-selecting the current status must cost nothing.
+ * - A title is trimmed, and a blank one is ignored. `readIssue` only defaults a *missing*
+ *   title to "Untitled", so persisting '' would render an empty row forever.
  */
 export function patchIssue(map: Y.Map<YIssue>, id: string, patch: IssuePatch): void {
 	const yIssue = map.get(id);
 	if (!yIssue) return;
-	const changed = PATCH_KEYS.filter((key) => patch[key] !== undefined);
-	if (changed.length === 0) return;
+	const writes: Array<[(typeof PATCH_KEYS)[number], unknown]> = [];
+	for (const key of PATCH_KEYS) {
+		let next: unknown = patch[key];
+		if (next === undefined) continue;
+		if (key === 'title') {
+			next = (next as string).trim();
+			if (!next) continue;
+		}
+		if (isUnchanged(yIssue, key, next)) continue;
+		writes.push([key, next]);
+	}
+	if (writes.length === 0) return;
 	const doc = requireDoc(map);
 	doc.transact(() => {
-		for (const key of changed) yIssue.set(key, patch[key]);
+		for (const [key, value] of writes) yIssue.set(key, value);
 		yIssue.set('updatedAt', Date.now());
 	});
 }
