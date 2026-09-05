@@ -9,7 +9,11 @@
 	let { issue, store }: { issue: Issue; store: IssueStore } = $props();
 </script>
 
-<li class="group hover:bg-muted/50 flex items-center gap-2 px-2 py-1.5 transition-colors">
+<!--
+	The row is the *contents* of a list item, not the <li> itself: the virtualizer owns the
+	item element so it can position and measure it (see issue-list.svelte).
+-->
+<div class="group hover:bg-muted/50 flex items-center gap-2 px-2 py-1.5 transition-colors">
 	<!-- The pickers are siblings of the link, not descendants, so their clicks never reach
 	     it — no propagation guard is needed (and adding onclick after the trigger's spread
 	     props would clobber bits-ui's own handler). -->
@@ -37,4 +41,4 @@
 		value={issue.priority}
 		onchange={(priority: IssuePriority) => store.update(issue.id, { priority })}
 	/>
-</li>
+</div>

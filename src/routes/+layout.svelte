@@ -66,7 +66,7 @@
 				<ThemeToggle />
 			</div>
 		</header>
-		<main class="flex-1 overflow-auto p-6">
+		<main class="min-h-0 flex-1 overflow-auto p-6">
 			{@render children()}
 		</main>
 	</Sidebar.Inset>

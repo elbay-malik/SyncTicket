@@ -16,7 +16,7 @@
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { STATUS_UI } from '$lib/components/issues/meta.js';
-	import IssueRow from '$lib/components/issues/issue-row.svelte';
+	import IssueList from '$lib/components/issues/issue-list.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -70,7 +70,7 @@
 	<title>{activeIssue ? `${activeIssue.title} · ` : ''}Issues · SyncTicket</title>
 </svelte:head>
 
-<div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
+<div class="mx-auto flex h-full w-full max-w-3xl flex-col gap-4">
 	<div class="flex items-center gap-2">
 		<h1 class="text-lg font-semibold tracking-tight">Issues</h1>
 		{#if query.total > 0}
@@ -175,11 +175,9 @@
 			{/if}
 		</div>
 	{:else}
-		<ul class="divide-border divide-y rounded-lg border">
-			{#each query.results as issue (issue.id)}
-				<IssueRow {issue} {store} />
-			{/each}
-		</ul>
+		<div class="min-h-0 flex-1">
+			<IssueList issues={query.results} {store} />
+		</div>
 	{/if}
 </div>
 
