@@ -14,9 +14,10 @@
 	// draft would keep showing a stale snapshot and silently stop tracking the CRDT, so the
 	// board clears all previews whenever any drag ends.
 
-	import { tick } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { type DndEvent } from 'svelte-dnd-action';
 	import { ISSUE_STATUSES, type Issue, type IssueStatus } from '$lib/model/issue.js';
+	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import BoardColumn from '$lib/components/issues/board-column.svelte';
@@ -48,11 +49,20 @@
 		document.querySelector<HTMLElement>(`[data-issue-id="${CSS.escape(id)}"]`)?.focus();
 	}
 
+	// Leaving the board mid-drag would otherwise strand the suspension and kill every
+	// shortcut app-wide.
+	onDestroy(() => shortcuts.setSuspended(false));
+
 	function apply(outcome: DragOutcome) {
 		if (outcome.kind === 'preview') {
+			// A keyboard drag is driven by arrows and Tab, and the user still has a card picked
+			// up. A stray `c` or `b` would open a dialog or navigate away mid-gesture, so global
+			// shortcuts stand down until the drag ends.
+			shortcuts.setSuspended(true);
 			previews = { ...previews, [outcome.status]: outcome.items };
 			return;
 		}
+		shortcuts.setSuspended(false);
 		if (outcome.kind === 'commit') {
 			// The cards behind the cap are not rendered but still order the column: without
 			// them a drop at the bottom of a capped column would sort after the whole column

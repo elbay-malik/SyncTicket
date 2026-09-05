@@ -1,76 +1,76 @@
 <script lang="ts">
-	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
-	import SquareKanbanIcon from '@lucide/svelte/icons/square-kanban';
+	// The palette lists the shortcut registry rather than a second, hand-kept copy of it, so
+	// a command and its key can never disagree. Theme actions have no chord and stay local.
+
 	import MonitorIcon from '@lucide/svelte/icons/monitor';
 	import MoonIcon from '@lucide/svelte/icons/moon';
-	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SunIcon from '@lucide/svelte/icons/sun';
 	import { tick } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { resetMode, setMode } from 'mode-watcher';
-	import * as Command from '$lib/components/ui/command/index.js';
+	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
+	import * as Command from '$lib/components/ui/command/index.js';
 
-	let open = $state(false);
+	const GROUPS = ['Issues', 'Navigation'] as const;
 
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
-			event.preventDefault();
-			open = !open;
-		}
-	}
+	const byGroup = $derived(
+		GROUPS.map((group) => ({
+			group,
+			// The palette itself is one of the shortcuts; offering "open the command palette"
+			// inside the open command palette would be silly.
+			items: shortcuts.listed.filter(
+				(shortcut) => shortcut.group === group && shortcut.id !== 'palette'
+			)
+		})).filter((section) => section.items.length > 0)
+	);
 
-	function run(action: () => void) {
-		open = false;
+	async function run(action: () => void) {
+		issueUi.paletteOpen = false;
+		// Let this dialog finish closing first: opening another in the same tick lets the
+		// palette's focus restore fire inside the new dialog's focus scope.
+		await tick();
 		action();
 	}
 </script>
 
-<svelte:document onkeydown={handleKeydown} />
-
-<Command.Dialog bind:open>
+<!--
+	vimBindings must be off: bits-ui's Command treats Ctrl+K as "previous item" and calls
+	preventDefault, which would swallow the palette's own toggle on Linux and Windows — and
+	so on CI, where the e2e runs.
+-->
+<Command.Dialog bind:open={issueUi.paletteOpen} vimBindings={false}>
 	<Command.Input placeholder="Type a command or search…" />
 	<Command.List>
-		<Command.Empty>No results found.</Command.Empty>
-		<Command.Group heading="Issues">
-			<Command.Item
-				onSelect={() =>
-					run(async () => {
-						// Let this dialog finish closing first: opening another in the same tick lets
-						// the palette's focus restore fire inside the new dialog's focus scope.
-						await tick();
-						issueUi.createOpen = true;
-					})}
-			>
-				<PlusIcon />
-				New issue
-				<Command.Shortcut>C</Command.Shortcut>
-			</Command.Item>
-		</Command.Group>
-		<Command.Group heading="Navigation">
-			<Command.Item onSelect={() => run(() => goto(resolve('/issues')))}>
-				<CircleDotIcon />
-				Go to Issues
-			</Command.Item>
-			<Command.Item onSelect={() => run(() => goto(resolve('/board')))}>
-				<SquareKanbanIcon />
-				Go to Board
-			</Command.Item>
-		</Command.Group>
-		<Command.Group heading="Theme">
-			<Command.Item onSelect={() => run(() => setMode('light'))}>
-				<SunIcon />
-				Light
-			</Command.Item>
-			<Command.Item onSelect={() => run(() => setMode('dark'))}>
-				<MoonIcon />
-				Dark
-			</Command.Item>
-			<Command.Item onSelect={() => run(() => resetMode())}>
-				<MonitorIcon />
-				System
-			</Command.Item>
-		</Command.Group>
+		<!-- The viewport is what gives Command.Input its aria-controls and
+		     aria-activedescendant; without it the highlighted item is never announced. -->
+		<Command.Viewport>
+			<Command.Empty>No results found.</Command.Empty>
+			{#each byGroup as section (section.group)}
+				<Command.Group heading={section.group}>
+					{#each section.items as shortcut (shortcut.id)}
+						<!-- An explicit value keeps the chord glyph out of the filter key, which
+						     bits-ui otherwise derives from the item's text content. -->
+						<Command.Item value={shortcut.label} onSelect={() => run(shortcut.run)}>
+							{shortcut.label}
+							<Command.Shortcut aria-hidden="true">{shortcut.hint}</Command.Shortcut>
+						</Command.Item>
+					{/each}
+				</Command.Group>
+			{/each}
+			<Command.Group heading="Theme">
+				<Command.Item value="Light theme" onSelect={() => run(() => setMode('light'))}>
+					<SunIcon />
+					Light
+				</Command.Item>
+				<Command.Item value="Dark theme" onSelect={() => run(() => setMode('dark'))}>
+					<MoonIcon />
+					Dark
+				</Command.Item>
+				<Command.Item value="System theme" onSelect={() => run(() => resetMode())}>
+					<MonitorIcon />
+					System
+				</Command.Item>
+			</Command.Group>
+		</Command.Viewport>
 	</Command.List>
 </Command.Dialog>

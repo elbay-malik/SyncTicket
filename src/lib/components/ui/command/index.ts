@@ -9,6 +9,7 @@ import List from './command-list.svelte';
 import Separator from './command-separator.svelte';
 import Shortcut from './command-shortcut.svelte';
 import LinkItem from './command-link-item.svelte';
+import Viewport from './command-viewport.svelte';
 
 export {
 	Root,
@@ -22,6 +23,7 @@ export {
 	Separator,
 	Shortcut,
 	Loading,
+	Viewport,
 	//
 	Root as Command,
 	Dialog as CommandDialog,
@@ -33,5 +35,6 @@ export {
 	List as CommandList,
 	Separator as CommandSeparator,
 	Shortcut as CommandShortcut,
-	Loading as CommandLoading
+	Loading as CommandLoading,
+	Viewport as CommandViewport
 };

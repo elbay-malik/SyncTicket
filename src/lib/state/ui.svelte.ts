@@ -5,6 +5,8 @@
 // server requests.
 
 export const issueUi = $state({
-	/** The "New issue" dialog, mounted once in the issues layout. */
-	createOpen: false
+	/** The "New issue" dialog, mounted once in the root layout. */
+	createOpen: false,
+	/** The ⌘K command palette, so a shortcut can toggle it from anywhere. */
+	paletteOpen: false
 });
