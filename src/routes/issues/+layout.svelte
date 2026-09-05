@@ -12,6 +12,7 @@
 	import { page } from '$app/state';
 	import { ISSUE_STATUSES, STATUS_META } from '$lib/model/issue.js';
 	import type { IssueSort } from '$lib/model/query.js';
+	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
@@ -31,6 +32,9 @@
 	const query = new IssueQuery(store);
 
 	let draft = $state('');
+	/** The list's keyboard cursor; the list moves real focus to follow it. */
+	let selectedId = $state<string | null>(null);
+	let list = $state<ReturnType<typeof IssueList> | null>(null);
 	let newIssueButton = $state<HTMLButtonElement | null>(null);
 
 	const SORT_LABEL: Record<IssueSort, string> = {
@@ -38,6 +42,30 @@
 		priority: 'Priority',
 		recent: 'Recently updated'
 	};
+
+	// j/k work from anywhere on this route; the arrow keys are handled by the list itself,
+	// where they cannot suppress page scrolling or fight another widget for the same key.
+	onMount(() => {
+		const off = [
+			shortcuts.register({
+				id: 'list-next',
+				chord: 'j',
+				label: 'Next issue',
+				group: 'Issues',
+				hidden: true,
+				run: () => list?.moveCursor(1)
+			}),
+			shortcuts.register({
+				id: 'list-previous',
+				chord: 'k',
+				label: 'Previous issue',
+				group: 'Issues',
+				hidden: true,
+				run: () => list?.moveCursor(-1)
+			})
+		];
+		return () => off.forEach((unregister) => unregister());
+	});
 
 	// The detail route is a separate lazily-imported chunk. Fetching it as soon as the list
 	// mounts is what makes opening an issue work offline — otherwise the first navigation
@@ -98,6 +126,11 @@
 				placeholder="Add an issue and press Enter…"
 				aria-label="New issue title"
 				class="pl-9"
+				onkeydown={(event) => {
+					// Single-letter shortcuts are correctly inert while typing, so give the keyboard
+					// a way back out of the field without reaching for the mouse.
+					if (event.key === 'Escape') event.currentTarget.blur();
+				}}
 			/>
 		</div>
 		<Button type="submit" variant="outline" disabled={!draft.trim()}>Add</Button>
@@ -176,7 +209,7 @@
 		</div>
 	{:else}
 		<div class="min-h-0 flex-1">
-			<IssueList issues={query.results} {store} />
+			<IssueList bind:this={list} issues={query.results} {store} bind:selectedId />
 		</div>
 	{/if}
 </div>

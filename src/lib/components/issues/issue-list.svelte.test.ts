@@ -6,7 +6,7 @@
 
 import '../../../routes/layout.css';
 import { flushSync } from 'svelte';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { IssueStore } from '$lib/state/issues.svelte.js';
 import { IssueQuery } from '$lib/state/queries.svelte.js';
@@ -110,5 +110,55 @@ describe('issue-list.svelte at 10k', () => {
 		await settle();
 		expect(host.textContent).toContain('Edited while huge');
 		expect(host.querySelectorAll('li').length).toBeLessThan(MAX_RENDERED);
+	}, 60_000);
+
+	it('moves the cursor into rows that were never mounted', async () => {
+		const store = makeStore();
+		store.seed(N, { seed: 4 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store }
+		});
+		flushSync();
+		await settle();
+
+		// Walk far enough that the target row was outside the initial window entirely.
+		for (let i = 0; i < 60; i += 1) result.component.moveCursor(1);
+		flushSync();
+
+		// Scrolling, re-rendering the window and moving focus all happen across frames, so
+		// wait for the outcome rather than guessing how many.
+		await vi.waitFor(() => {
+			const focused = document.activeElement as HTMLElement | null;
+			expect(focused?.dataset.issueLink).toBe(query.results[59]!.id);
+		});
+		// Still a window, not the whole list.
+		expect(host.querySelectorAll('li').length).toBeLessThan(MAX_RENDERED);
+	}, 60_000);
+
+	it('keeps exactly one row tabbable so Tab enters the list once', async () => {
+		const store = makeStore();
+		store.seed(200, { seed: 5 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store }
+		});
+		flushSync();
+		await settle();
+
+		expect(host.querySelectorAll('a[tabindex="0"]').length).toBe(1);
+		result.component.moveCursor(1);
+		result.component.moveCursor(1);
+		flushSync();
+		await settle();
+		expect(host.querySelectorAll('a[tabindex="0"]').length).toBe(1);
 	}, 60_000);
 });
