@@ -24,6 +24,19 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 - **Issue field writes stay in a `doc.transact()`** so one issue change is one observer batch. Order keys come from `fractional-indexing` (`generateKeyBetween`) — append with `nextOrderKey`; never reuse a key.
 - **Persistence attaches synchronously** (static `y-indexeddb` import, browser-guarded) — a dynamic import reintroduces a lost-write window (see the comment in `persistence.ts`).
 
+## UI (Phase 4)
+
+- **Issue components take `store` as a prop**; only routes call `getIssueStore()`. That is what lets browser-mode tests construct a throwaway `new IssueStore('test-<uuid>')` per test instead of sharing the session singleton.
+- **Enum presentation lives in `components/issues/meta.ts`** (`STATUS_UI` / `PRIORITY_UI`: icon + colour). `model/issue.ts` owns labels and ranks only — it must keep zero runtime deps.
+- **The detail sheet is a route**, `/issues/[id]`, and the list lives in `issues/+layout.svelte` so it stays mounted behind the sheet. Close with `goto(resolve('/issues'), { replaceState: true, keepFocus: true })` — `replaceState` stops Back from reopening the sheet, `keepFocus` lets the focus scope return focus to the row link.
+- **The layout preloads the detail chunk** (`preloadCode('/issues/*')` on mount). Without it the first navigation to an issue after going offline has no code to fetch and lands on an error page.
+- **Editable fields use a nullable draft**: `null` means "not editing" and the input shows the live CRDT value, so remote changes flow through. The first keystroke sets the draft; commit writes it and returns to `null`. No `$effect` — drafts are set from DOM events only.
+- **Drafts live in a keyed child component** (`issue-editor.svelte` inside `{#key issue.id}`). `{#key}` re-creates DOM but _not_ the enclosing component's `$state`, so drafts declared one level up leak between issues. Same reason the create form is a child of `Dialog.Content`, which bits-ui unmounts on close.
+- **`patchIssue` owns the write invariants**, not the UI: unchanged fields are dropped (a re-selected status must not bump `updatedAt` or reach the relay), and a blank title is ignored (`readIssue` only defaults a _missing_ title, so a stored `''` would render forever).
+- **Icon-only controls must name their value** — `aria-label="Status: Backlog"`, not "Change status" — and `<Kbd>` inside a button needs `aria-hidden="true"` or it pollutes the accessible name.
+- bits-ui notes: `AlertDialog.Action` does **not** close its dialog (manage `open` yourself); menu options are `menuitemradio`, not `menuitem`; a Sheet/Dialog needs a `Title` in _every_ branch or it has no accessible name.
+- The global `c` shortcut is temporary and moves into `keyboard/` in Phase 7.
+
 ## Styling
 
 - Tailwind **v4 CSS-first**: there is no `tailwind.config.js` and never will be. Theme lives in `src/routes/layout.css` (oklch variables). Never delete the `@custom-variant dark (&:is(.dark *));` line — it is class-based dark mode.
@@ -41,6 +54,7 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 
 ## Tests
 
+- Vitest browser locators are `getByLabelText` / `getByPlaceholder` (Playwright's are `getByLabel` / `getByPlaceholder`) — chaining `getByLabel` off a Vitest locator throws at runtime, not at typecheck.
 - `src/**/*.test.ts` → Vitest node project. `src/**/*.svelte.test.ts` → Vitest browser mode (needs `pnpm exec playwright install chromium`). `e2e/*.e2e.ts` → Playwright, whose webServer runs the **built worker under workerd** (`pnpm build && pnpm preview`, port 4173) — not vite preview.
 
 ## Commits

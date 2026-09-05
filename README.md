@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 3 of 13 complete — the local-first core works.** Issues are created, filtered, sorted, and persisted entirely in the browser (Yjs + IndexedDB); they survive a hard reload with no server involved. Next up is the full CRUD UI (Phase 4). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 4 of 13 complete — the tracker is usable.** Issues are created, edited, filtered, sorted, deleted, and persisted entirely in the browser (Yjs + IndexedDB). Every field round-trips through the CRDT, the detail view is a shareable URL, and the whole flow works with the network off. Next up is the Kanban board (Phase 5). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 
@@ -25,17 +25,17 @@ flowchart LR
     PS -.-> DO["DO relay (hibernating, SQLite)"]
 ```
 
-The Yjs document persisted in IndexedDB is the source of truth; the server (later) is a thin, replaceable websocket relay. Every mutation is local-first and instant by construction — merging, offline queueing, and multi-tab consistency come from the CRDT, not hand-rolled sync code.
+The Yjs document persisted in IndexedDB is the source of truth; the server (later) is a thin, replaceable websocket relay. Every mutation is local-first and instant by construction — merging and offline queueing come from the CRDT, not hand-rolled sync code. (Live multi-tab convergence is _not_ free: y-indexeddb 9.0.12 has no BroadcastChannel, so a second tab picks up changes on reload until the Phase 9 relay lands.)
 
 ## Tech stack
 
-| Choice                                      | Version     | Why                                                            | Decision                                                                |
-| ------------------------------------------- | ----------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Svelte 5 + SvelteKit 2                      | 5.56 / 2.69 | Runes map cleanly onto a CRDT-observing state bridge           | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)   |
-| Tailwind v4 + shadcn-svelte                 | 4.3 / 1.3   | CSS-first theming; components are owned code, not a dependency | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)   |
-| Yjs + y-indexeddb                           | 13.6 / 9.0  | Production-default CRDT; offline + multi-tab for free          | [ADR 0001](docs/adr/0001-sync-engine-yjs-over-electricsql-and-zero.md)  |
-| Cloudflare Workers + Durable Objects (free) | —           | Hibernating websocket relay at 0 €                             | [ADR 0002](docs/adr/0002-deploy-target-cloudflare-workers-free-plan.md) |
-| No-auth capability URLs                     | —           | Share-a-link collaboration for the demo                        | [ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)             |
+| Choice                                      | Version     | Why                                                              | Decision                                                                |
+| ------------------------------------------- | ----------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Svelte 5 + SvelteKit 2                      | 5.56 / 2.69 | Runes map cleanly onto a CRDT-observing state bridge             | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)   |
+| Tailwind v4 + shadcn-svelte                 | 4.3 / 1.3   | CSS-first theming; components are owned code, not a dependency   | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)   |
+| Yjs + y-indexeddb                           | 13.6 / 9.0  | Production-default CRDT; offline writes and conflict-free merges | [ADR 0001](docs/adr/0001-sync-engine-yjs-over-electricsql-and-zero.md)  |
+| Cloudflare Workers + Durable Objects (free) | —           | Hibernating websocket relay at 0 €                               | [ADR 0002](docs/adr/0002-deploy-target-cloudflare-workers-free-plan.md) |
+| No-auth capability URLs                     | —           | Share-a-link collaboration for the demo                          | [ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)             |
 
 ## Getting started
 
@@ -57,6 +57,7 @@ src/
 ├── lib/
 │   ├── components/
 │   │   ├── ui/          shadcn-svelte components (owned code)
+│   │   ├── issues/      issue UI: row, create dialog, detail sheet, pickers, badges
 │   │   └── shell/       app chrome: sidebar, theme toggle, command menu
 │   ├── hooks/           shared runes hooks
 │   ├── model/           plain TS types/enums + pure filter/sort — no Yjs, no runes
@@ -64,7 +65,7 @@ src/
 │   ├── state/           .svelte.ts runes bridge + derived query index
 │   ├── keyboard/        (Phase 7)  shortcut registry + actions
 │   └── search/          (Phase 8)  web worker: FlexSearch + Transformers.js embeddings
-├── routes/              SvelteKit routes (/ redirects to /issues)
+├── routes/              SvelteKit routes (/ redirects to /issues; /issues/[id] is the detail sheet)
 workers/
 └── relay/               (Phase 9)  separate Worker exporting the Yjs Durable Object
 docs/
@@ -92,6 +93,14 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - **Persistence must attach synchronously.** y-indexeddb only captures doc updates emitted _after_ it subscribes. A `dynamic import('y-indexeddb')` created a lost-write window — a user who created an issue and reloaded within the chunk-load window lost it. The import is static and browser-guarded; esbuild dead-code-eliminates it from the workerd bundle anyway ([src/lib/sync/persistence.ts](src/lib/sync/persistence.ts)).
 - **SSR without a hydration mismatch.** `getIssueStore()` returns a fresh empty store per server render (never a shared singleton) so no request leaks `synced` state into another; the browser gets a session singleton. Both server and first client render show the same unsynced skeleton, then the client hydrates from IndexedDB.
 - **A deterministic persistence test.** The reload e2e waits for y-indexeddb's `updates` store to grow past its post-sync baseline before reloading, so it can't race the async IndexedDB commit ([e2e/issues.e2e.ts](e2e/issues.e2e.ts)).
+
+### Phase 4 — the CRUD UI, and what was not obvious
+
+- **The detail view is a route, not component state.** `/issues/[id]` renders the sheet; the list lives in `issues/+layout.svelte` so it stays mounted behind it, keeping filter, sort and the quick-add draft alive across the round trip. The payoff is that an issue is a shareable, reloadable URL and the browser Back button closes the sheet. The cost is a second code-split chunk, which is a real problem offline: the first navigation to an issue after losing connectivity has no code to fetch and lands on an error page. The layout calls `preloadCode('/issues/*')` on mount to close that gap, and the offline e2e visits the route once before `setOffline(true)` rather than racing the preload.
+- **`{#key}` does not reset a component's own state.** Editable fields hold a _nullable draft_: `null` means "not editing" and the input renders the live CRDT value, so a remote change flows straight through; the first keystroke makes the draft non-null and commit writes it back. Drafts must therefore be discarded when the sheet switches issues — and `{#key issue.id}` re-creates the DOM subtree but leaves the enclosing component's `$state` untouched. Only a component boundary resets it, so the editable body is its own component ([issue-editor.svelte](src/lib/components/issues/issue-editor.svelte)) rendered inside the key block. The create form is a child of `Dialog.Content` for the same reason: bits-ui unmounts it on close, so a cancelled draft cannot survive into the next open. There is deliberately no `$effect` anywhere in the editing path — drafts are set from DOM events only, so there is no state-syncing loop to get wrong.
+- **Write invariants belong in the CRDT layer.** `patchIssue` now drops fields already equal to their stored value and ignores a blank title ([sync/issues.ts](src/lib/sync/issues.ts)). Both started as UI concerns and both are wrong there: re-selecting the current status from a picker would otherwise mint a new Y item, bump `updatedAt` (silently reshuffling the "recent" sort) and, from Phase 9, cost a relay message and a fresh last-writer-wins window; and since `readIssue` only defaults a _missing_ title, a persisted `''` would render as an empty row forever. Pushing both into the one place that serialises a `Y.Map` makes them true for every caller, and testable on a bare `Y.Doc` in Node.
+- **Closing the sheet has three exits, and only one of them fires `blur`.** Overlay click, Back button and route change all unmount the editor without it, so an uncommitted draft would vanish. The editor flushes pending drafts in `onDestroy`, which is what makes "it saved what I typed" true on every path. Escape is handled per field instead of on the sheet: it reverts the field being edited and stops propagating, so a second Escape — with no draft in flight — reaches bits-ui's document-level listener and closes the sheet.
+- **"Within one frame" is asserted synchronously.** Yjs fires `observeDeep` synchronously inside `transact`, and the `SvelteMap` write schedules a microtask flush. The component test writes through the store, calls `flushSync()`, then asserts with a plain `expect` on the DOM node — a polling `expect.element` would pass even if the update landed several frames later, which is exactly the property under test.
 
 ## License
 
