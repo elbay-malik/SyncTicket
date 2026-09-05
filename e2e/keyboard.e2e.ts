@@ -51,12 +51,17 @@ test('an issue can be created, found, opened, edited and deleted by keyboard alo
 	await sheet.getByLabel('Title').fill('Renamed by keyboard');
 	await page.keyboard.press('Enter');
 
-	// DELETE — Tab to the delete button, confirm, and land back on the list.
+	// DELETE — the confirmation deliberately opens with focus on the least destructive
+	// action, so reaching the destructive one is a Tab away. Asserting that focus has landed
+	// before moving is what makes this deterministic: the dialog claims focus itself, one
+	// frame after opening, and would otherwise steal it back mid-test.
 	await sheet.getByRole('button', { name: 'Delete' }).focus();
 	await page.keyboard.press('Enter');
 	const confirm = page.getByRole('alertdialog');
 	await expect(confirm).toBeVisible();
-	await confirm.getByRole('button', { name: 'Delete issue' }).focus();
+	await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(confirm.getByRole('button', { name: 'Delete issue' })).toBeFocused();
 	await page.keyboard.press('Enter');
 
 	await expect(page).toHaveURL(/\/issues$/);
