@@ -5,7 +5,7 @@
 // that defines it (ADR 0002). The browser connects here directly over WebSocket, so the app
 // worker never proxies sync traffic.
 
-import { routePartykitRequest } from 'partyserver';
+import { routePartykitRequest, type Connection } from 'partyserver';
 import type * as Y from 'yjs';
 import { YServer } from 'y-partyserver';
 import {
@@ -35,6 +35,25 @@ export class YDocRoom extends YServer<Env> {
 
 	override async onSave(): Promise<void> {
 		this.ctx.storage.sql.exec(writeSnapshotSql(), encodeSnapshot(this.document));
+	}
+
+	/**
+	 * Clears presence for a socket that died rather than closed.
+	 *
+	 * partyserver routes `webSocketError` here, and the base implementation only logs, so
+	 * without this the peer's awareness state stays on the server and on every other
+	 * client. YServer implements the equivalent cleanup in `onClose`, which the runtime
+	 * does not call on this path — so it is called by hand, with the close code for an
+	 * abnormal closure, before the socket is dropped.
+	 */
+	override onError(connection: Connection, error: unknown): void {
+		console.error('relay socket error', error);
+		this.onClose(connection, 1006, 'socket error', false);
+		try {
+			connection.close(1011, 'socket error');
+		} catch {
+			// Already gone; the cleanup above is the part that matters.
+		}
 	}
 }
 

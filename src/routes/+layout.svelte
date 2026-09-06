@@ -9,6 +9,7 @@
 	import CommandMenu from '$lib/components/shell/command-menu.svelte';
 	import RelayStatus from '$lib/components/shell/relay-status.svelte';
 	import ShareWorkspace from '$lib/components/shell/share-workspace.svelte';
+	import PresenceBar from '$lib/components/presence/presence-bar.svelte';
 	import ThemeToggle from '$lib/components/shell/theme-toggle.svelte';
 	import IssueCreateDialog from '$lib/components/issues/issue-create-dialog.svelte';
 	import ShortcutsHelp from '$lib/components/shell/shortcuts-help.svelte';
@@ -16,6 +17,7 @@
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getSearchClient } from '$lib/search/client.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
+	import { getPresence } from '$lib/state/presence.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { Separator } from '$lib/components/ui/separator/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
@@ -30,6 +32,9 @@
 	// and form submission everywhere, and would fight the list's own cursor. Those belong to
 	// the widget that has focus.
 	const store = getIssueStore();
+	// Bound to the store's awareness channel, which exists whether or not a relay is
+	// configured — so with no relay this simply shows one person: you.
+	const presence = getPresence(store);
 
 	let helpOpen = $state(false);
 
@@ -108,6 +113,8 @@
 			<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
 			<span class="text-sm font-medium">SyncTicket</span>
 			<div class="ml-auto flex items-center gap-2">
+				<PresenceBar {presence} />
+				<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
 				<RelayStatus {store} />
 				<ShareWorkspace {store} />
 				<ThemeToggle />

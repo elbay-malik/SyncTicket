@@ -6,6 +6,7 @@
 
 import { browser } from '$app/environment';
 import YProvider from 'y-partyserver/provider';
+import { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
 
 /**
@@ -22,10 +23,15 @@ export type ConnectionState = 'offline' | 'connecting' | 'connected';
 
 export interface RelayConnection {
 	readonly provider: YProvider | null;
+	/**
+	 * Present whether or not a relay is configured.
+	 *
+	 * Presence is a local concept first: with no relay the only member is you, and the UI
+	 * renders that without branching. It also keeps the bridge testable without a socket.
+	 */
+	readonly awareness: Awareness;
 	destroy(): void;
 }
-
-const DISCONNECTED: RelayConnection = { provider: null, destroy: () => {} };
 
 /** lib0's Observable types its listeners as bare `Function`, so the payloads are named here. */
 interface StatusEvent {
@@ -50,6 +56,16 @@ export function attachRelay(
 	workspaceId: string,
 	handlers: RelayHandlers
 ): RelayConnection {
+	// Constructed before the host check so the offline path has one too. Destroying the doc
+	// destroys it in turn — Awareness registers a `destroy` handler on the doc it is given —
+	// so this adds no teardown obligation beyond what the store already has.
+	const awareness = new Awareness(doc);
+	// y-partyserver clears this interval on the awareness it is handed, and so does the
+	// server, which is why nothing in this stack expires a stale peer on its own. Cleared
+	// here as well so the no-relay path behaves identically to the connected one, and
+	// liveness has exactly one owner: `state/presence.svelte.ts`.
+	clearInterval(awareness._checkInterval);
+
 	// host[:port], no protocol and no path. The provider picks ws:// only for hosts it
 	// recognises as local (`localhost:`, `127.0.0.1:`, private ranges), so a bare hostname
 	// without a port would be dialled over wss:// and fail in development.
@@ -58,9 +74,11 @@ export function attachRelay(
 	// a SvelteKit runtime virtual module that does not resolve in the browser-mode unit
 	// tests, and this value is a build-time deployment fact anyway.
 	const host = import.meta.env.PUBLIC_RELAY_HOST?.trim();
-	if (!browser || !host) return DISCONNECTED;
+	if (!browser || !host) {
+		return { provider: null, awareness, destroy: () => awareness.destroy() };
+	}
 
-	const provider = new YProvider(host, workspaceId, doc, { party: RELAY_PARTY });
+	const provider = new YProvider(host, workspaceId, doc, { party: RELAY_PARTY, awareness });
 
 	handlers.onConnection('connecting');
 	provider.on('status', (event: StatusEvent) => {
@@ -75,6 +93,7 @@ export function attachRelay(
 
 	return {
 		provider,
+		awareness,
 		destroy() {
 			// Before the doc is destroyed, not after: the provider only registers a `doc.update`
 			// handler and does not tear itself down on `doc.destroy()`, so a socket left open

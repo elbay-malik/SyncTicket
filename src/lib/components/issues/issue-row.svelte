@@ -2,7 +2,10 @@
 	import { resolve } from '$app/paths';
 	import type { Issue, IssuePriority, IssueStatus } from '$lib/model/issue.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
+	import type { Peer } from '$lib/state/presence.svelte.js';
+	import { listNames } from '$lib/format.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import PeerAvatars from '$lib/components/presence/peer-avatars.svelte';
 	import PriorityPicker from './priority-picker.svelte';
 	import StatusPicker from './status-picker.svelte';
 
@@ -10,8 +13,25 @@
 		issue,
 		store,
 		selected = false,
-		tabbable = false
-	}: { issue: Issue; store: IssueStore; selected?: boolean; tabbable?: boolean } = $props();
+		tabbable = false,
+		viewers = []
+	}: {
+		issue: Issue;
+		store: IssueStore;
+		selected?: boolean;
+		tabbable?: boolean;
+		/** Other people with this issue open right now. */
+		viewers?: readonly Peer[];
+	} = $props();
+
+	// Folded into the link's own text rather than announced separately: the link is what a
+	// screen reader lands on, and a row that reads "Fix login redirect, Ada Lovelace is
+	// viewing" is one coherent announcement instead of two competing ones.
+	const viewerSentence = $derived(
+		viewers.length === 0
+			? ''
+			: `${listNames(viewers.map((peer) => peer.name))} ${viewers.length === 1 ? 'is' : 'are'} viewing`
+	);
 </script>
 
 <!--
@@ -44,7 +64,11 @@
 		class="focus-visible:ring-ring flex-1 truncate rounded-sm px-1 py-1 text-sm outline-none focus-visible:ring-2"
 	>
 		{issue.title}
+		{#if viewerSentence}<span class="sr-only">, {viewerSentence}</span>{/if}
 	</a>
+
+	<!-- Decoration only; the sentence above is what carries this to a screen reader. -->
+	<PeerAvatars peers={viewers} max={2} size="sm" summary="" testId="row-viewers" />
 
 	{#if issue.labels.length > 0}
 		<div class="hidden shrink-0 gap-1 sm:flex">

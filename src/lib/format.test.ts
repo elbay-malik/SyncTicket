@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isoTime, relativeTime } from './format.js';
+import { isoTime, relativeTime, listNames } from './format.js';
 
 const NOW = Date.UTC(2026, 8, 5, 12, 0, 0);
 const s = (n: number) => n * 1000;
@@ -33,5 +33,25 @@ describe('isoTime', () => {
 		expect(isoTime(NOW)).toBe('2026-09-05T12:00:00.000Z');
 		expect(isoTime(0)).toBeUndefined();
 		expect(isoTime(Number.NaN)).toBeUndefined();
+	});
+});
+
+describe('listNames', () => {
+	it('reads as a sentence rather than a comma-separated dump', () => {
+		expect(listNames([])).toBe('');
+		expect(listNames(['Ada'])).toBe('Ada');
+		expect(listNames(['Ada', 'Grace'])).toBe('Ada and Grace');
+		expect(listNames(['Ada', 'Grace', 'Alan'])).toBe('Ada, Grace and Alan');
+	});
+
+	it('counts the people it does not have room to name', () => {
+		expect(listNames(['Ada', 'Grace', 'Alan', 'Edsger'])).toBe('Ada, Grace, Alan and 1 other');
+		expect(listNames(['Ada', 'Grace', 'Alan', 'Edsger', 'Barbara'])).toBe(
+			'Ada, Grace, Alan and 2 others'
+		);
+	});
+
+	it('honours a tighter limit, for the small stacks on a list row', () => {
+		expect(listNames(['Ada', 'Grace', 'Alan'], 2)).toBe('Ada, Grace and 1 other');
 	});
 });

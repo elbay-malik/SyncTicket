@@ -29,6 +29,11 @@
 	--chart-3: oklch(0.439 0 0);
 	--chart-4: oklch(0.371 0 0);
 	--chart-5: oklch(0.269 0 0);
+	/* Peer avatars: the peer supplies only a hue, the theme supplies everything else, so
+	   one hue stays legible in both modes and a peer can never inject a colour value. */
+	--peer-l: 0.52;
+	--peer-c: 0.14;
+	--peer-fg: oklch(0.985 0 0);
 	--radius: 0.625rem;
 	--sidebar: oklch(0.985 0 0);
 	--sidebar-foreground: oklch(0.145 0 0);
@@ -41,6 +46,9 @@
 }
 
 .dark {
+	--peer-l: 0.74;
+	--peer-c: 0.13;
+	--peer-fg: oklch(0.18 0 0);
 	--background: oklch(0.145 0 0);
 	--foreground: oklch(0.985 0 0);
 	--card: oklch(0.205 0 0);
@@ -125,5 +133,38 @@
 	}
 	html {
 		@apply font-sans;
+	}
+}
+
+@layer components {
+	/*
+		The hue is the only thing that comes from the network, and it arrives as a validated
+		number (see model/identity.ts). Interpolating a peer-supplied colour *string* into a
+		style attribute would be a CSS injection: `background-image: url(...)` on the end of
+		it is a working beacon that reports who is looking at what.
+	*/
+	.peer-avatar {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 9999px;
+		font-size: 0.625rem;
+		font-weight: 600;
+		line-height: 1;
+		user-select: none;
+		background-color: oklch(var(--peer-l) var(--peer-c) var(--peer-h, 0));
+		color: var(--peer-fg);
+		box-shadow: 0 0 0 2px var(--background);
+	}
+	.peer-avatar-sm {
+		width: 1.125rem;
+		height: 1.125rem;
+		font-size: 0.5rem;
+	}
+	.peer-avatar-more {
+		background-color: var(--muted);
+		color: var(--muted-foreground);
 	}
 }

@@ -5,6 +5,9 @@
 
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
+	import { getPresence } from '$lib/state/presence.svelte.js';
+	import { listNames } from '$lib/format.js';
+	import PeerAvatars from '$lib/components/presence/peer-avatars.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
@@ -24,6 +27,16 @@
 	} = $props();
 
 	const issue = $derived(store.get(id));
+
+	// The one place presence earns its keep: this is where two people overwrite each other's
+	// words, so here it is visible text rather than a row of silent avatars.
+	const presence = $derived(getPresence(store));
+	const viewers = $derived(presence.viewersOf(id));
+	const viewerSentence = $derived(
+		`${listNames(viewers.map((peer) => peer.name))} ${
+			viewers.length === 1 ? 'is' : 'are'
+		} also viewing this issue`
+	);
 
 	let confirmOpen = $state(false);
 	let cancelRef = $state<HTMLButtonElement | null>(null);
@@ -55,6 +68,16 @@
 				Edit this issue's fields. Changes save as you go and are stored in your browser.
 			</Sheet.Description>
 		</Sheet.Header>
+
+		{#if viewers.length > 0}
+			<div
+				class="text-muted-foreground flex items-center gap-2 px-4 pb-2 text-xs"
+				data-testid="sheet-viewers"
+			>
+				<PeerAvatars peers={viewers} max={3} size="sm" summary="" />
+				<span>{viewerSentence}</span>
+			</div>
+		{/if}
 
 		{#if !store.synced}
 			<div class="flex flex-col gap-4 px-4 pb-4" data-testid="issue-sheet-loading">

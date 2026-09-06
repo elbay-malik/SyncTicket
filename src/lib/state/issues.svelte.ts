@@ -7,6 +7,7 @@
 import { browser } from '$app/environment';
 import { SvelteMap } from 'svelte/reactivity';
 import type * as Y from 'yjs';
+import type { Awareness } from 'y-protocols/awareness';
 import {
 	DEFAULT_WORKSPACE_ID,
 	WORKSPACE_STORAGE_KEY,
@@ -95,6 +96,16 @@ export class IssueStore {
 				this.#synced = true;
 			}
 		);
+	}
+
+	/**
+	 * The awareness channel for this workspace, present with or without a relay.
+	 *
+	 * Handed to `Presence` rather than consumed here: awareness carries no document state,
+	 * so it has no business in the CRDT projection.
+	 */
+	get awareness(): Awareness {
+		return this.#relay.awareness;
 	}
 
 	/** Where the relay connection stands; 'offline' when no relay is configured at all. */

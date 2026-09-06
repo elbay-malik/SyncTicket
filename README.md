@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 9 of 13 complete — two browsers now stay in step.** Everything still works offline and local-first; when a relay is configured, edits made in one browser reach another in well under a second, and a workspace survives every client leaving. The relay is a second Cloudflare Worker with a hibernating Durable Object, so an idle room costs nothing. Next up is presence and awareness (Phase 10). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 10 of 13 complete — you can see who else is here.** Everything still works offline and local-first; when a relay is configured, edits converge in well under a second, and the header, the issue rows and the detail sheet now show who is in the workspace and which issue they have open. Presence clears when someone leaves, including when they vanish without disconnecting — which nothing in the underlying stack does on its own ([ADR 0007](docs/adr/0007-presence-liveness-is-owned-by-the-client.md)). Next up is sync resilience and offline UX (Phase 11). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 

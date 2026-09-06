@@ -20,6 +20,7 @@
 	import { Virtualizer } from 'virtua/svelte';
 	import type { Issue } from '$lib/model/issue.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
+	import { getPresence } from '$lib/state/presence.svelte.js';
 	import IssueRow from './issue-row.svelte';
 
 	let {
@@ -27,6 +28,10 @@
 		store,
 		selectedId = $bindable(null)
 	}: { issues: Issue[]; store: IssueStore; selectedId?: string | null } = $props();
+
+	// One shared index for the whole list: `viewersOf` is a map lookup, so adding presence
+	// costs each row a hash probe rather than a scan over everyone in the workspace.
+	const presence = $derived(getPresence(store));
 
 	let scroller = $state<HTMLElement | null>(null);
 	let virtualizer = $state<ReturnType<typeof Virtualizer> | null>(null);
@@ -102,6 +107,7 @@
 				{store}
 				selected={issue.id === selectedId}
 				tabbable={issue.id === tabbableId}
+				viewers={presence.viewersOf(issue.id)}
 			/>
 		{/snippet}
 	</Virtualizer>

@@ -30,6 +30,23 @@ export function relativeTime(timestamp: number, now: number = Date.now()): strin
 	return relative.format(Math.round(delta / unit[0]), unit[1]);
 }
 
+/**
+ * "Ada", "Ada and Bob", "Ada, Bob and 2 others" — the readable half of an avatar stack.
+ *
+ * Avatars are decoration: a ring of coloured initials tells a screen reader nothing, and
+ * tells a colour-blind user very little. This sentence is the part that carries the
+ * information, so it names as many people as it reasonably can and counts the rest.
+ */
+export function listNames(names: readonly string[], limit = 3): string {
+	if (names.length === 0) return '';
+	if (names.length === 1) return names[0] as string;
+	if (names.length <= limit) {
+		return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+	}
+	const rest = names.length - limit;
+	return `${names.slice(0, limit).join(', ')} and ${rest} ${rest === 1 ? 'other' : 'others'}`;
+}
+
 /** ISO string for <time datetime>; invalid/zero timestamps yield undefined (no attr). */
 export function isoTime(timestamp: number): string | undefined {
 	return Number.isFinite(timestamp) && timestamp > 0
