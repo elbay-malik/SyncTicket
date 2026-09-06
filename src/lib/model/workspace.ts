@@ -3,7 +3,13 @@
 
 export const WORKSPACE_DB_PREFIX = 'syncticket';
 
-/** The workspace a visitor lands in when they have not been given one. */
+/**
+ * Fallback workspace, used on the server and when a browser cannot remember anything.
+ *
+ * A real visitor does not land here: with no id in the URL and nothing remembered, one is
+ * minted, so each browser starts in a workspace of its own and joins another only by being
+ * given its link (ADR 0004).
+ */
 export const DEFAULT_WORKSPACE_ID = 'default';
 
 /** Query parameter carrying the workspace id, and the key it is remembered under. */
@@ -33,6 +39,21 @@ export function resolveWorkspaceId(search: string, remembered: string | null): s
 	if (isWorkspaceId(fromUrl)) return fromUrl;
 	if (isWorkspaceId(remembered)) return remembered;
 	return DEFAULT_WORKSPACE_ID;
+}
+
+/**
+ * Mints an unguessable workspace id.
+ *
+ * Unguessability is the whole access-control story in demo mode: knowing the link is what
+ * grants access, so the id has to be long and random rather than sequential or memorable.
+ */
+export function createWorkspaceId(): string {
+	return `w${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+/** The link that invites someone into `workspaceId`. */
+export function workspaceShareUrl(origin: string, workspaceId: string): string {
+	return `${origin}/issues?${WORKSPACE_PARAM}=${encodeURIComponent(workspaceId)}`;
 }
 
 /** IndexedDB database name for a workspace's persisted Y.Doc. */

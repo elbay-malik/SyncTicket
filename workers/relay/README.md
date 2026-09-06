@@ -26,7 +26,7 @@ The client provider defaults to a party called `main`, which the relay answers w
 ## Commands
 
 ```sh
-pnpm --filter syncticket-relay dev       # wrangler dev on :8787
+pnpm --filter syncticket-relay dev       # wrangler dev on :8791
 pnpm --filter syncticket-relay run check # wrangler types + tsc
 pnpm --filter syncticket-relay run dry-run
 ```
@@ -38,7 +38,7 @@ Playwright starts this automatically; see `playwright.config.ts`.
 Set `PUBLIC_RELAY_HOST` at **build** time, as `host[:port]` with no protocol and no path:
 
 ```sh
-PUBLIC_RELAY_HOST=localhost:8787 pnpm build
+PUBLIC_RELAY_HOST=localhost:8791 pnpm build
 ```
 
 The port matters locally: the provider only picks `ws://` for hosts it recognises as local, so a bare hostname would be dialled over `wss://`. With the variable unset the app builds and runs exactly as it did before Phase 9 — local-first, no socket.

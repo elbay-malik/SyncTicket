@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
 	DEFAULT_WORKSPACE_ID,
+	createWorkspaceId,
 	isWorkspaceId,
 	resolveWorkspaceId,
-	workspaceDbName
+	workspaceDbName,
+	workspaceShareUrl
 } from './workspace.js';
 
 describe('isWorkspaceId', () => {
@@ -46,5 +48,25 @@ describe('workspaceDbName', () => {
 	it('namespaces the database per workspace', () => {
 		expect(workspaceDbName('default')).toBe('syncticket:default');
 		expect(workspaceDbName('abc')).not.toBe(workspaceDbName('abd'));
+	});
+});
+
+describe('createWorkspaceId', () => {
+	it('mints ids that are valid, unique and not guessable', () => {
+		const ids = Array.from({ length: 200 }, createWorkspaceId);
+		for (const id of ids) expect(isWorkspaceId(id)).toBe(true);
+		expect(new Set(ids).size).toBe(ids.length);
+		// Long enough that knowing one tells you nothing about another — the id is the only
+		// access control demo mode has.
+		expect(ids[0]!.length).toBeGreaterThanOrEqual(32);
+	});
+});
+
+describe('workspaceShareUrl', () => {
+	it('produces a link that resolves back to the same workspace', () => {
+		const id = createWorkspaceId();
+		const url = workspaceShareUrl('https://example.test', id);
+		expect(url.startsWith('https://example.test/issues?')).toBe(true);
+		expect(resolveWorkspaceId(new URL(url).search, null)).toBe(id);
 	});
 });

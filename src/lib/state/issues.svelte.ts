@@ -10,6 +10,7 @@ import type * as Y from 'yjs';
 import {
 	DEFAULT_WORKSPACE_ID,
 	WORKSPACE_STORAGE_KEY,
+	createWorkspaceId,
 	resolveWorkspaceId
 } from '$lib/model/workspace.js';
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
@@ -42,7 +43,11 @@ function sessionWorkspaceId(): string {
 	} catch {
 		// Private mode or blocked storage; the URL or the default still works.
 	}
-	const id = resolveWorkspaceId(location.search, remembered);
+	// A visitor with no link and nothing remembered gets a workspace of their own rather than
+	// landing in a shared one: the id is the only thing standing between a workspace and the
+	// rest of the internet (ADR 0004), so it has to be unguessable from the first visit.
+	const resolved = resolveWorkspaceId(location.search, remembered);
+	const id = resolved === DEFAULT_WORKSPACE_ID && !remembered ? createWorkspaceId() : resolved;
 	try {
 		if (id !== remembered) localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
 	} catch {

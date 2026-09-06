@@ -14,6 +14,16 @@ export default defineConfig({
 	// there rather than through $env/dynamic/public, because that virtual module needs the
 	// SvelteKit runtime and does not resolve in browser-mode unit tests.
 	envPrefix: ['VITE_', 'PUBLIC_'],
+	optimizeDeps: {
+		// The search worker's imports are not reachable from the app's own module graph, so
+		// Vite only discovers them when the worker first runs — mid-page-load, which forces a
+		// re-optimisation and a reload that can kill the dev server outright. Naming them here
+		// gets them pre-bundled at startup instead.
+		include: ['flexsearch'],
+		// Excluded rather than included: it is only imported when someone turns on semantic
+		// search, and pre-bundling it would add a very large dependency to every dev start.
+		exclude: ['@huggingface/transformers']
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

@@ -41,7 +41,8 @@ The Yjs document persisted in IndexedDB is the source of truth; the server (late
 
 ```sh
 pnpm install
-pnpm dev                      # vite dev server
+pnpm demo                     # relay + app together, with live sync on (recommended)
+pnpm dev                      # app only, local-first, no relay
 pnpm check                    # wrangler types --check + svelte-check (TS strict)
 pnpm lint                     # prettier + eslint
 pnpm test                     # vitest unit + browser-mode component tests
@@ -49,6 +50,16 @@ pnpm exec playwright test     # e2e against the built worker (needs `playwright 
 pnpm build                    # production build via adapter-cloudflare
 pnpm preview                  # the BUILT worker under real workerd (wrangler dev, :4173)
 ```
+
+## Trying the collaboration
+
+```sh
+pnpm demo
+```
+
+Open <http://localhost:5173/issues>. You land in a workspace of your own — the id is random and unguessable, because in demo mode knowing the link _is_ the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)). Press **Share** in the header to copy an invite link, open it in a different browser, and the two stay in step. A browser that was never given the link sees nothing.
+
+Without a relay (`pnpm dev`) everything still works; it is simply local to that browser.
 
 ## Repository layout
 

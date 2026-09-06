@@ -4,7 +4,7 @@
 // they need two contexts in the *same* room, so the id is seeded into both by hand.
 
 import { expect, test, type Browser, type Page } from './fixtures.js';
-import { WORKSPACE_STORAGE_KEY } from '../src/lib/model/workspace.js';
+import { DEFAULT_WORKSPACE_ID, WORKSPACE_STORAGE_KEY } from '../src/lib/model/workspace.js';
 
 /** Opens a page already bound to `workspaceId`, and waits until the relay has synced it. */
 async function openPeer(browser: Browser, workspaceId: string): Promise<Page> {
@@ -151,4 +151,61 @@ test('the relay keeps a workspace after every client has gone', async ({ browser
 		timeout: 30_000
 	});
 	await later.context().close();
+});
+
+test('the share link is the whole demo: mint, invite, sync, and stay private', async ({
+	browser
+}) => {
+	// Deliberately no workspace fixture on these contexts: the point is what a real visitor
+	// gets with an untouched browser.
+	const aliceContext = await browser.newContext();
+	const alice = await aliceContext.newPage();
+	await alice.goto('/issues');
+	await expect(alice.getByText('No issues yet')).toBeVisible();
+
+	// A first-time visitor lands in a workspace of their own, not a shared one.
+	const workspaceId = await alice.evaluate(
+		(key) => window.localStorage.getItem(key),
+		WORKSPACE_STORAGE_KEY
+	);
+	expect(workspaceId).not.toBe(DEFAULT_WORKSPACE_ID);
+	expect(workspaceId ?? '').toMatch(/^w[0-9a-f]{32}$/);
+
+	const shareUrl = await alice.getByTestId('share-workspace').getAttribute('data-share-url');
+	expect(shareUrl).toContain(`ws=${workspaceId}`);
+
+	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	await input.fill('Ship the demo');
+	await input.press('Enter');
+	await expect(alice.getByRole('link', { name: 'Ship the demo' })).toBeVisible();
+
+	// Someone opens the link in a different browser and nothing else.
+	const bobContext = await browser.newContext();
+	const bob = await bobContext.newPage();
+	await bob.goto(shareUrl as string);
+	await expect(bob.getByRole('link', { name: 'Ship the demo' })).toBeVisible({ timeout: 30_000 });
+
+	// They are in the same workspace, and it works both ways from here.
+	const bobWorkspace = await bob.evaluate(
+		(key) => window.localStorage.getItem(key),
+		WORKSPACE_STORAGE_KEY
+	);
+	expect(bobWorkspace).toBe(workspaceId);
+
+	const bobInput = bob.getByPlaceholder('Add an issue and press Enter…');
+	await bobInput.fill('Reply from Bob');
+	await bobInput.press('Enter');
+	await expect(alice.getByRole('link', { name: 'Reply from Bob' })).toBeVisible({
+		timeout: 30_000
+	});
+
+	// A browser that was never given the link sees none of it — the id is the only thing
+	// protecting a workspace in demo mode (ADR 0004).
+	const strangerContext = await browser.newContext();
+	const stranger = await strangerContext.newPage();
+	await stranger.goto('/issues');
+	await expect(stranger.getByText('No issues yet')).toBeVisible();
+	await expect(stranger.getByRole('link', { name: 'Ship the demo' })).toHaveCount(0);
+
+	await Promise.all([aliceContext.close(), bobContext.close(), strangerContext.close()]);
 });

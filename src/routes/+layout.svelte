@@ -8,6 +8,7 @@
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
 	import CommandMenu from '$lib/components/shell/command-menu.svelte';
 	import RelayStatus from '$lib/components/shell/relay-status.svelte';
+	import ShareWorkspace from '$lib/components/shell/share-workspace.svelte';
 	import ThemeToggle from '$lib/components/shell/theme-toggle.svelte';
 	import IssueCreateDialog from '$lib/components/issues/issue-create-dialog.svelte';
 	import ShortcutsHelp from '$lib/components/shell/shortcuts-help.svelte';
@@ -108,6 +109,7 @@
 			<span class="text-sm font-medium">SyncTicket</span>
 			<div class="ml-auto flex items-center gap-2">
 				<RelayStatus {store} />
+				<ShareWorkspace {store} />
 				<ThemeToggle />
 			</div>
 		</header>
