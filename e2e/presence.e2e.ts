@@ -150,7 +150,9 @@ test('you can change what other people call you', async ({ browser }) => {
 	const field = ada.page.getByRole('textbox', { name: 'Name' });
 	await expect(field).toBeVisible();
 	await field.fill('Ada L');
-	await ada.page.getByRole('button', { name: 'Save' }).click();
+	// exact: true — Phase 11's connection-status button carries an aria-label that starts
+	// with "Saved on this device", which a substring match on 'Save' would also catch.
+	await ada.page.getByRole('button', { name: 'Save', exact: true }).click();
 
 	await expect(gracesView.locator('[data-peer="Ada L"]')).toBeVisible({ timeout: 15_000 });
 	await expect(gracesView.locator(`[data-peer="${ADA.name}"]`)).toHaveCount(0);

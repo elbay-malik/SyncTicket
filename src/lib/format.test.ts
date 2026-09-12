@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isoTime, relativeTime, listNames } from './format.js';
+import { isoTime, relativeTime, listNames, connectionCopy } from './format.js';
 
 const NOW = Date.UTC(2026, 8, 5, 12, 0, 0);
 const s = (n: number) => n * 1000;
@@ -53,5 +53,52 @@ describe('listNames', () => {
 
 	it('honours a tighter limit, for the small stacks on a list row', () => {
 		expect(listNames(['Ada', 'Grace', 'Alan'], 2)).toBe('Ada, Grace and 1 other');
+	});
+});
+
+describe('connectionCopy', () => {
+	const base = { persisted: true, relaySynced: false, peerCount: 0 } as const;
+
+	it('never claims durability a blocked database does not have', () => {
+		expect(connectionCopy({ ...base, connection: 'local' }).stored).toBe('Saved on this device');
+		expect(connectionCopy({ ...base, persisted: false, connection: 'local' }).stored).toMatch(
+			/not saved/i
+		);
+	});
+
+	it('is exhaustive over every connection state, including connected+synced+alone', () => {
+		expect(connectionCopy({ ...base, connection: 'local' }).shared).toMatch(/local only/i);
+		expect(connectionCopy({ ...base, connection: 'offline' }).shared).toMatch(/not shared/i);
+		expect(connectionCopy({ ...base, connection: 'connecting' }).shared).toMatch(/connecting/i);
+		expect(connectionCopy({ ...base, connection: 'connected', relaySynced: false }).shared).toMatch(
+			/connected, syncing/i
+		);
+		// The case a naive template ("Shared with N others") would render as nonsense.
+		expect(
+			connectionCopy({ ...base, connection: 'connected', relaySynced: true, peerCount: 0 }).shared
+		).not.toMatch(/0 others?/i);
+		expect(
+			connectionCopy({ ...base, connection: 'connected', relaySynced: true, peerCount: 0 }).shared
+		).toMatch(/ready to share/i);
+	});
+
+	it('gets singular/plural right for the peer count', () => {
+		expect(
+			connectionCopy({ ...base, connection: 'connected', relaySynced: true, peerCount: 1 }).shared
+		).toBe('Shared with 1 other');
+		expect(
+			connectionCopy({ ...base, connection: 'connected', relaySynced: true, peerCount: 4 }).shared
+		).toBe('Shared with 4 others');
+	});
+
+	it('the two sentences vary independently — a blocked database says so regardless of sharing', () => {
+		const copy = connectionCopy({
+			persisted: false,
+			connection: 'connected',
+			relaySynced: true,
+			peerCount: 2
+		});
+		expect(copy.stored).toMatch(/not saved/i);
+		expect(copy.shared).toBe('Shared with 2 others');
 	});
 });

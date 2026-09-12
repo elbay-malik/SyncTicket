@@ -19,7 +19,8 @@ import { createDoc, getIssuesMap, type YIssue } from '$lib/sync/doc.js';
 import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib/sync/issues.js';
 import { seedIssues, type SeedOptions } from '$lib/sync/seed.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
-import { attachRelay, type ConnectionState, type RelayConnection } from '$lib/sync/provider.js';
+import { attachRelay, type RelayConnection } from '$lib/sync/provider.js';
+import { ConnectionStatus, type ConnectionState } from '$lib/sync/connection.svelte.js';
 
 /** What changed in one CRDT batch. Emitted to listeners such as the search index. */
 export interface IssueDelta {
@@ -62,7 +63,10 @@ export class IssueStore {
 	#map: Y.Map<YIssue>;
 	#persistence: WorkspacePersistence;
 	#relay: RelayConnection;
-	#connection = $state<ConnectionState>('offline');
+	// Not itself $state — ConnectionStatus holds its own runes and this store's `connection`
+	// getter reads straight through to `displayed`, the same pattern `awareness` uses for
+	// the relay connection.
+	#status = new ConnectionStatus();
 	#relaySynced = $state(false);
 	#byId = new SvelteMap<string, Issue>();
 	/** Which workspace this store is bound to; the relay uses it as the room name. */
@@ -71,6 +75,7 @@ export class IssueStore {
 	// a .svelte.ts module, and this collection is never read reactively anyway.
 	#listeners: Array<(delta: IssueDelta) => void> = [];
 	#synced = $state(false);
+	#persisted = $state(true);
 
 	constructor(workspaceId: string = sessionWorkspaceId()) {
 		this.workspaceId = workspaceId;
@@ -82,7 +87,8 @@ export class IssueStore {
 		// updates made in the gap. A remote update arriving before IndexedDB has finished
 		// loading is safe, because the post-load rebuild re-reads the whole Y.Map.
 		this.#relay = attachRelay(this.#doc, workspaceId, {
-			onConnection: (state) => (this.#connection = state),
+			onConnection: (state) => this.#status.report(state),
+			onOffline: () => this.#status.reportCertainOffline(),
 			onSynced: (synced) => (this.#relaySynced = synced)
 		});
 		void this.#persistence.whenSynced.then(
@@ -91,8 +97,11 @@ export class IssueStore {
 				this.#synced = true;
 			},
 			// If IndexedDB is unavailable (private mode, quota, blocked), degrade to an
-			// in-memory session instead of hanging forever on the loading skeleton.
+			// in-memory session instead of hanging forever on the loading skeleton. The
+			// failure is recorded rather than swallowed: "your work is saved on this
+			// device" is the one promise a local-first app must not make falsely.
 			() => {
+				this.#persisted = false;
 				this.#synced = true;
 			}
 		);
@@ -108,9 +117,24 @@ export class IssueStore {
 		return this.#relay.awareness;
 	}
 
-	/** Where the relay connection stands; 'offline' when no relay is configured at all. */
+	/**
+	 * Where the relay connection stands, smoothed against the flap a normal retry loop
+	 * produces. 'local' means no relay is configured at all — nothing is wrong, there is
+	 * simply nothing to connect to.
+	 */
 	get connection(): ConnectionState {
-		return this.#connection;
+		return this.#status.displayed;
+	}
+
+	/**
+	 * False when this browser could not open its local database.
+	 *
+	 * Private-mode windows, a denied storage permission and an exhausted quota all land
+	 * here. The session still works, but nothing survives the tab closing, and the UI has
+	 * to say so rather than promise durability it does not have.
+	 */
+	get persisted(): boolean {
+		return this.#persisted;
 	}
 
 	/** True once this client and the relay have exchanged state. */
@@ -183,6 +207,7 @@ export class IssueStore {
 		// The relay goes first: it does not detach itself on doc.destroy(), so a socket left
 		// open would apply an inbound sync message to a destroyed document.
 		this.#relay.destroy();
+		this.#status.destroy();
 		void this.#persistence.destroy();
 		this.#doc.destroy();
 	}

@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 10 of 13 complete — you can see who else is here.** Everything still works offline and local-first; when a relay is configured, edits converge in well under a second, and the header, the issue rows and the detail sheet now show who is in the workspace and which issue they have open. Presence clears when someone leaves, including when they vanish without disconnecting — which nothing in the underlying stack does on its own ([ADR 0007](docs/adr/0007-presence-liveness-is-owned-by-the-client.md)). Next up is sync resilience and offline UX (Phase 11). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 11 of 13 complete — the app tells the truth about its connection, and proves it.** A socket that goes quiet without closing is now noticed and nudged back — never by calling the library's `disconnect()`, which turns out to permanently and silently kill multi-tab sync if you do ([ADR 0008](docs/adr/0008-connection-liveness-nudge-not-reconnect.md)) — and the header's connection popover says two independent things plainly: where the data lives, and who else currently has it. [docs/DEMO.md](docs/DEMO.md) is a two-minute, two-browser script — share a link, edit the same field from both sides at once, go offline, come back — and every word of it is also a Playwright test, so the document and the app cannot quietly drift apart. Next up is demo polish and the first real deploy (Phase 12). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ flowchart LR
     PS -.-> DO["DO relay (hibernating, SQLite)"]
 ```
 
-The Yjs document persisted in IndexedDB is the source of truth; the server (later) is a thin, replaceable websocket relay. Every mutation is local-first and instant by construction — merging and offline queueing come from the CRDT, not hand-rolled sync code. (Live multi-tab convergence is _not_ free: y-indexeddb 9.0.12 has no BroadcastChannel, so a second tab picks up changes on reload until the Phase 9 relay lands.)
+The Yjs document persisted in IndexedDB is the source of truth; the server (later) is a thin, replaceable websocket relay. Every mutation is local-first and instant by construction — merging and offline queueing come from the CRDT, not hand-rolled sync code. (Live multi-tab convergence needs a relay configured, even one that is currently unreachable: y-indexeddb 9.0.12 has no BroadcastChannel of its own, but the relay provider carries one, subscribed the moment it is constructed rather than once it actually connects — so two tabs of the same browser converge instantly through it, offline or not. With no relay configured at all, a second tab only picks up changes on reload.)
 
 ## Tech stack
 
@@ -61,6 +61,10 @@ Open <http://localhost:5173/issues>. You land in a workspace of your own — the
 
 Without a relay (`pnpm dev`) everything still works; it is simply local to that browser.
 
+For the fuller walkthrough — concurrent edits, going offline mid-edit, and what the
+connection popover says at each step — see [docs/DEMO.md](docs/DEMO.md), which is also a
+Playwright test (`e2e/demo.e2e.ts`), copy and all.
+
 ## Repository layout
 
 ```
@@ -81,6 +85,7 @@ workers/
 └── relay/               separate Worker: the Yjs Durable Object room server
 docs/
 ├── ROADMAP.md           13-phase plan with acceptance criteria
+├── DEMO.md              the two-browser walkthrough, mirrored by e2e/demo.e2e.ts
 └── adr/                 architecture decision records
 ```
 
@@ -94,6 +99,8 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - [0004 — No auth: workspace ID as capability URL](docs/adr/0004-no-auth-workspace-id-demo-mode.md)
 - [0005 — Virtualized lists: virtua, and a cap for the board](docs/adr/0005-virtual-list-virtua-over-tanstack-and-svelte-virtuallists.md)
 - [0006 — Search: FlexSearch, with local embeddings as an opt-in](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md)
+- [0007 — Presence liveness is owned by the client, not the protocol](docs/adr/0007-presence-liveness-is-owned-by-the-client.md)
+- [0008 — Connection liveness: nudge the socket, never call disconnect()](docs/adr/0008-connection-liveness-nudge-not-reconnect.md)
 
 ## Engineering notes
 

@@ -8,6 +8,7 @@ import { browser } from '$app/environment';
 import YProvider from 'y-partyserver/provider';
 import { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
+import { watchConnection, type ConnectionState } from './connection.svelte.js';
 
 /**
  * The party name the relay is reachable at.
@@ -19,7 +20,7 @@ import type * as Y from 'yjs';
  */
 export const RELAY_PARTY = 'y-doc-room';
 
-export type ConnectionState = 'offline' | 'connecting' | 'connected';
+export type { ConnectionState };
 
 export interface RelayConnection {
 	readonly provider: YProvider | null;
@@ -40,6 +41,12 @@ interface StatusEvent {
 
 export interface RelayHandlers {
 	onConnection(state: ConnectionState): void;
+	/**
+	 * A signal certain enough to skip whatever debouncing the caller applies to `onConnection`
+	 * — today that means the browser itself reporting no network, which the user's own wifi
+	 * icon already agrees with, unlike an ordinary retry blip.
+	 */
+	onOffline(): void;
 	/** Fires with true once the relay and this client have exchanged state. */
 	onSynced(synced: boolean): void;
 }
@@ -75,6 +82,10 @@ export function attachRelay(
 	// tests, and this value is a build-time deployment fact anyway.
 	const host = import.meta.env.PUBLIC_RELAY_HOST?.trim();
 	if (!browser || !host) {
+		// Nothing is wrong here — there is simply nothing to connect to. Reported explicitly
+		// rather than left as the `#connection` field's default, so 'local' actually reaches
+		// the UI instead of being indistinguishable from a relay that failed to connect.
+		handlers.onConnection('local');
 		return { provider: null, awareness, destroy: () => awareness.destroy() };
 	}
 
@@ -91,10 +102,16 @@ export function attachRelay(
 	provider.on('connection-error', () => handlers.onConnection('offline'));
 	provider.on('synced', (synced: boolean) => handlers.onSynced(synced));
 
+	// The two certain-or-cheap signals this stack has for a socket the library itself will
+	// not notice is dead — see connection.svelte.ts for why this is not a periodic watchdog
+	// and does not call `disconnect()`.
+	const unwatch = watchConnection(provider, awareness, handlers.onOffline);
+
 	return {
 		provider,
 		awareness,
 		destroy() {
+			unwatch();
 			// Before the doc is destroyed, not after: the provider only registers a `doc.update`
 			// handler and does not tear itself down on `doc.destroy()`, so a socket left open
 			// would apply an inbound sync message to a destroyed document.

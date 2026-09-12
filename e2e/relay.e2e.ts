@@ -131,6 +131,220 @@ test('edits made while cut off from the relay converge once it is reachable', as
 	await Promise.all([aliceContext.close(), bob.context().close()]);
 });
 
+test('a socket cut mid-session recovers on its own, and both sides converge without a reload', async ({
+	browser
+}) => {
+	// The existing offline test above proves persistence: it reloads, so what converges could
+	// just as easily have come from IndexedDB. This proves reconnection — the same live page,
+	// the same in-memory Y.Doc, no reload — by cutting an already-open, already-synced socket
+	// and waiting for the provider's own backoff to bring it back.
+	const workspaceId = room();
+	const bob = await openPeer(browser, workspaceId);
+
+	// `ws` is re-bound on every new WebSocket the page opens, including the reconnect this
+	// test waits for — routeWebSocket's handler fires fresh each time (verified against the
+	// installed Playwright: it re-invokes per socket, reconnects included).
+	let relayReachable = true;
+	const aliceContext = await browser.newContext();
+	let currentWs: Parameters<Parameters<typeof aliceContext.routeWebSocket>[1]>[0] | null = null;
+	await aliceContext.routeWebSocket(/\/parties\//, (ws) => {
+		currentWs = ws;
+		if (relayReachable) ws.connectToServer();
+		else ws.close();
+	});
+	await aliceContext.addInitScript(
+		([key, id]) => window.localStorage.setItem(key as string, id as string),
+		[WORKSPACE_STORAGE_KEY, workspaceId]
+	);
+	const alice = await aliceContext.newPage();
+	await alice.goto('/issues');
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+		timeout: 30_000
+	});
+
+	// The cut: block future connection attempts, then force the live one closed. Blocking
+	// alone would not be enough — the socket that is already open would just sit there,
+	// looking connected, until something actually severs it.
+	relayReachable = false;
+	await currentWs?.close();
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-connection', 'offline', {
+		timeout: 5_000
+	});
+
+	// Both sides write while apart — this is the case the AC actually names, not just one.
+	const aliceInput = alice.getByPlaceholder('Add an issue and press Enter…');
+	await aliceInput.fill("Written while Alice couldn't reach anyone");
+	await aliceInput.press('Enter');
+	const bobInput = bob.getByPlaceholder('Add an issue and press Enter…');
+	await bobInput.fill("Written while Bob couldn't reach Alice");
+	await bobInput.press('Enter');
+	await expect(
+		alice.getByRole('link', { name: "Written while Bob couldn't reach Alice" })
+	).toHaveCount(0);
+	await expect(
+		bob.getByRole('link', { name: "Written while Alice couldn't reach anyone" })
+	).toHaveCount(0);
+
+	// Reconnect and let the provider's own backoff do the rest — no reload anywhere below.
+	relayReachable = true;
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+		timeout: 30_000
+	});
+	await expect(
+		bob.getByRole('link', { name: "Written while Alice couldn't reach anyone" })
+	).toBeVisible({ timeout: 15_000 });
+	await expect(
+		alice.getByRole('link', { name: "Written while Bob couldn't reach Alice" })
+	).toBeVisible({ timeout: 15_000 });
+
+	await Promise.all([aliceContext.close(), bob.context().close()]);
+});
+
+test('editing the same field on both sides while apart converges to one value, not two', async ({
+	browser
+}) => {
+	// Yjs resolves a same-key conflict by comparing each edit's client id, which is a fresh
+	// random number per Y.Doc — so which side's text survives is not something this test (or
+	// the demo built on the same scenario, docs/DEMO.md) can predict or should assert. What
+	// must be true is that both browsers end up showing the exact same title, not each their
+	// own — a merge that silently forked would be far worse than one whose winner is a coin
+	// flip.
+	const workspaceId = room();
+	const bob = await openPeer(browser, workspaceId);
+
+	let relayReachable = true;
+	const aliceContext = await browser.newContext();
+	let currentWs: Parameters<Parameters<typeof aliceContext.routeWebSocket>[1]>[0] | null = null;
+	await aliceContext.routeWebSocket(/\/parties\//, (ws) => {
+		currentWs = ws;
+		if (relayReachable) ws.connectToServer();
+		else ws.close();
+	});
+	await aliceContext.addInitScript(
+		([key, id]) => window.localStorage.setItem(key as string, id as string),
+		[WORKSPACE_STORAGE_KEY, workspaceId]
+	);
+	const alice = await aliceContext.newPage();
+	await alice.goto('/issues');
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+		timeout: 30_000
+	});
+
+	// One issue, agreed on before the split, so both sides are editing the very same key.
+	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	await input.fill('Original title');
+	await input.press('Enter');
+	const link = bob.getByRole('link', { name: 'Original title' });
+	await expect(link).toBeVisible({ timeout: 10_000 });
+
+	relayReachable = false;
+	await currentWs?.close();
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-connection', 'offline', {
+		timeout: 5_000
+	});
+
+	// Alice edits it from the detail sheet.
+	await alice.getByRole('link', { name: 'Original title' }).click();
+	const aliceTitle = alice.getByTestId('issue-sheet').getByRole('textbox', { name: 'Title' });
+	await aliceTitle.fill("Alice's version");
+	await aliceTitle.press('Enter');
+
+	// Bob edits the very same field of the very same issue, while Alice cannot hear him.
+	await link.click();
+	const bobTitle = bob.getByTestId('issue-sheet').getByRole('textbox', { name: 'Title' });
+	await bobTitle.fill("Bob's version");
+	await bobTitle.press('Enter');
+
+	relayReachable = true;
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+		timeout: 30_000
+	});
+
+	// Convergence, not a predicted winner: both sides must show the same title within a few
+	// seconds of reconnecting, whichever text that turns out to be. Both values are read
+	// fresh on every poll and compared to each other, never against a value snapshotted
+	// before the poll started — Alice's own field can still change after reconnecting (her
+	// edit does not have to be the one that wins), so a stale snapshot of "what Alice showed
+	// when this poll began" is not the same question as "do they agree right now."
+	await expect
+		.poll(
+			async () => {
+				const [a, b] = await Promise.all([aliceTitle.inputValue(), bobTitle.inputValue()]);
+				return a === b ? 'converged' : `${a} !== ${b}`;
+			},
+			{ timeout: 15_000 }
+		)
+		.toBe('converged');
+
+	await Promise.all([aliceContext.close(), bob.context().close()]);
+});
+
+test('the browser reporting itself offline updates the status at once, and recovery does not wait out backoff', async ({
+	browser
+}) => {
+	// The one signal this module treats as certain rather than merely uncertain-and-dwelled:
+	// the browser's own online/offline events. `context.setOffline()` does not close an
+	// already-open socket by itself (verified against the installed Playwright), so what
+	// proves this path is specifically wired up is the status flipping straight to 'offline'
+	// well inside the 1.2s dwell an ordinary retry blip would sit behind.
+	const workspaceId = room();
+	const page = await openPeer(browser, workspaceId);
+	const status = page.getByTestId('relay-status');
+
+	const context = page.context();
+	await context.setOffline(true);
+	await expect(status).toHaveAttribute('data-connection', 'offline', { timeout: 800 });
+
+	// Local-first regardless: the edit lands even while the badge says offline.
+	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	await input.fill('Written the instant offline was reported');
+	await input.press('Enter');
+	await expect(
+		page.getByRole('link', { name: 'Written the instant offline was reported' })
+	).toBeVisible();
+
+	await context.setOffline(false);
+	await expect(status).toHaveAttribute('data-synced', 'true', { timeout: 15_000 });
+	await context.close();
+});
+
+test('two tabs of the same browser converge over BroadcastChannel even with the relay unreachable', async ({
+	browser
+}) => {
+	// Two pages in one context, per Phase 10's own established fact about this environment:
+	// they share both localStorage and a BroadcastChannel, which is what makes them the same
+	// person in two tabs rather than two people. The relay is routed to refuse every
+	// connection for the whole test, so nothing here can be mistaken for relay convergence —
+	// the only path an edit can travel is the provider's local BroadcastChannel, subscribed
+	// the moment it is constructed rather than once it actually connects.
+	const workspaceId = room();
+	const context = await browser.newContext();
+	await context.routeWebSocket(/\/parties\//, (ws) => ws.close());
+	await context.addInitScript(
+		([key, id]) => window.localStorage.setItem(key as string, id as string),
+		[WORKSPACE_STORAGE_KEY, workspaceId]
+	);
+
+	const tabOne = await context.newPage();
+	await tabOne.goto('/issues');
+	await expect(tabOne.getByTestId('relay-status')).toHaveAttribute('data-connection', 'offline', {
+		timeout: 10_000
+	});
+	const tabTwo = await context.newPage();
+	await tabTwo.goto('/issues');
+	await expect(tabTwo.getByText('No issues yet')).toBeVisible();
+
+	const input = tabOne.getByPlaceholder('Add an issue and press Enter…');
+	await input.fill('Seen in the other tab with no relay in reach');
+	await input.press('Enter');
+
+	await expect(
+		tabTwo.getByRole('link', { name: 'Seen in the other tab with no relay in reach' })
+	).toBeVisible({ timeout: 5_000 });
+
+	await context.close();
+});
+
 test('the relay keeps a workspace after every client has gone', async ({ browser }) => {
 	// The invariant hibernation endangers: the room's in-memory document is evicted, so what
 	// a later visitor sees has to come back from the Durable Object's own storage. Eviction

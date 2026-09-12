@@ -115,7 +115,7 @@
 			<div class="ml-auto flex items-center gap-2">
 				<PresenceBar {presence} />
 				<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
-				<RelayStatus {store} />
+				<RelayStatus {store} {presence} />
 				<ShareWorkspace {store} />
 				<ThemeToggle />
 			</div>
