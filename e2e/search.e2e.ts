@@ -119,6 +119,41 @@ test('search works with the network off', async ({ page, context }) => {
 	await expect(page.getByTestId('search-mode')).toContainText('Searching words');
 });
 
+test('meaning search runs entirely self-hosted, no request to Hugging Face or jsDelivr', async ({
+	page
+}) => {
+	// Phase 12: the model and the ONNX runtime are vendored as static assets
+	// (scripts/fetch-search-assets.mjs) precisely so this — the one time the app used to talk
+	// to anyone — no longer depends on either third party being reachable mid-demo. This is
+	// the regression test for that promise, not just a check that the feature still works.
+	test.setTimeout(90_000);
+	await seeded(page);
+
+	const thirdParty: string[] = [];
+	const selfHosted: string[] = [];
+	page.on('request', (request) => {
+		const url = request.url();
+		if (url.includes('huggingface') || url.includes('jsdelivr')) thirdParty.push(url);
+		if (url.includes('/models/') || url.includes('/ort/')) selfHosted.push(url);
+	});
+
+	const box = await openPalette(page);
+	await page.getByRole('button', { name: 'Add meaning search' }).click();
+	await expect(page.getByTestId('search-mode')).toContainText('Searching words and meaning', {
+		timeout: 60_000
+	});
+
+	expect(thirdParty, `unexpected third-party requests: ${thirdParty.join(', ')}`).toEqual([]);
+	expect(selfHosted.length).toBeGreaterThan(0);
+
+	// And it actually does what semantic search is for: finding a result that shares no
+	// distinctive words with the query, only its meaning.
+	await box.fill('people using assistive tech cannot rearrange cards');
+	await expect(hits(page).first()).toContainText('Board column drag is broken', {
+		timeout: 10_000
+	});
+});
+
 test('the index follows edits and deletions', async ({ page }) => {
 	await seeded(page);
 

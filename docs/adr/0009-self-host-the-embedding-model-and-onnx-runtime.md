@@ -1,0 +1,37 @@
+# 0009 — Self-host the embedding model and the ONNX runtime
+
+**Status:** Accepted
+**Date:** 2026-09-13
+
+## Context
+
+[ADR 0006](0006-search-flexsearch-lexical-with-optional-local-embeddings.md) accepted two third-party dependencies as the cost of optional semantic search: the model (`Xenova/all-MiniLM-L6-v2`) comes from Hugging Face, and the ONNX runtime that executes it comes from jsDelivr. It flagged both for revisiting in Phase 12, alongside a related fact: Vite's bundler already copies a 22.5 MB ONNX WASM binary into the build (`onnxruntime-web` references it via `new URL`), and that copy is never served — the runtime fetches its own from jsDelivr instead, making the bundled copy pure dead weight.
+
+Given this project's standing priority is a demo that keeps working rather than one that ships fastest, a live demo's search feature depending on two external services being reachable at the exact moment someone clicks "Add meaning search" is a real fragility, not a hypothetical one. The user chose the maximal fix: vendor both the model and the runtime so semantic search has no third-party dependency at all, not even a one-time one.
+
+## Verified before building it
+
+- The exact files a warm-up fetches, traced empirically (Playwright network logging against the real app, not read off documentation): `config.json`, `tokenizer_config.json`, `tokenizer.json`, and `onnx/model_quantized.onnx` from `huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/…`, plus `ort-wasm-simd-threaded.asyncify.{wasm,mjs}` from jsDelivr's `onnxruntime-web` package. The `.onnx` file is ~21.9 MB, the `.wasm` ~22.5 MB — both under Cloudflare's 25 MiB per-file limit, confirmed against [the current platform limits](https://developers.cloudflare.com/workers/platform/limits/index.md), which also states no total-size cap for static assets on the free plan (20,000-file limit, nowhere close).
+- `@huggingface/transformers`' `env.localModelPath` resolves a file at `pathJoin(env.localModelPath, repoId, filename)` (`utils/hub.js`), so `env.localModelPath = '/models/'` makes `Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx` resolve to `/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx` — a plain, predictable static path.
+- With `env.allowLocalModels = true`, a local file is tried first; only a 404 or thrown error falls through to remote fetching — and only if `env.allowRemoteModels` is still `true`. Setting it `false` turns a missing or misnamed local file into a loud failure instead of a silent trip to Hugging Face, which is the difference between a promise and a preference.
+- `onnxruntime-web` is a _transitive_ dependency (through `@huggingface/transformers`), so pnpm never hoists it where a plain `require.resolve('onnxruntime-web/…')` from a repo-root script could find it — and its own `package.json` refuses subpath resolution outside its declared `exports`. Resolving a real entry file scoped to `@huggingface/transformers`' own resolution, then deriving the package root from that path, is what `scripts/fetch-search-assets.mjs` actually does; it does not fetch the runtime from jsDelivr at all, it copies it from `node_modules`, which is guaranteed byte-identical to what npm and jsDelivr both serve for that exact installed version.
+
+## Decision
+
+`scripts/fetch-search-assets.mjs` vendors both into `static/`: the four Hugging Face files fetched once over plain HTTP, the two `onnxruntime-web` files copied from the already-installed package. Neither is committed to git — `static/models/` and `static/ort/` are gitignored, and the ~46 MB of binary weights live only where a build actually needs them: fetched once per developer machine (`pnpm fetch:search-assets`) and once per CI run (cached by model id across runs that don't change it).
+
+`search/worker.ts`'s `warm()` sets `env.allowLocalModels = true`, `env.allowRemoteModels = false`, `env.localModelPath = '/models/'`, and `env.backends.onnx.wasm.wasmPaths = '/ort/'` before constructing the pipeline.
+
+## Consequences
+
+- **A live demo's semantic search never depends on Hugging Face or jsDelivr being reachable**, at build time or at runtime. `search.e2e.ts` has a standing regression test for exactly this: it watches every request during warm-up and asserts none reaches either host.
+- **The repository stays free of committed binary weights.** The tradeoff is a required setup step (`pnpm fetch:search-assets`) before the first build that needs semantic search — undiscoverable by a stray `git clone`, which is why it is called out in `AGENTS.md`, `docs/DEPLOY.md`, and this ADR rather than left to be found the hard way. A build without it still works: `warm()`'s existing degrade-to-lexical path is exactly what a missing local file falls into, since `allowRemoteModels = false` forbids the alternative of silently reaching the network instead.
+- **A real, pre-existing bug surfaced while verifying this**, unrelated to where the files live: fetching ~46 MB over one connection has room to fail for reasons that have nothing to do with self-hosting (confirmed by re-running the same warm-up repeatedly: roughly one run in three threw a generic `network error`). Before this work, that failure was permanent — nothing retried, and the palette's `'failed'` state had no way back to `'loading'` short of a full page reload. `warm()` now retries twice with a short backoff, and the palette gained a "Try again" button, because `warm()`'s own re-entrancy guard already permits calling it again once `semantic === 'failed'`.
+- **A second, independent bug surfaced the same way**: `transformers.js`'s `progress_callback` reports a 0–100 percentage (`readResponse`: `progress = (loaded / total) * 100`), not the 0–1 this app's own protocol documents. Passed through unconverted, the loading indicator would briefly show "10000%". Fixed at the one place that reads the library's value.
+- **The dead 22.5 MB WASM asset is no longer dead.** It is now the same file `wasmPaths` points the runtime at — the copy Vite already had to emit (`onnxruntime-web` references it via `new URL`) is the one actually served, rather than a redundant fetch of the same bytes from jsDelivr.
+
+## Alternatives considered
+
+- **Suppress the dead WASM asset, leave the model on Hugging Face** — the minimal fix, and a real option: ADR 0006 already judged the third-party warm-up "a deliberate one-time cost behind an explicit click," not a defect. Not taken because the user asked for the fuller guarantee — zero third parties, not fewer bytes wasted.
+- **A build-time fetch with no cache**, i.e. downloading fresh on every `pnpm build`. Rejected: it would reintroduce the exact dependency being removed, just relocated from "a visitor's browser, live" to "a build machine, every single build" — still fragile, only moved.
+- **Committing the vendored files to git.** Would make a fresh clone fully self-contained with no setup step at all, at the cost of ~46 MB of binary weight in git history forever, growing with every future model or runtime bump. Rejected for repo hygiene; the setup step this trades for is one line in three places a developer or a deploy pipeline will actually read.

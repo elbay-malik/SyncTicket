@@ -125,3 +125,26 @@ describe('IssueStore.onChange', () => {
 		expect(total).toBe(50);
 	});
 });
+
+describe('IssueStore.seedDemo', () => {
+	it('never runs on its own — a brand-new store starts empty', () => {
+		// Phase 12's actual contract: the empty state's "Load example issues" button is the
+		// only caller of seedDemo(). `query.total === 0` is also true for a genuinely fresh
+		// workspace, and several e2e suites assert exactly that after nothing but
+		// `new IssueStore(...)` — if the constructor (or sessionWorkspaceId, or anything else
+		// on the construction path) ever called seedDemo() on its own, this is where that
+		// regression would be caught, rather than as a wave of unrelated e2e failures.
+		const store = makeStore();
+		expect(store.all).toHaveLength(0);
+	});
+
+	it('populates the workspace when asked, in one delta', () => {
+		const store = makeStore();
+		let batches = 0;
+		store.onChange(() => (batches += 1));
+		const ids = store.seedDemo();
+		expect(ids.length).toBeGreaterThan(0);
+		expect(store.all).toHaveLength(ids.length);
+		expect(batches).toBe(1);
+	});
+});

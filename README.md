@@ -10,7 +10,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 ## Status
 
-**Phase 11 of 13 complete — the app tells the truth about its connection, and proves it.** A socket that goes quiet without closing is now noticed and nudged back — never by calling the library's `disconnect()`, which turns out to permanently and silently kill multi-tab sync if you do ([ADR 0008](docs/adr/0008-connection-liveness-nudge-not-reconnect.md)) — and the header's connection popover says two independent things plainly: where the data lives, and who else currently has it. [docs/DEMO.md](docs/DEMO.md) is a two-minute, two-browser script — share a link, edit the same field from both sides at once, go offline, come back — and every word of it is also a Playwright test, so the document and the app cannot quietly drift apart. Next up is demo polish and the first real deploy (Phase 12). See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**Phase 12 of 13 — everything but the live deploy is done.** A fresh, still-empty workspace can now load a curated set of example issues with one click, semantic search is fully self-hosted (the embedding model and the ONNX runtime are vendored, not fetched from Hugging Face or jsDelivr — [ADR 0009](docs/adr/0009-self-host-the-embedding-model-and-onnx-runtime.md)), and both workers pass `wrangler deploy --dry-run` cleanly. The one thing left is the live `wrangler deploy` itself, which needs a Cloudflare account this environment doesn't have connected — [docs/DEPLOY.md](docs/DEPLOY.md) is the exact two-command runbook for whoever runs it. See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
 
 ## Architecture
 
@@ -57,7 +57,7 @@ pnpm preview                  # the BUILT worker under real workerd (wrangler de
 pnpm demo
 ```
 
-Open <http://localhost:5173/issues>. You land in a workspace of your own — the id is random and unguessable, because in demo mode knowing the link _is_ the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)). Press **Share** in the header to copy an invite link, open it in a different browser, and the two stay in step. A browser that was never given the link sees nothing.
+Open <http://localhost:5173/issues>. You land in a workspace of your own — the id is random and unguessable, because in demo mode knowing the link _is_ the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)). It starts empty; click **Load example issues** for a curated backlog to try search, filters and the board against immediately, rather than typing your own. Press **Share** in the header to copy an invite link, open it in a different browser, and the two stay in step. A browser that was never given the link sees nothing.
 
 Without a relay (`pnpm dev`) everything still works; it is simply local to that browser.
 
@@ -83,9 +83,12 @@ src/
 ├── routes/              SvelteKit routes (/ redirects to /issues; /issues/[id] is the detail sheet; /board)
 workers/
 └── relay/               separate Worker: the Yjs Durable Object room server
+scripts/
+└── fetch-search-assets.mjs   vendors the embedding model + ONNX runtime (ADR 0009)
 docs/
 ├── ROADMAP.md           13-phase plan with acceptance criteria
 ├── DEMO.md              the two-browser walkthrough, mirrored by e2e/demo.e2e.ts
+├── DEPLOY.md            the runbook for a real `wrangler deploy` of both workers
 └── adr/                 architecture decision records
 ```
 
@@ -101,6 +104,7 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - [0006 — Search: FlexSearch, with local embeddings as an opt-in](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md)
 - [0007 — Presence liveness is owned by the client, not the protocol](docs/adr/0007-presence-liveness-is-owned-by-the-client.md)
 - [0008 — Connection liveness: nudge the socket, never call disconnect()](docs/adr/0008-connection-liveness-nudge-not-reconnect.md)
+- [0009 — Self-host the embedding model and the ONNX runtime](docs/adr/0009-self-host-the-embedding-model-and-onnx-runtime.md)
 
 ## Engineering notes
 

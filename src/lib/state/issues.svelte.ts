@@ -17,7 +17,7 @@ import {
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
 import { createDoc, getIssuesMap, type YIssue } from '$lib/sync/doc.js';
 import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib/sync/issues.js';
-import { seedIssues, type SeedOptions } from '$lib/sync/seed.js';
+import { seedIssues, seedDemoIssues, type SeedOptions } from '$lib/sync/seed.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
 import { attachRelay, type RelayConnection } from '$lib/sync/provider.js';
 import { ConnectionStatus, type ConnectionState } from '$lib/sync/connection.svelte.js';
@@ -197,9 +197,14 @@ export class IssueStore {
 		for (const listener of this.#listeners) listener(delta);
 	}
 
-	/** Bulk-appends generated issues in one transaction. Benchmarks now, demo data later. */
+	/** Bulk-appends generated issues in one transaction, for benchmarking at scale. */
 	seed(count: number, options?: SeedOptions): string[] {
 		return seedIssues(this.#map, count, options);
+	}
+
+	/** Appends a small curated backlog. Called only from the empty state's own button. */
+	seedDemo(): string[] {
+		return seedDemoIssues(this.#map);
 	}
 
 	destroy(): void {

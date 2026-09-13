@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ISSUE_STATUSES } from '$lib/model/issue.js';
 import { createDoc, getIssuesMap } from './doc.js';
 import { createIssue, readAllIssues } from './issues.js';
-import { seedIssues } from './seed.js';
+import { seedDemoIssues, seedIssues } from './seed.js';
 
 describe('seedIssues', () => {
 	it('creates the requested number of well-formed issues', () => {
@@ -61,6 +61,59 @@ describe('seedIssues', () => {
 		doc.on('update', () => (updates += 1));
 		seedIssues(map, 10_000, { seed: 5 });
 		expect(readAllIssues(map)).toHaveLength(10_000);
+		expect(updates).toBe(1);
+	});
+});
+
+describe('seedDemoIssues', () => {
+	it('creates a small, well-formed, human-written backlog', () => {
+		const map = getIssuesMap(createDoc());
+		const ids = seedDemoIssues(map);
+		// More than a couple, few enough that a first-time visitor can look at every one.
+		expect(ids.length).toBeGreaterThan(8);
+		expect(ids.length).toBeLessThan(30);
+
+		const issues = readAllIssues(map);
+		expect(issues).toHaveLength(ids.length);
+		for (const issue of issues) {
+			expect(issue.title.length).toBeGreaterThan(0);
+			// Nothing that reads as generated filler — no "#3"-style benchmark suffix.
+			expect(issue.title).not.toMatch(/#\d+$/);
+			expect(ISSUE_STATUSES).toContain(issue.status);
+			expect(issue.order).not.toBe('');
+		}
+	});
+
+	it('spans every status, so the board looks populated rather than lopsided', () => {
+		const map = getIssuesMap(createDoc());
+		seedDemoIssues(map);
+		const statuses = new Set(readAllIssues(map).map((issue) => issue.status));
+		for (const status of ISSUE_STATUSES) expect(statuses.has(status)).toBe(true);
+	});
+
+	it('assigns strictly increasing, unique order keys', () => {
+		const map = getIssuesMap(createDoc());
+		seedDemoIssues(map);
+		const orders = readAllIssues(map).map((issue) => issue.order);
+		expect(orders).toEqual([...orders].sort());
+		expect(new Set(orders).size).toBe(orders.length);
+	});
+
+	it('appends after existing issues instead of interleaving', () => {
+		const map = getIssuesMap(createDoc());
+		const first = createIssue(map, { title: 'Existing' });
+		const existingOrder = readAllIssues(map).find((i) => i.id === first)?.order ?? '';
+		seedDemoIssues(map);
+		const seeded = readAllIssues(map).filter((issue) => issue.id !== first);
+		for (const issue of seeded) expect(issue.order > existingOrder).toBe(true);
+	});
+
+	it('writes everything in one transaction', () => {
+		const doc = createDoc();
+		const map = getIssuesMap(doc);
+		let updates = 0;
+		doc.on('update', () => (updates += 1));
+		seedDemoIssues(map);
 		expect(updates).toBe(1);
 	});
 });

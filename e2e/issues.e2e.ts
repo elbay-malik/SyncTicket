@@ -208,3 +208,23 @@ test('a detail sheet URL can be shared and reloaded', async ({ page, workspaceDb
 	await expect(page).toHaveURL(/\/issues$/);
 	await expect(page.getByRole('link', { name: 'Deep linked' })).toBeVisible();
 });
+
+test('the empty state can seed itself with example issues, on request only', async ({ page }) => {
+	await page.goto('/issues');
+	await expect(page.getByText('No issues yet')).toBeVisible();
+
+	await page.getByRole('button', { name: 'Load example issues' }).click();
+	await expect(page.getByText('No issues yet')).toHaveCount(0);
+	await expect(page.getByRole('link', { name: /Board column drag is broken/ })).toBeVisible();
+	// The list is virtualized, so a DOM count is only ever "how many fit in the viewport" —
+	// what actually matters is that reloading renders exactly as many, proving the seeded
+	// issues are real, persisted data rather than a one-off view.
+	const rowCount = await page.getByRole('listitem').count();
+	expect(rowCount).toBeGreaterThan(0);
+
+	// Survives a reload like anything else the user does — it is real, ordinary local data
+	// from here on, not a special demo mode.
+	await page.reload();
+	await expect(page.getByRole('link', { name: /Board column drag is broken/ })).toBeVisible();
+	await expect(page.getByRole('listitem')).toHaveCount(rowCount);
+});

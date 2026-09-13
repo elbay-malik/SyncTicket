@@ -30,3 +30,8 @@ vite.config.ts.timestamp-*
 test-results
 playwright-report
 blob-report
+
+# Vendored search assets (Phase 12): ~46 MB of model + ONNX runtime binaries, fetched by
+# `pnpm fetch:search-assets` rather than committed — see scripts/fetch-search-assets.mjs.
+/static/models/
+/static/ort/

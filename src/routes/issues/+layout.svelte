@@ -8,6 +8,7 @@
 	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
 	import ListFilterIcon from '@lucide/svelte/icons/list-filter';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import { afterNavigate, preloadCode } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ISSUE_STATUSES, STATUS_META } from '$lib/model/issue.js';
@@ -200,6 +201,10 @@
 					Add one above — it's stored entirely in your browser (local-first, offline-ready) and
 					reappears after a reload.
 				</p>
+				<Button variant="outline" size="sm" onclick={() => store.seedDemo()}>
+					<SparklesIcon />
+					Load example issues
+				</Button>
 			{:else}
 				<p class="text-base font-medium">No matching issues</p>
 				<p class="text-muted-foreground max-w-sm text-sm">

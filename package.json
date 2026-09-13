@@ -19,6 +19,7 @@
 		"test": "pnpm test:unit --run",
 		"test:unit": "vitest",
 		"cf-typegen": "wrangler types",
+		"fetch:search-assets": "node scripts/fetch-search-assets.mjs",
 		"deploy": "pnpm build && wrangler deploy"
 	},
 	"devDependencies": {

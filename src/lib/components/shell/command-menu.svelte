@@ -174,6 +174,10 @@
 			<span>Loading the language model… {Math.round(search.progress * 100)}%</span>
 		{:else if search.semantic === 'failed'}
 			<span>Meaning search unavailable; searching words</span>
+			<Button variant="ghost" size="xs" class="ml-auto" onclick={() => search.warm()}>
+				<SparklesIcon />
+				Try again
+			</Button>
 		{:else}
 			<span>Searching words</span>
 			<Button variant="ghost" size="xs" class="ml-auto" onclick={() => search.warm()}>

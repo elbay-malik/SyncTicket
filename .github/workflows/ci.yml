@@ -35,6 +35,21 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm exec playwright install chromium --with-deps
 
+      # Vendors the embedding model + ONNX runtime (scripts/fetch-search-assets.mjs) so
+      # semantic search is fully self-hosted, in CI too — ADR 0006's "no test may download
+      # the model" is exactly what this replaces: it's no longer a third-party fetch at
+      # search time, only a one-time vendoring step, cached across runs by model version.
+      # Must run before both the e2e step below (its webServer build copies `static/`) and
+      # the standalone build step further down.
+      - name: Cache self-hosted search assets
+        uses: actions/cache@v4
+        with:
+          path: static/models
+          key: search-model-Xenova-all-MiniLM-L6-v2-q8
+
+      - name: Fetch self-hosted search assets (model + ONNX runtime)
+        run: pnpm fetch:search-assets
+
       - name: Unit & component tests (Vitest)
         run: pnpm test:unit --run
 
