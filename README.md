@@ -6,41 +6,64 @@
 
 ## Why this exists
 
-SyncTicket is a portfolio project that takes the hard parts of a Linear-class issue tracker seriously: the browser owns the data (CRDTs in IndexedDB, not a cache of a server), real-time collaboration rides on a Cloudflare Durable Object relay that costs 0 €, and search — lexical and semantic — runs entirely client-side. The interesting problems here are sync, offline correctness, and in-browser ML, not CRUD forms.
+SyncTicket is a portfolio project that takes the hard parts of a Linear-class issue tracker seriously: the browser owns the data (CRDTs in IndexedDB, not a cache of a server), real-time collaboration rides on a Cloudflare Durable Object relay that costs 0 €, presence and connection state tell the truth even when the underlying libraries won't do it for free, and search — lexical and semantic — runs entirely client-side with zero third-party dependency, even for the model. The interesting problems here are sync, offline correctness, distributed liveness, and in-browser ML, not CRUD forms.
 
 ## Status
 
-**Phase 12 of 13 — everything but the live deploy is done.** A fresh, still-empty workspace can now load a curated set of example issues with one click, semantic search is fully self-hosted (the embedding model and the ONNX runtime are vendored, not fetched from Hugging Face or jsDelivr — [ADR 0009](docs/adr/0009-self-host-the-embedding-model-and-onnx-runtime.md)), and both workers pass `wrangler deploy --dry-run` cleanly. The one thing left is the live `wrangler deploy` itself, which needs a Cloudflare account this environment doesn't have connected — [docs/DEPLOY.md](docs/DEPLOY.md) is the exact two-command runbook for whoever runs it. See [docs/ROADMAP.md](docs/ROADMAP.md) for the execution plan with acceptance criteria per phase.
+**All 13 phases done but one.** Every engineering decision below is complete, tested, and current — presence, connection resilience, and a fully self-hosted demo all shipped in Phases 10–12. The one thing left is the live `wrangler deploy` of both workers: it needs a Cloudflare account this environment has never had connected (confirmed with `wrangler whoami`, not assumed), and that is an authentication step an agent session should not take on a user's behalf without being asked. Both workers already pass `wrangler deploy --dry-run` cleanly; [docs/DEPLOY.md](docs/DEPLOY.md) is the exact two-command runbook for whoever has the credentials to finish it. See [docs/ROADMAP.md](docs/ROADMAP.md) for the full 13-phase plan with acceptance criteria per phase.
 
 ## Architecture
 
-The solid path is live as of Phase 3; the dashed relay arrives in Phase 9:
+The CRDT-to-runes path has been live since Phase 3; the relay since Phase 9. Both are load-bearing today, not aspirational:
 
 ```mermaid
 flowchart LR
     UI["UI (Svelte 5 runes)"] <--> Bridge[".svelte.ts bridge"]
     Bridge <--> Doc["Y.Doc (CRDT)"]
     Doc <--> IDB[("y-indexeddb")]
-    Doc -.->|"Phase 9"| PS["partysocket"]
-    PS -.-> DO["DO relay (hibernating, SQLite)"]
+    Doc <-->|"WebSocket"| Provider["y-partyserver/provider"]
+    Provider <--> DO["Durable Object relay\n(hibernating, SQLite)"]
 ```
 
-The Yjs document persisted in IndexedDB is the source of truth; the server (later) is a thin, replaceable websocket relay. Every mutation is local-first and instant by construction — merging and offline queueing come from the CRDT, not hand-rolled sync code. (Live multi-tab convergence needs a relay configured, even one that is currently unreachable: y-indexeddb 9.0.12 has no BroadcastChannel of its own, but the relay provider carries one, subscribed the moment it is constructed rather than once it actually connects — so two tabs of the same browser converge instantly through it, offline or not. With no relay configured at all, a second tab only picks up changes on reload.)
+The Yjs document persisted in IndexedDB is the source of truth; the relay is a thin, replaceable websocket server that exists to let two browsers find out about each other's edits. Every mutation is local-first and instant by construction — merging and offline queueing come from the CRDT, not hand-rolled sync code. (Live multi-tab convergence needs a relay configured, even one that is currently unreachable: y-indexeddb 9.0.12 has no BroadcastChannel of its own, but the relay provider carries one, subscribed the moment it is constructed rather than once it actually connects — so two tabs of the same browser converge instantly through it, offline or not. With no relay configured at all, a second tab only picks up changes on reload.)
+
+What makes the relay worth a diagram of its own is what happens when nobody is using it. A Cloudflare Durable Object bills for the time it is resident in memory, not for existing, so an idle room needs to actually be evicted to cost nothing — and Workers' WebSocket Hibernation is what lets that happen while a socket stays technically open:
+
+```mermaid
+flowchart TB
+    subgraph BrowserA["Browser A"]
+        DocA["Y.Doc"] <--> IDBA[("IndexedDB")]
+    end
+    subgraph BrowserB["Browser B"]
+        DocB["Y.Doc"] <--> IDBB[("IndexedDB")]
+    end
+    DocA <-->|"WebSocket"| DO["Durable Object\n(one room, one workspace)"]
+    DocB <-->|"WebSocket"| DO
+    DO -->|"onSave (debounced)"| SQL[("SQLite\nDO storage")]
+    SQL -->|"onLoad, after eviction"| DO
+```
+
+The instance's in-memory state — including the live `Y.Doc` and the awareness map that drives presence — is exactly what hibernation evicts, so both have to be reconstructible from the DO's own SQLite table rather than assumed to survive. That single fact turned out to explain three separate bugs across three phases: `onLoad` has to rebuild the document from storage (Phase 9), a woken instance's awareness map starts empty so presence needs its own liveness rather than trusting the protocol's (Phase 10), and a connection that goes quiet without closing needs a client-side nudge because the library never notices on its own (Phase 11). See the engineering notes below for each.
 
 ## Tech stack
 
-| Choice                                      | Version     | Why                                                              | Decision                                                                |
-| ------------------------------------------- | ----------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Svelte 5 + SvelteKit 2                      | 5.56 / 2.69 | Runes map cleanly onto a CRDT-observing state bridge             | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)   |
-| Tailwind v4 + shadcn-svelte                 | 4.3 / 1.3   | CSS-first theming; components are owned code, not a dependency   | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)   |
-| Yjs + y-indexeddb                           | 13.6 / 9.0  | Production-default CRDT; offline writes and conflict-free merges | [ADR 0001](docs/adr/0001-sync-engine-yjs-over-electricsql-and-zero.md)  |
-| Cloudflare Workers + Durable Objects (free) | —           | Hibernating websocket relay at 0 €                               | [ADR 0002](docs/adr/0002-deploy-target-cloudflare-workers-free-plan.md) |
-| No-auth capability URLs                     | —           | Share-a-link collaboration for the demo                          | [ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)             |
+| Choice                                      | Version     | Why                                                                               | Decision                                                                                                                                                           |
+| ------------------------------------------- | ----------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Svelte 5 + SvelteKit 2                      | 5.56 / 2.69 | Runes map cleanly onto a CRDT-observing state bridge                              | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)                                                                                              |
+| Tailwind v4 + shadcn-svelte                 | 4.3 / 1.3   | CSS-first theming; components are owned code, not a dependency                    | [ADR 0003](docs/adr/0003-ui-stack-svelte5-tailwind4-shadcn-svelte.md)                                                                                              |
+| Yjs + y-indexeddb                           | 13.6 / 9.0  | Production-default CRDT; offline writes and conflict-free merges                  | [ADR 0001](docs/adr/0001-sync-engine-yjs-over-electricsql-and-zero.md)                                                                                             |
+| Cloudflare Workers + Durable Objects (free) | —           | Hibernating websocket relay at 0 €                                                | [ADR 0002](docs/adr/0002-deploy-target-cloudflare-workers-free-plan.md)                                                                                            |
+| No-auth capability URLs                     | —           | Share-a-link collaboration for the demo                                           | [ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)                                                                                                        |
+| virtua                                      | 0.51        | Runes-native virtualization; a real `<li>`/`<ul>` for assistive tech              | [ADR 0005](docs/adr/0005-virtual-list-virtua-over-tanstack-and-svelte-virtuallists.md)                                                                             |
+| FlexSearch + optional local embeddings      | 0.8 / 4.2   | Sub-millisecond lexical search at 10k issues; semantic search opt-in, self-hosted | [ADR 0006](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md), [ADR 0009](docs/adr/0009-self-host-the-embedding-model-and-onnx-runtime.md) |
 
 ## Getting started
 
 ```sh
 pnpm install
+pnpm fetch:search-assets      # optional — vendors the embedding model + ONNX runtime (~46 MB,
+                               # gitignored) so "Add meaning search" works; skip if you only
+                               # want lexical search, which needs nothing extra (ADR 0009)
 pnpm demo                     # relay + app together, with live sync on (recommended)
 pnpm dev                      # app only, local-first, no relay
 pnpm check                    # wrangler types --check + svelte-check (TS strict)
@@ -108,7 +131,7 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 
 ## Engineering notes
 
-<!-- Per-phase writeups accumulate here (measured numbers, tradeoffs, surprises); this section becomes the whitepaper body in Phase 13. -->
+Per-phase writeups: measured numbers, tradeoffs, and the surprises that only showed up once real code ran against a real installed package rather than its documentation. Read straight through, this is the whitepaper — every architectural decision this project made, and why, without needing to open a single ADR (though each one is linked, for whoever wants the full context, the alternatives considered, and the consequences accepted).
 
 ### Phases 2–3 — CRDT core and the runes bridge
 
@@ -162,7 +185,17 @@ Ten thousand issues, measured in Chromium before changing anything:
 
 ### Phase 8 — search that never phones home
 
-- **The engine was chosen on the query that matters, not the average one.** Two libraries were measured over 10,000 issues. MiniSearch has the better API and updates its index thirteen times faster, which counts when the corpus is a live CRDT — but it scores every match, so a single-letter first keystroke costs 3.96 ms against FlexSearch's 0.005 ms, and that gap grows with the corpus. FlexSearch stops once it has enough ([ADR 0006](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md)).
+Two lexical engines, measured over 10,000 generated issues in Node before choosing between them (title + description, the same corpus the app indexes):
+
+| Measurement (10,000 issues)            | MiniSearch 7.2.0 | FlexSearch 0.8.212 |
+| -------------------------------------- | ---------------- | ------------------ |
+| Build the index                        | 49 ms            | 101 ms             |
+| Query `notif`, top 20                  | 0.48 ms          | 0.008 ms           |
+| Query `issue` (matches every document) | 2.38 ms          | 0.011 ms           |
+| Query `s` — the first keystroke        | 3.96 ms          | **0.005 ms**       |
+| Update one document                    | 0.10 ms          | 1.3 ms             |
+
+- **The engine was chosen on the query that matters, not the average one.** MiniSearch has the better API and updates its index thirteen times faster, which counts when the corpus is a live CRDT — but it scores every match and hands back a sorted array, where FlexSearch stops once it has enough. A type-ahead's very first keystroke is a single letter matching nearly everything, which is exactly where that structural difference is largest, and it grows with the corpus ([ADR 0006](docs/adr/0006-search-flexsearch-lexical-with-optional-local-embeddings.md)).
 - **Title and description are indexed as one field, and the title again.** FlexSearch needs every term of a query to appear in the same field, so indexing the two separately makes "sync offline" return nothing when the words are split across them — worse than the substring filter it replaces. Indexing the title on its own as well is what keeps title matches ranked first. Its `limit` is per field too, so asking for twenty results without merging returns forty.
 - **"No network at query time" is asserted, not claimed.** An end-to-end test records every request the page makes while five queries are typed and asserts the list is empty; another turns the network off and searches anyway.
 - **The lazy import was nearly a lie.** Vite's default worker format cannot code-split, so it silently inlines dynamic imports — the embedding library would have shipped to every visitor the moment the search worker started, opt-in or not. One line of config (`worker: { format: 'es' }`) is the difference between a 51 KB worker and a 500 KB one.
@@ -175,8 +208,31 @@ Ten thousand issues, measured in Chromium before changing anything:
 - **A party name decided whether anything worked.** partyserver derives the URL namespace by kebab-casing the Durable Object _binding_ name, while the client provider defaults to a party called `main`. With the binding `YDocRoom` the only reachable path is `/parties/y-doc-room/<workspace>`, and the default answers HTTP 400 — a mismatch that would have looked like a hang rather than an error. Probing the running relay confirmed all three cases before a line of client code was written.
 - **Hibernation is what makes an idle room free, and what makes persistence load-bearing.** Eviction takes the in-memory document with it, so `onLoad` rebuilds from the room's own SQLite table and `onSave` writes it back. The save debounce is shortened from the default 2 s / 10 s, because that is a long time to hold the only copy of a change in memory that is about to be discarded.
 - **A relay forced workspace identity to land early.** Until now each test was isolated because each browser context started with an empty IndexedDB. A shared relay room removes that: every test would join the same room and inherit the others' issues, and the room's storage outlives the process, so the second local run would start dirty. Workspaces are now identified by an id carried in the URL and remembered, which is also the first step toward the capability URL in [ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md).
-- **The sub-second claim is measured, not asserted once.** A single timing sample on a shared runner is a coin flip, so the test takes five round trips and judges the median, attaching the samples to the report. The individual ceilings stay generous, so a slow machine fails slowly rather than falsely.
+- **The sub-second claim is measured, not asserted once.** A single timing sample on a shared runner is a coin flip, so the test takes five round trips and judges the median, attaching the samples to the report. Same-machine against a local relay, five separate runs: medians of 29 ms, 30 ms, 30 ms, individual samples never above 36 ms — two orders of magnitude under the acceptance criterion, with the actual internet round trip between two real browsers the only thing separating this from a production number. The individual ceilings stay generous, so a slow machine fails slowly rather than falsely.
 - **The offline test had to be made honest.** Playwright's offline mode does not close a socket that is already open, so the first version synced anyway and proved nothing. It now blocks the relay at the WebSocket route, writes while genuinely cut off, verifies the other browser sees nothing, then lets the relay through and watches it converge.
+
+### Phase 10 — presence, in a stack that expires nothing on its own
+
+- **The protocol's own 30-second sweep never runs.** `y-protocols` documents that an awareness state not refreshed within 30 seconds gets dropped automatically. It doesn't, here: `y-partyserver` clears the interval that would drive that sweep, on both the client and the server. A peer that closes its socket cleanly is still removed immediately — the protocol handles that much on its own — but one that vanishes without closing it, a closed laptop lid or a yanked cable, was shown as present forever, not for thirty seconds.
+- **Hibernation makes the gap worse, not just present.** Evicting a Durable Object's memory — the same eviction the architecture diagram above depends on for cost — also evicts its awareness map. A disconnect arriving after a wake removes a client the instance never knew about, broadcasts nothing, and the next joiner sees an empty room.
+- **The fix lives entirely on the client, and is careful about its own cost.** A 10-second heartbeat, gated on whether anyone else is known at all, so a solo tab still sends nothing and still lets the room hibernate; a 25-second staleness filter hides a peer who has stopped beating rather than waiting on the protocol to notice. Gating on the raw awareness map rather than the filtered peer list matters: two peers that briefly stop hearing each other keep beating regardless, and recover the moment one message gets through ([ADR 0007](docs/adr/0007-presence-liveness-is-owned-by-the-client.md)).
+- **A peer's own state is attacker-controlled, because anyone with the workspace link can write it.** Names are validated the same way whether they came from `localStorage` or the wire — control and bidi characters stripped, length capped. A peer's colour is transmitted as a hue number and rendered through `oklch()`, never as a string: a colour string interpolated into a style attribute is a CSS injection with a working network beacon on the end of it.
+- **Peers are keyed by a self-minted user id, not a Yjs client id**, so the same person open in three tabs is one avatar, not three, and reloading a tab doesn't remount it.
+
+### Phase 11 — the connection badge, and a bug in the fix for it
+
+- **The library never notices a half-open socket, on purpose or otherwise.** `y-partyserver`'s provider writes a `wsLastMessageReceived` timestamp on every inbound message and reads it back nowhere in the package — confirmed by grepping the whole installed file, not assumed. A socket that goes quiet without closing, the common shape of a real network problem, was reported connected and synced forever.
+- **The first fix for that was broken two ways, both caught before it shipped.** "Force a reconnect" by calling the provider's `disconnect()` then `connect()` does nothing useful: `connect()`'s guard is only satisfied once the socket's own asynchronous close handler runs, so the pair is a no-op for reconnection, and whatever eventually reconnects is the pre-existing backoff timer that would have fired anyway. Worse, `disconnect()` unconditionally kills BroadcastChannel, and nothing on the organic reconnect path resubscribes it — the first time that "watchdog" fired, it would have silently and permanently disabled local multi-tab sync. Both confirmed with a throwaway probe against the installed provider, not read off the type signatures.
+- **The actual fix never calls `disconnect()`.** It closes a suspect socket directly, which routes through the library's own already-correct cleanup and backoff, or calls `connect()` only when the provider is genuinely idle between attempts — never both, never the broken pair ([ADR 0008](docs/adr/0008-connection-liveness-nudge-not-reconnect.md)).
+- **The badge says two independently true things, not one.** "Saved on this device" is conditioned on whether IndexedDB actually opened rather than assumed — a private-mode window that silently loses everything on tab close has to say so. "Who else has it" is exhaustive over connection state × peer count, including the one case a naive `Shared with N others` template would render as nonsense: connected, synced, and genuinely alone.
+- **A raw retry loop would strobe the icon.** A relay that is simply unreachable retries on a capped exponential backoff — five transitions in the first 5.5 seconds, then one every 2.5 seconds. A transport-free state machine, tested with a synthetic event sequence rather than a real socket, holds a transition _into_ "offline" for 1.2 seconds in case the very next retry succeeds; every other transition, including a certain signal like the browser's own offline event, applies at once.
+
+### Phase 12 — a demo that fails safely
+
+- **Semantic search stopped depending on anyone else.** The embedding model and the ONNX runtime that executes it are vendored as static assets rather than fetched from Hugging Face and jsDelivr at demo time, with `env.allowRemoteModels = false` making that a guarantee rather than a preference — a missing local file fails loudly into lexical-only search instead of silently reaching the network ([ADR 0009](docs/adr/0009-self-host-the-embedding-model-and-onnx-runtime.md)).
+- **Verifying that surfaced two real bugs that had nothing to do with where the files lived.** Fetching ~46 MB over one connection failed transiently roughly one run in three in repeated testing, and that failure used to be permanent — nothing retried, and the palette's "unavailable" state had no way back except a full reload. It now retries twice with a short backoff, and gained a "Try again" button. Separately, the loading percentage was wrong by 100×: the library reports progress on a 0–100 scale, this app's own protocol documents 0–1, and passed through unconverted the indicator would flash "10000%" mid-load.
+- **The empty state can seed itself, but only when asked.** `query.total === 0` is also true of a workspace that is genuinely, permanently empty, and most of the e2e suite depends on that staying true after nothing but constructing a store — so "Load example issues" is a button, not something that happens to a fresh visitor automatically.
+- **Nobody in this session could run the last step.** `wrangler deploy` needs an authenticated Cloudflare account, and this environment has none connected — confirmed with `wrangler whoami` rather than assumed, and not something an agent session should authenticate on a user's behalf without being asked. Both workers pass `wrangler deploy --dry-run` cleanly; [docs/DEPLOY.md](docs/DEPLOY.md) is the exact two-command runbook for whoever has the credentials to finish it.
 
 ## License
 
