@@ -165,13 +165,25 @@ export class ConnectionStatus {
 	report(state: ConnectionState): void {
 		this.raw = state;
 		if (state === 'offline') {
-			if (this.#dwellTimer !== null) return;
+			if (this.#dwellTimer !== null || this.#displayed === 'offline') return;
 			this.#dwellTimer = setTimeout(() => {
 				this.#dwellTimer = null;
 				// The provider may have recovered while this was pending; only commit if
 				// 'offline' is still the latest word.
 				if (this.raw === 'offline') this.#displayed = 'offline';
 			}, OFFLINE_DWELL_MS);
+			return;
+		}
+		if (state === 'connecting') {
+			// 'connecting' is not good news — it only means another attempt is in flight, and
+			// a relay that is genuinely down emits one before every single retry. Letting it
+			// cancel a pending dwell, or pull the display back out of 'offline', is what made
+			// a real outage flap connecting↔offline roughly once a second for as long as it
+			// lasted — and the status live region announced "You're offline" / "Back online"
+			// on every one of those flips. Only a state we are actually sure of gets to
+			// change what the user sees.
+			if (this.#dwellTimer !== null || this.#displayed === 'offline') return;
+			this.#displayed = 'connecting';
 			return;
 		}
 		this.#cancelDwell();

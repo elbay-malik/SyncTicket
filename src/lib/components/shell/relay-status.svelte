@@ -40,6 +40,10 @@
 	$effect(() => {
 		const isOffline = store.connection === 'offline';
 		if (isOffline === announcedOffline) return;
+		// Recovery is announced only once the relay is genuinely back, never on a mere
+		// 'connecting' — otherwise an outage's retry loop would claim "Back online" over and
+		// over while nothing had connected at all.
+		if (!isOffline && store.connection !== 'connected') return;
 		announcedOffline = isOffline;
 		liveMessage = isOffline
 			? store.persisted

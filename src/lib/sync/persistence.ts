@@ -31,7 +31,22 @@ export function attachPersistence(doc: Y.Doc, workspaceId: string): WorkspacePer
 	const provider = new IndexeddbPersistence(workspaceDbName(workspaceId), doc);
 	return {
 		provider,
-		whenSynced: provider.whenSynced.then(() => undefined),
+		// Derived from *both* of y-indexeddb's signals, not just `whenSynced`.
+		//
+		// `whenSynced` is created resolve-only (`y-indexeddb.js:80` —
+		// `promise.create(resolve => this.on('synced', …))`, with no reject path), and the
+		// `openDB` failure it would need to hear about lands on the separate `_db` promise,
+		// which the library then `.then()`s without a `.catch` (`:82`). So a browser that
+		// refuses IndexedDB — blocked site data, a strict Firefox profile, a cross-site
+		// iframe under storage partitioning — produces an unhandled rejection and leaves
+		// `whenSynced` pending *forever*. Every caller of this promise gates its loading
+		// skeleton on it, so the whole app would hang on a spinner with no error and no way
+		// forward. Racing `_db`'s rejection against it is what makes the store's
+		// degrade-to-in-memory path reachable at all, and marks that rejection handled.
+		whenSynced: new Promise<void>((resolve, reject) => {
+			void provider.whenSynced.then(() => resolve());
+			provider._db.catch(reject);
+		}),
 		destroy: () => provider.destroy()
 	};
 }

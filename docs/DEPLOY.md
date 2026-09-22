@@ -67,19 +67,32 @@ This is not optional polish — a deploy that merely completes without error can
 broken in ways `wrangler deploy` cannot see (a wrong `PUBLIC_RELAY_HOST`, a Durable Object
 migration that did not apply). Confirm, in order:
 
-1. The header's connection popover reads "Local only" for a few seconds, then "Ready to
-   share — no one else here yet" (proves the relay is reachable and the workspace ID
-   round-tripped).
+1. Open the header's connection popover (the cloud icon). On a healthy deploy it reads
+   "Connecting…", briefly "Connected, syncing…", then settles on **"Ready to share — no one
+   else here yet"** — which proves the relay is reachable and the workspace id round-tripped.
 2. Click **Share**, open the copied link in a different browser or a private window, and
    create an issue in one — it should appear in the other within a second.
 3. `docs/DEMO.md`'s script, start to finish, in the deployed app rather than local dev.
 
-If step 1 gets stuck on "Local only" past a few seconds, `PUBLIC_RELAY_HOST` almost
-certainly was not set on the build that got deployed — rebuild and redeploy per step 2.
+If step 1 settles on anything else, the popover tells you which mistake you made:
+
+| What it says                       | Icon       | What it means                                                                                                                                                                                                                       |
+| ---------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Local only — no relay configured" | hard drive | `PUBLIC_RELAY_HOST` was **not set on the build that got deployed**. This state is never transient — a correctly-built app never shows it at all. Rebuild and redeploy per step 2.                                                   |
+| "Not shared — you're offline"      | cloud-off  | `PUBLIC_RELAY_HOST` was set but is **wrong or unreachable**. Check it against the relay's deploy output: `host[:port]` only, no `https://`, no trailing slash. Confirm `https://<relay-host>/` returns the text `syncticket relay`. |
 
 ## Redeploying later
 
-Same two commands, same order, whenever either worker's code changes:
+Once you know the relay's host, one command does both workers in the right order:
+
+```sh
+PUBLIC_RELAY_HOST=syncticket-relay.<your-subdomain>.workers.dev pnpm run deploy
+```
+
+That script deploys the relay, rebuilds the app with the host baked in, and deploys the app.
+It **refuses to run** if `PUBLIC_RELAY_HOST` is unset rather than quietly shipping a
+local-only build — which is the one mistake that produces an app that looks deployed and
+silently never syncs. The long form is the same thing spelled out:
 
 ```sh
 cd workers/relay && pnpm exec wrangler deploy && cd ../..

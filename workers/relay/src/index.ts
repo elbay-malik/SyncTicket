@@ -15,6 +15,7 @@ import {
 	readSnapshotSql,
 	writeSnapshotSql
 } from './storage.js';
+import { isRoutableRoom } from './rooms.js';
 
 export class YDocRoom extends YServer<Env> {
 	// Hibernation is what makes an idle room free: the instance is evicted, its memory with
@@ -62,7 +63,24 @@ export default {
 		// routePartykitRequest is async: awaiting it is what makes the fallback reachable at
 		// all, and without a fallback an unmatched path resolves to null, which workerd
 		// rejects outright.
-		const routed = await routePartykitRequest(request, env);
+		//
+		// The hooks below run *before* the Durable Object stub is fetched (partyserver
+		// `dist/index.js:527-538`; `idFromName` on :508 is pure id maths and creates
+		// nothing), which is the only place a room can be refused without having already
+		// made one.
+		const routed = await routePartykitRequest(request, env, {
+			onBeforeConnect(_req, lobby) {
+				if (!isRoutableRoom(lobby.name)) {
+					return new Response('unknown workspace', { status: 400 });
+				}
+			},
+			// Nothing legitimate reaches a room over plain HTTP — this relay speaks Yjs over
+			// WebSocket and nothing else — and letting one through would create the room as a
+			// side effect of answering 404.
+			onBeforeRequest() {
+				return new Response('Not found', { status: 404 });
+			}
+		});
 		if (routed) return routed;
 		// A plain 200 on the root keeps readiness checks (and humans) from seeing a 404.
 		if (new URL(request.url).pathname === '/') return new Response('syncticket relay');
