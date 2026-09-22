@@ -8,6 +8,12 @@
 // no business living in git history forever, and this script is the reproducible way to get
 // them back — on a fresh clone, in CI, or after `pnpm build` reports them missing.
 //
+// It also writes the license text next to each vendored tree. Serving a 23 MB model and a
+// 23 MB WASM runtime from our own origin makes every visitor a recipient of those works,
+// not just a user of our app — and because the vendored files are gitignored, a notice
+// that lived only in the repo would go missing exactly where it is owed. Generating it
+// here is the only way it cannot drift from what is actually shipped.
+//
 // The two onnxruntime-web files are *copied* from node_modules rather than fetched from
 // jsDelivr, deliberately: they are byte-identical to what the app already downloads
 // (npm and jsDelivr serve the exact same published package), and copying keeps them
@@ -45,6 +51,7 @@ function findOnnxRuntimeWebRoot() {
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const MODEL_DIR = join(root, 'static', 'models', MODEL_ID);
 const ORT_DIR = join(root, 'static', 'ort');
+const LICENSE_DIR = join(root, 'licenses');
 
 // Must match src/lib/search/worker.ts's `pipeline('feature-extraction', ..., { dtype: 'q8' })`
 // call exactly — a different dtype resolves to a different filename on Hugging Face's side.
@@ -106,14 +113,28 @@ async function copyOrtAsset(ortRoot, extension) {
 	console.log(`  copied ${filename} from node_modules (${size.toLocaleString()} bytes)`);
 }
 
+/**
+ * Copies a committed license text into a vendored directory, so the notice ships with the
+ * bytes it covers. See THIRD-PARTY-NOTICES.md for what each one applies to.
+ */
+async function writeLicense(destDir, sourceName) {
+	const dest = join(destDir, 'LICENSE.txt');
+	await mkdir(destDir, { recursive: true });
+	await copyFile(join(LICENSE_DIR, sourceName), dest);
+	console.log(`  wrote LICENSE.txt (${sourceName})`);
+}
+
 async function main() {
 	console.log(`Vendoring ${MODEL_ID} into ${MODEL_DIR}`);
 	for (const filename of MODEL_FILES) await fetchModelFile(filename);
+
+	await writeLicense(join(root, 'static', 'models'), 'Apache-2.0.txt');
 
 	console.log(`Vendoring the ONNX Runtime (${ORT_VARIANT}) into ${ORT_DIR}`);
 	const ortRoot = findOnnxRuntimeWebRoot();
 	await copyOrtAsset(ortRoot, 'wasm');
 	await copyOrtAsset(ortRoot, 'mjs');
+	await writeLicense(ORT_DIR, 'MIT-onnxruntime.txt');
 
 	console.log('Done. Semantic search will now load entirely from this origin.');
 }

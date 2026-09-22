@@ -241,4 +241,10 @@ Two lexical engines, measured over 10,000 generated issues in Node before choosi
 
 ## License
 
-[MIT](LICENSE)
+SyncTicket's own source is [MIT](LICENSE).
+
+The deploy also serves third-party works from its own origin — the embedding model
+(Apache-2.0) and the ONNX runtime (MIT) are downloaded whole by every visitor who turns on
+meaning search, which makes them redistribution rather than dependency. Attribution and
+license texts are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and the same texts
+are served next to the files they cover.
