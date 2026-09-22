@@ -201,6 +201,12 @@
 					Add one above — it's stored entirely in your browser (local-first, offline-ready) and
 					reappears after a reload.
 				</p>
+				<!-- Required by ADR 0004: the workspace id in the URL is the only thing protecting
+				     this workspace, so a visitor has to be told before they type anything real. -->
+				<p class="text-muted-foreground max-w-sm text-xs">
+					A demo, not a private tracker: anyone with the link can read and edit this workspace.
+					Please don't put anything real or sensitive in it.
+				</p>
 				<Button variant="outline" size="sm" onclick={() => store.seedDemo()}>
 					<SparklesIcon />
 					Load example issues

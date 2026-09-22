@@ -91,10 +91,14 @@ async function fetchModelFile(filename) {
 async function copyOrtAsset(ortRoot, extension) {
 	const filename = `${ORT_VARIANT}.${extension}`;
 	const dest = join(ORT_DIR, filename);
-	if (await exists(dest)) {
-		console.log(`  skip (already present): ${filename}`);
-		return;
-	}
+	// Deliberately NOT skipped when it already exists, unlike the model files below.
+	//
+	// These two are version-locked to whatever onnxruntime-web `@huggingface/transformers`
+	// currently resolves to, and they are a local copy rather than a download — so
+	// overwriting costs nothing, while skipping would silently keep an old runtime on disk
+	// after a dependency bump. The bundled JS glue would then be the new ORT version while
+	// `/ort/*.wasm` was still the old one, and re-running this script (the documented way to
+	// fix exactly that) would have cheerfully reported "already present".
 	const source = join(ortRoot, 'dist', filename);
 	await mkdir(ORT_DIR, { recursive: true });
 	await copyFile(source, dest);
@@ -117,9 +121,11 @@ async function main() {
 main().catch((error) => {
 	console.error('fetch-search-assets failed:', error.message);
 	console.error(
-		'Semantic search will still work without these files (search/worker.ts falls back to\n' +
-			'Hugging Face + jsDelivr when they are absent), but the deploy will depend on both\n' +
-			'being reachable at demo time. Re-run this script, or check network access, then retry.'
+		'Without these files semantic search does NOT fall back to the network — search/worker.ts\n' +
+			'sets env.allowRemoteModels = false on purpose (ADR 0009), so "Add meaning search"\n' +
+			'will report itself unavailable and the app stays on lexical-only search. Lexical\n' +
+			'search needs nothing from this script and keeps working either way.\n' +
+			'Re-run this script, or check network access, then retry.'
 	);
 	process.exitCode = 1;
 });

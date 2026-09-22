@@ -20,6 +20,10 @@ import { watchConnection, type ConnectionState } from './connection.svelte.js';
  */
 export const RELAY_PARTY = 'y-doc-room';
 
+/** How many closes inside {@link CLOSE_BURST_WINDOW_MS} count as a relay that is refusing us. */
+const CLOSE_BURST_LIMIT = 8;
+const CLOSE_BURST_WINDOW_MS = 20_000;
+
 export type { ConnectionState };
 
 export interface RelayConnection {
@@ -89,7 +93,17 @@ export function attachRelay(
 		return { provider: null, awareness, destroy: () => awareness.destroy() };
 	}
 
-	const provider = new YProvider(host, workspaceId, doc, { party: RELAY_PARTY, awareness });
+	// `maxBackoffTime` raises y-partyserver's own 2.5s ceiling. That default means a tab left
+	// open against a relay it cannot reach retries ~34,500 times a day, and the Workers free
+	// plan's request budget is account-wide — so a handful of forgotten tabs can spend the
+	// app worker's quota on failures alone. Thirty seconds is still well inside "recovers
+	// while you are looking at it", and the browser's own online/visibilitychange signals
+	// (see connection.svelte.ts) bypass the wait entirely when something actually changes.
+	const provider = new YProvider(host, workspaceId, doc, {
+		party: RELAY_PARTY,
+		awareness,
+		maxBackoffTime: 30_000
+	});
 
 	handlers.onConnection('connecting');
 	provider.on('status', (event: StatusEvent) => {
@@ -98,7 +112,28 @@ export function attachRelay(
 	// `status` alone can never report a relay that was never reachable: it only emits
 	// `disconnected` for a socket that had previously opened, so an unreachable relay would
 	// sit on 'connecting' forever.
-	provider.on('connection-close', () => handlers.onConnection('offline'));
+	//
+	// The close handler also trips a breaker. y-partyserver resets its backoff counter on the
+	// socket's `open` event rather than on a working session, so a relay that accepts the
+	// upgrade and then immediately closes — what partyserver does if `onStart`/`onConnect`
+	// throws — never backs off at all: it retries flat out at 100ms, ~864,000 requests a day
+	// from a single tab, against an account-wide free-plan budget of 100,000. Stopping after
+	// a burst costs nothing, because `nudge()` calls `connect()` (which sets `shouldConnect`
+	// back to true) the moment the browser reports a real change — coming back online, or the
+	// tab being looked at again.
+	const closes: number[] = [];
+	provider.on('connection-close', () => {
+		handlers.onConnection('offline');
+		const now = Date.now();
+		closes.push(now);
+		while (closes.length > 0 && now - (closes[0] as number) > CLOSE_BURST_WINDOW_MS) {
+			closes.shift();
+		}
+		if (closes.length >= CLOSE_BURST_LIMIT) {
+			closes.length = 0;
+			provider.shouldConnect = false;
+		}
+	});
 	provider.on('connection-error', () => handlers.onConnection('offline'));
 	provider.on('synced', (synced: boolean) => handlers.onSynced(synced));
 

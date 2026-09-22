@@ -84,6 +84,11 @@ Open <http://localhost:5173/issues>. You land in a workspace of your own — the
 
 Without a relay (`pnpm dev`) everything still works; it is simply local to that browser.
 
+**This is a demo, not a private tracker.** There is no authentication by design
+([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)) — the unguessable workspace id
+in the URL is the only thing protecting a workspace, so anyone who has the link can read and
+edit it, and anyone you send it to can pass it on. Don't put real or sensitive data in one.
+
 For the fuller walkthrough — concurrent edits, going offline mid-edit, and what the
 connection popover says at each step — see [docs/DEMO.md](docs/DEMO.md), which is also a
 Playwright test (`e2e/demo.e2e.ts`), copy and all.

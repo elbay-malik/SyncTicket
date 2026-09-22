@@ -5,6 +5,9 @@ const RELAY_PORT = 8791;
 const APP_PORT = 4173;
 
 export default defineConfig({
+	// A stray `test.only` left in a commit would otherwise reduce the whole e2e suite to one
+	// test and still report success — CI would stay green while covering almost nothing.
+	forbidOnly: !!process.env.CI,
 	// Pinned explicitly. Playwright only infers baseURL from a single webServer object, and
 	// with an array it infers nothing — every relative page.goto would break.
 	use: { baseURL: `http://localhost:${APP_PORT}` },
