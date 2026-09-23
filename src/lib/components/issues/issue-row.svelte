@@ -19,6 +19,7 @@
 		issue: Issue;
 		store: IssueStore;
 		selected?: boolean;
+		/** Whether this is the cursor row, and so carries the list's single tab stop. */
 		tabbable?: boolean;
 		/** Other people with this issue open right now. */
 		viewers?: readonly Peer[];
@@ -37,16 +38,27 @@
 <!--
 	The row is the *contents* of a list item, not the <li> itself: the virtualizer owns the
 	item element so it can position and measure it (see issue-list.svelte).
+
+	`data-issue-row` is how the list works out which row focus is in, for a cursor move that
+	starts from a row reached with the mouse and for the Left/Right walk across the row's
+	controls.
 -->
 <div
+	data-issue-row={issue.id}
 	class="group hover:bg-muted/50 flex items-center gap-2 px-2 py-1.5 transition-colors"
 	class:bg-muted={selected}
 >
 	<!-- The pickers are siblings of the link, not descendants, so their clicks never reach
 	     it — no propagation guard is needed (and adding onclick after the trigger's spread
-	     props would clobber bits-ui's own handler). -->
+	     props would clobber bits-ui's own handler).
+
+	     tabindex -1 in every row, cursor row included: the list's one tab stop is the cursor
+	     row's link, and these are reached with Left/Right once focus is in the row. Left as
+	     ordinary buttons they were each a tab stop of their own, which is what made Tab walk
+	     every rendered row three times over. -->
 	<StatusPicker
 		value={issue.status}
+		tabindex={-1}
 		onchange={(status: IssueStatus) => store.update(issue.id, { status })}
 	/>
 
@@ -80,6 +92,7 @@
 
 	<PriorityPicker
 		value={issue.priority}
+		tabindex={-1}
 		onchange={(priority: IssuePriority) => store.update(issue.id, { priority })}
 	/>
 </div>

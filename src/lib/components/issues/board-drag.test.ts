@@ -5,6 +5,13 @@ import { describe, expect, it } from 'vitest';
 import { SOURCES, TRIGGERS, type DndEvent } from 'svelte-dnd-action';
 import type { Issue } from '$lib/model/issue.js';
 import { columnView, reduceConsider, reduceFinalize } from './board-drag.js';
+import {
+	dragOptions,
+	isTapGesture,
+	FLIP_DURATION_MS,
+	TAP_SLOP_PX,
+	TOUCH_DRAG_DELAY_MS
+} from './board-column.svelte';
 
 const issue = (id: string): Issue => ({
 	id,
@@ -143,6 +150,66 @@ describe('a full keyboard drag across columns', () => {
 			).kind
 		);
 		expect(outcomes).toEqual(['preview', 'preview', 'preview', 'commit']);
+	});
+});
+
+describe('dragOptions', () => {
+	const items = [issue('a'), issue('b')];
+
+	it('delays a touch drag, so a swipe that begins on a card can still scroll', () => {
+		// At zero the library preventDefaults every touchstart that lands on a card, and cards
+		// cover nearly the whole column: on a phone that is nearly every swipe. The delay also
+		// has to outlast the pause between touching a card and starting to swipe, which the
+		// library's own `true` (80 ms) does not.
+		expect(dragOptions(items, false).delayTouchStart).toBe(TOUCH_DRAG_DELAY_MS);
+		expect(TOUCH_DRAG_DELAY_MS).toBeGreaterThanOrEqual(400);
+	});
+
+	it('runs the reorder animation when motion is welcome', () => {
+		expect(dragOptions(items, false).flipDurationMs).toBe(FLIP_DURATION_MS);
+		expect(FLIP_DURATION_MS).toBeGreaterThan(0);
+	});
+
+	it('collapses the reorder animation under reduced motion', () => {
+		// Both the flip and the library's drop animation read this one value, and neither is
+		// reachable by a CSS @media rule. A remote reorder would otherwise animate at a user
+		// who asked for no motion.
+		expect(dragOptions(items, true).flipDurationMs).toBe(0);
+	});
+
+	it('keeps the column out of the idle tab order', () => {
+		// The library raises it to 0 on eligible zones during a drag; five permanently
+		// tabbable columns is what this avoids.
+		expect(dragOptions(items, false).zoneTabIndex).toBe(-1);
+	});
+});
+
+describe('isTapGesture', () => {
+	const start = { x: 100, y: 200 };
+
+	it('opens the card for a press that lifted where it landed', () => {
+		// The case the drag delay took away: held past TOUCH_DRAG_DELAY_MS the library promotes
+		// the press to a drag, which unregisters the handler that used to synthesise the click.
+		// The gesture then ends as a drag that put the card back, and nothing opened.
+		expect(isTapGesture(start, { x: 100, y: 200 })).toBe(true);
+	});
+
+	it('still opens the card when the finger wandered less than the slop', () => {
+		// Past the library's own 3px MIN_MOVEMENT_BEFORE_DRAG_START_PX, so this may well have
+		// been a real drag — but one that moved the card nowhere, which is a tap.
+		expect(isTapGesture(start, { x: 105, y: 194 })).toBe(true);
+	});
+
+	it('does not open the card for a gesture that travelled', () => {
+		expect(isTapGesture(start, { x: 100 + TAP_SLOP_PX, y: 200 })).toBe(false);
+		expect(isTapGesture(start, { x: 100, y: 200 - TAP_SLOP_PX })).toBe(false);
+		expect(isTapGesture(start, { x: 44, y: 330 })).toBe(false);
+	});
+
+	it('does not open the card for a gesture that was disowned', () => {
+		// A null start is a touchcancel (the browser took the touch over to scroll) or a second
+		// finger landing. Neither may fall through to a navigation.
+		expect(isTapGesture(null, { x: 100, y: 200 })).toBe(false);
 	});
 });
 

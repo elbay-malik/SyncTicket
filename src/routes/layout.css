@@ -23,7 +23,12 @@
 	--destructive: oklch(0.577 0.245 27.325);
 	--border: oklch(0.922 0 0);
 	--input: oklch(0.922 0 0);
-	--ring: oklch(0.708 0 0);
+	/* Darker than shadcn's stock oklch(0.708). Measured against this theme that value is 2.59:1
+	   on --background, 2.48:1 on --sidebar and 2.38:1 on --muted, so the solid ring the buttons,
+	   issue rows and board cards draw at focus-visible missed WCAG 1.4.11's 3:1 on every surface
+	   the app has. 0.45 measures 7.44:1, 7.13:1 and 6.82:1. `issues/meta.test.ts` recomputes
+	   every ratio quoted here, for every ring token, from this file. */
+	--ring: oklch(0.45 0 0);
 	--chart-1: oklch(0.87 0 0);
 	--chart-2: oklch(0.556 0 0);
 	--chart-3: oklch(0.439 0 0);
@@ -42,7 +47,12 @@
 	--sidebar-accent: oklch(0.97 0 0);
 	--sidebar-accent-foreground: oklch(0.205 0 0);
 	--sidebar-border: oklch(0.922 0 0);
-	--sidebar-ring: oklch(0.708 0 0);
+	/* Not future-proofing for unused primitives: the root layout mounts <AppSidebar /> on every
+	   route, and its three Sidebar.MenuButtons (Issues, Board, Search) are `ring-sidebar-ring`
+	   at `focus-visible:ring-2` — a solid ring on the app's primary navigation. Stock oklch(0.708)
+	   was 2.48:1 on the --sidebar they sit on and 2.38:1 on the --sidebar-accent an active or
+	   hovered one fills with; 0.45 is 7.13:1 and 6.82:1. */
+	--sidebar-ring: oklch(0.45 0 0);
 }
 
 .dark {
@@ -66,7 +76,11 @@
 	--destructive: oklch(0.704 0.191 22.216);
 	--border: oklch(1 0 0 / 10%);
 	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.556 0 0);
+	/* Margin, not a fix — the honest version of this note. Stock oklch(0.556) already cleared
+	   3:1 on every dark surface, but only just: 3.19:1 against the --muted a hovered row or
+	   ghost button fills with, which a nudge to either token would undo. 0.65 is 4.67:1 there
+	   and puts the two themes' rings at a comparable strength. */
+	--ring: oklch(0.65 0 0);
 	--chart-1: oklch(0.87 0 0);
 	--chart-2: oklch(0.556 0 0);
 	--chart-3: oklch(0.439 0 0);
@@ -79,7 +93,9 @@
 	--sidebar-accent: oklch(0.269 0 0);
 	--sidebar-accent-foreground: oklch(0.985 0 0);
 	--sidebar-border: oklch(1 0 0 / 10%);
-	--sidebar-ring: oklch(0.556 0 0);
+	/* Tracks --ring, and for the same weak reason: stock oklch(0.556) passed here too (3.19:1
+	   on --sidebar-accent, 3.79:1 on --sidebar). Only the light theme was failing. */
+	--sidebar-ring: oklch(0.65 0 0);
 }
 
 @theme inline {
@@ -126,7 +142,13 @@
 
 @layer base {
 	* {
-		@apply border-border outline-ring/50;
+		/* `outline-color` draws nothing by itself — no rule in this app sets an outline style —
+		   so all this can reach is the outline a browser draws on its own, on the few things
+		   with no ring to fall back on (the `<main tabindex="-1">` the skip link targets).
+		   Solid rather than shadcn's /50 because, wherever a browser does honour the colour, the
+		   blend is the weaker indicator and cannot clear 3:1: at this --ring it is 2.32:1 on
+		   --background and 2.26:1 on --muted, against 7.44:1 and 6.82:1 solid. */
+		@apply border-border outline-ring;
 	}
 	body {
 		@apply bg-background text-foreground;
@@ -166,5 +188,37 @@
 	.peer-avatar-more {
 		background-color: var(--muted);
 		color: var(--muted-foreground);
+	}
+}
+
+/*
+	Nothing in the stack honours prefers-reduced-motion for us — neither Tailwind's preflight nor
+	tw-animate-css ships a reduce block — so every `animate-in`, `zoom-in-95`, `slide-in-from-*`
+	and `animate-spin` runs at full speed for someone who has asked the OS for less of it. The
+	relay's reconnect spinner is the worst of them: it turns for the whole duration of an outage.
+	The blanket `*` is the point rather than a shortcut — these are utilities generated on demand,
+	so any narrower selector goes stale the next time a component reaches for one.
+
+	Unlayered on purpose: `!important` inside a cascade layer would outrank this, and Tailwind's
+	utilities live in `@layer utilities`. Unlayered `!important` still beats every *normal*
+	layered declaration, which is all any of these animations are.
+
+	Verified safe for bits-ui: its presence layer waits on `getAnimations()` +
+	`Animation.finished` (internal/animations-complete.js), never on an `animationend` event, and
+	it treats an empty `getAnimations()` as "nothing to wait for" — so an animation shortened to
+	0.01ms (already finished, or resolving on the next frame) still unmounts the dialog.
+
+	Deliberately partial: Svelte's `transition:` and `animate:flip` run through
+	`element.animate()`, and WAAPI timings ignore CSS animation-duration. Motion driven that way
+	has to opt out in its own component.
+*/
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
 	}
 }

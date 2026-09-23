@@ -106,13 +106,30 @@
 <ShortcutsHelp bind:open={helpOpen} />
 
 <Sidebar.Provider>
+	<!--
+		First in the DOM, and so the first tab stop: the sidebar's navigation and the whole
+		header sit ahead of the page on every route. Inside Sidebar.Inset it would render
+		*after* the sidebar and skip nothing. `sr-only` is already position:absolute, so it
+		never takes part in the wrapper's flex layout; `fixed` on focus keeps it in the
+		corner rather than wherever the nearest positioned ancestor happens to be. The
+		target's tabindex="-1" is what makes focus land there instead of only the scroll.
+	-->
+	<a
+		href="#main-content"
+		class="sr-only focus:not-sr-only focus:bg-background focus:ring-ring focus:fixed focus:start-4 focus:top-3 focus:z-50 focus:rounded-md focus:px-3 focus:py-1.5 focus:text-sm focus:font-medium focus:shadow-sm focus:ring-2"
+	>
+		Skip to content
+	</a>
 	<AppSidebar />
 	<Sidebar.Inset>
-		<header class="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+		<!-- Wraps rather than overflows: at 320px (1280px at 400% zoom, WCAG 1.4.10) the
+		     trailing group is ~10px too wide for one line. `min-h-12` keeps the usual height
+		     everywhere it does fit, which is what the flex column below it relies on. -->
+		<header class="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-1">
 			<Sidebar.Trigger />
 			<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
 			<span class="text-sm font-medium">SyncTicket</span>
-			<div class="ml-auto flex items-center gap-2">
+			<div class="ml-auto flex flex-wrap items-center justify-end gap-2">
 				<PresenceBar {presence} />
 				<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
 				<RelayStatus {store} {presence} />
@@ -120,7 +137,7 @@
 				<ThemeToggle />
 			</div>
 		</header>
-		<main class="min-h-0 flex-1 overflow-auto p-6">
+		<main id="main-content" tabindex="-1" class="min-h-0 flex-1 overflow-auto p-6">
 			{@render children()}
 		</main>
 	</Sidebar.Inset>

@@ -7,6 +7,7 @@
 import '../../../routes/layout.css';
 import { flushSync } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
 import { IssueStore } from '$lib/state/issues.svelte.js';
 import { IssueQuery } from '$lib/state/queries.svelte.js';
@@ -42,6 +43,35 @@ afterEach(() => {
 const settle = () =>
 	new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+/**
+ * Everything inside the list a Tab press could land on.
+ *
+ * Reads the `tabIndex` *property*, not a `[tabindex]` attribute selector: a `<button>` with
+ * no tabindex at all reports 0, which is exactly how the row's two pickers used to smuggle
+ * themselves into the tab order while the attribute-based assertion above stayed green.
+ */
+function tabStops(host: HTMLElement): HTMLElement[] {
+	const list = host.querySelector<HTMLElement>('[data-testid="issue-list"]');
+	return [...(list?.querySelectorAll<HTMLElement>('a, button') ?? [])].filter(
+		(element) => element.tabIndex === 0
+	);
+}
+
+const rowOf = (element: Element | null | undefined) =>
+	element?.closest<HTMLElement>('[data-issue-row]')?.dataset.issueRow ?? null;
+
+/**
+ * The ids of the rows currently in the DOM, in document order.
+ *
+ * Not the same as "the rows on screen": the row carrying the tab stop is pinned with virtua's
+ * `keepMounted`, so it stays mounted however far the window has scrolled away from it. That
+ * is why the scrolling assertions below compare whole sets rather than the first `<li>`.
+ */
+const renderedRowIds = (host: HTMLElement) =>
+	[...host.querySelectorAll<HTMLElement>('[data-issue-row]')].map((row) => row.dataset.issueRow!);
+
+const active = () => document.activeElement as HTMLElement | null;
+
 describe('issue-list.svelte at 10k', () => {
 	it('renders a bounded window of rows, not the whole list', async () => {
 		const store = makeStore();
@@ -71,7 +101,7 @@ describe('issue-list.svelte at 10k', () => {
 		flushSync();
 		await settle();
 
-		const first = host.querySelector('li')?.textContent ?? '';
+		const before = renderedRowIds(host);
 		const scroller = host.querySelector<HTMLElement>('[data-testid="issue-list"]');
 		expect(scroller).not.toBeNull();
 
@@ -80,7 +110,10 @@ describe('issue-list.svelte at 10k', () => {
 		await settle();
 		await settle();
 
-		expect(host.querySelector('li')?.textContent ?? '').not.toBe(first);
+		// The whole window turned over. The one row that survives is the first, which carries
+		// the tab stop while no cursor has been placed and so is pinned in the DOM.
+		const after = renderedRowIds(host);
+		expect(after.filter((id) => before.includes(id))).toEqual([query.results[0]!.id]);
 		expect(host.querySelectorAll('li').length).toBeLessThan(MAX_RENDERED);
 	}, 60_000);
 
@@ -160,5 +193,216 @@ describe('issue-list.svelte at 10k', () => {
 		flushSync();
 		await settle();
 		expect(host.querySelectorAll('a[tabindex="0"]').length).toBe(1);
+	}, 60_000);
+});
+
+// Roving tabindex, in the two states the app actually reaches it in.
+//
+// A11Y-03 was that the row's pickers were ordinary buttons: every rendered row carried three
+// tab stops, so Tab walked the window instead of entering it once, and it entered at row 1's
+// status button rather than at the cursor. The two failures that the first fix for it
+// introduced are the last two tests here — an unreachable list once scrolled, and a cursor
+// move that landed on a picker so Enter opened a dropdown instead of the issue.
+describe('issue-list.svelte roving tabindex', () => {
+	it('exposes exactly one tab stop, and it sits on the cursor row', async () => {
+		const store = makeStore();
+		store.seed(200, { seed: 6 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store }
+		});
+		flushSync();
+		await settle();
+
+		// Several rows are rendered, so a per-row tab stop would show up as several.
+		expect(host.querySelectorAll('li').length).toBeGreaterThan(2);
+		expect(tabStops(host)).toHaveLength(1);
+		// Before the cursor has been placed the stop is the first row's link.
+		expect(tabStops(host)[0]?.dataset.issueLink).toBe(query.results[0]!.id);
+
+		result.component.moveCursor(4);
+		flushSync();
+		await settle();
+
+		const stops = tabStops(host);
+		expect(stops).toHaveLength(1);
+		expect(stops[0]?.dataset.issueLink).toBe(query.results[3]!.id);
+	}, 60_000);
+
+	it('walks a row with Left and Right without moving the tab stop off the link', async () => {
+		const store = makeStore();
+		store.seed(50, { seed: 7 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store }
+		});
+		flushSync();
+		await settle();
+
+		result.component.moveCursor(3);
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(query.results[2]!.id));
+		const link = active();
+
+		await userEvent.keyboard('{ArrowRight}');
+		await vi.waitFor(() => expect(active()?.dataset.testid).toBe('priority-picker'));
+		expect(rowOf(active())).toBe(query.results[2]!.id);
+		// Within-row focus is a convenience, not a second cursor: the list's tab stop is still
+		// the cursor row's link, so Tab back into the list lands somewhere Enter opens.
+		expect(tabStops(host)).toEqual([link]);
+
+		await userEvent.keyboard('{ArrowLeft}{ArrowLeft}');
+		await vi.waitFor(() => expect(active()?.dataset.testid).toBe('status-picker'));
+
+		// Clamped, not wrapped: Left at the start of a row stays put.
+		await userEvent.keyboard('{ArrowLeft}');
+		expect(active()?.dataset.testid).toBe('status-picker');
+
+		// And the column is not remembered. ArrowUp rather than ArrowDown, because bits-ui
+		// owns ArrowDown on a menu button — see the next test.
+		await userEvent.keyboard('{ArrowUp}');
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(query.results[1]!.id));
+		expect(tabStops(host)).toEqual([active()]);
+	}, 60_000);
+
+	it('leaves ArrowDown to a focused picker instead of moving the cursor as well', async () => {
+		const store = makeStore();
+		store.seed(20, { seed: 8 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store }
+		});
+		flushSync();
+		await settle();
+
+		result.component.moveCursor(2);
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(query.results[1]!.id));
+		await userEvent.keyboard('{ArrowLeft}');
+		await vi.waitFor(() => expect(active()?.dataset.testid).toBe('status-picker'));
+
+		await userEvent.keyboard('{ArrowDown}');
+		await expect.element(page.getByRole('menu')).toBeInTheDocument();
+		// The cursor stayed put. Without the guard the list moved it too, tearing focus out
+		// of the menu that had just opened.
+		expect(tabStops(host)[0]?.dataset.issueLink).toBe(query.results[1]!.id);
+
+		await userEvent.keyboard('{Escape}');
+		await expect.element(page.getByRole('menu')).not.toBeInTheDocument();
+		// bits-ui hands focus back to the trigger, which is deliberately not a tab stop.
+		await vi.waitFor(() => expect(active()?.dataset.testid).toBe('status-picker'));
+		expect(tabStops(host)[0]?.dataset.issueLink).toBe(query.results[1]!.id);
+	}, 60_000);
+
+	it('keeps a tab stop in the DOM after scrolling a long list with no cursor', async () => {
+		const store = makeStore();
+		store.seed(N, { seed: 9 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		await render(IssueList, { target: host, props: { issues: query.results, store } });
+		flushSync();
+		await settle();
+		expect(tabStops(host)).toHaveLength(1);
+
+		// virtua renders a window, not the list. With the fallback row tabbable but not kept
+		// mounted, scrolling away from the top unmounted the only tab stop there was and left
+		// the list with no keyboard entry point at all — strictly worse than A11Y-03.
+		const scroller = host.querySelector<HTMLElement>('[data-testid="issue-list"]')!;
+		scroller.scrollTop = 20_000;
+		scroller.dispatchEvent(new Event('scroll'));
+		await settle();
+		await settle();
+
+		// The window really did move — row 1 is gone — so what follows is about a row that is
+		// pinned, not about a list that never scrolled.
+		const rendered = renderedRowIds(host);
+		expect(rendered).not.toContain(query.results[1]!.id);
+		expect(rendered).toContain(query.results[0]!.id);
+		const stops = tabStops(host);
+		expect(stops).toHaveLength(1);
+		expect(stops[0]!.isConnected).toBe(true);
+
+		// And it is reachable: a Tab from the scroll container itself enters the list rather
+		// than skipping straight past it.
+		scroller.focus();
+		await userEvent.keyboard('{Tab}');
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(query.results[0]!.id));
+	}, 60_000);
+
+	it('moves the cursor onto a link even when focus was left on a picker', async () => {
+		const store = makeStore();
+		store.seed(20, { seed: 10 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store }
+		});
+		flushSync();
+		await settle();
+
+		// Exactly where a click on a row's status picker leaves focus once its menu closes.
+		host
+			.querySelector<HTMLElement>(
+				`[data-issue-row="${CSS.escape(query.results[2]!.id)}"] [data-testid="status-picker"]`
+			)!
+			.focus();
+		flushSync();
+		await settle();
+
+		// Verbatim what the global `j` shortcut runs. It has to continue from the row focus is
+		// actually in, and land on that row's link: Enter is ordinary link activation, so a
+		// cursor that landed on a picker opened a dropdown instead of the issue.
+		result.component.moveCursor(1);
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(query.results[3]!.id));
+		expect(active()?.tagName).toBe('A');
+		expect(tabStops(host)).toEqual([active()]);
+	}, 60_000);
+
+	it('advances once per move when they arrive faster than a frame', async () => {
+		const store = makeStore();
+		store.seed(20, { seed: 11 });
+		flushSync();
+		const query = new IssueQuery(store);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store }
+		});
+		flushSync();
+		await settle();
+
+		// Focus inside the list is the condition that makes this fail: the cursor's origin is
+		// read from focus, but focus only follows a frame later, so every move made before the
+		// browser paints used to read the same stale row and ten presses moved one row.
+		host
+			.querySelector<HTMLElement>(`[data-issue-link="${CSS.escape(query.results[0]!.id)}"]`)!
+			.focus();
+		flushSync();
+		await settle();
+
+		// Not a contrived burst: OS key auto-repeat runs at 15-30 ms against a 16.7 ms frame,
+		// and the list does not filter `event.repeat`, so holding j is exactly this.
+		for (let i = 0; i < 10; i += 1) result.component.moveCursor(1);
+
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(query.results[10]!.id));
+		// Focus is moved once for the whole burst, on the row the cursor actually ended on.
+		expect(active()?.tagName).toBe('A');
+		expect(tabStops(host)).toEqual([active()]);
 	}, 60_000);
 });

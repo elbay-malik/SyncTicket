@@ -61,6 +61,14 @@
 		side="right"
 		class="w-full gap-0 overflow-y-auto data-[side=right]:sm:max-w-lg"
 		data-testid="issue-sheet"
+		onCloseAutoFocus={(event: Event) => {
+			// There is no Sheet.Trigger to restore focus to — this sheet is a route, reached by
+			// a link or by pasting a URL — so bits-ui's restore either does nothing or aims at
+			// whatever happened to be focused when the route changed. Declining it leaves the
+			// route's own afterNavigate (src/routes/issues/+layout.svelte) as the single owner
+			// of where focus lands, which is the row this sheet was opened from.
+			event.preventDefault();
+		}}
 	>
 		<Sheet.Header class="pb-2">
 			<Sheet.Title class="sr-only">{title}</Sheet.Title>

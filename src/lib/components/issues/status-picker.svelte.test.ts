@@ -33,6 +33,25 @@ describe('status-picker.svelte', () => {
 		expect(onchange).not.toHaveBeenCalled();
 	});
 
+	// The issue list keeps this trigger out of its roving tabindex through this prop — its one
+	// tab stop is the cursor row's link — so the value has to survive the two spreads between
+	// here and the DOM: bits-ui merges the trigger's own attributes onto the child, and the
+	// Button spreads its rest props onto the <button>. Neither sets tabindex itself today;
+	// this is what notices if either starts to.
+	it('forwards a caller-owned tabindex to the trigger', async () => {
+		await render(StatusPicker, { value: 'backlog', onchange: vi.fn(), tabindex: -1 });
+		await expect
+			.element(page.getByRole('button', { name: 'Status: Backlog' }))
+			.toHaveAttribute('tabindex', '-1');
+	});
+
+	it('leaves the trigger its natural tab stop when no tabindex is given', async () => {
+		await render(StatusPicker, { value: 'backlog', onchange: vi.fn() });
+		await expect
+			.element(page.getByRole('button', { name: 'Status: Backlog' }))
+			.not.toHaveAttribute('tabindex');
+	});
+
 	it('closes on Escape without selecting', async () => {
 		const onchange = vi.fn();
 		await render(StatusPicker, { value: 'backlog', onchange });

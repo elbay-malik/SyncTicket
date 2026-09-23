@@ -92,8 +92,12 @@
 <div class="flex h-full flex-col gap-4">
 	<div class="flex items-center gap-2">
 		<h1 class="text-lg font-semibold tracking-tight">Board</h1>
+		<!-- The hold is not decoration: a touch only becomes a drag after
+		     board-column.svelte's TOUCH_DRAG_DELAY_MS, so that a swipe which starts on a card
+		     scrolls the board instead of dragging the card. -->
 		<p class="text-muted-foreground ml-auto text-xs">
-			Drag a card, or focus one and press Space, then arrow keys or Tab.
+			Drag a card — on a touch screen, hold it first — or focus one and press Space, then arrow keys
+			or Tab.
 		</p>
 	</div>
 

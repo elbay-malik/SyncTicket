@@ -7,10 +7,17 @@
 		class: className,
 		children,
 		...restProps
-	}: WithElementRef<HTMLAttributes<HTMLElement>> = $props();
+	}: WithElementRef<HTMLAttributes<HTMLDivElement>> = $props();
 </script>
 
-<main
+<!--
+	A div, not the `<main>` upstream shadcn renders here. The inset is the whole right-hand
+	pane — app header included — not the page's main content, so a `<main>` at this level
+	leaves a consumer only bad options: nest a second `<main>` for the scrolling region, or
+	put `<header>` inside `main`, where it stops being exposed as a banner landmark. The
+	route layout marks the one real `<main>` itself (src/routes/+layout.svelte).
+-->
+<div
 	bind:this={ref}
 	data-slot="sidebar-inset"
 	class={cn(
@@ -20,4 +27,4 @@
 	{...restProps}
 >
 	{@render children?.()}
-</main>
+</div>

@@ -11,8 +11,8 @@ import type { Awareness } from 'y-protocols/awareness';
 import {
 	DEFAULT_WORKSPACE_ID,
 	WORKSPACE_STORAGE_KEY,
-	createWorkspaceId,
-	resolveWorkspaceId
+	chooseWorkspace,
+	type WorkspaceResolution
 } from '$lib/model/workspace.js';
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
 import { createDoc, getIssuesMap, type YIssue } from '$lib/sync/doc.js';
@@ -35,27 +35,26 @@ export interface IssueDelta {
  *
  * Read once and remembered, so ordinary navigation and reloads stay put without every
  * internal link having to carry the id. On the server there is no URL to read and the store
- * is empty anyway, so the default is correct there.
+ * is empty anyway, so the sentinel is correct there.
  */
-function sessionWorkspaceId(): string {
-	if (!browser) return DEFAULT_WORKSPACE_ID;
+function sessionWorkspace(): WorkspaceResolution {
+	if (!browser) return { id: DEFAULT_WORKSPACE_ID, invalidParam: null };
 	let remembered: string | null = null;
 	try {
 		remembered = localStorage.getItem(WORKSPACE_STORAGE_KEY);
 	} catch {
-		// Private mode or blocked storage; the URL or the default still works.
+		// Private mode or blocked storage; the URL or a freshly minted id still works.
 	}
-	// A visitor with no link and nothing remembered gets a workspace of their own rather than
-	// landing in a shared one: the id is the only thing standing between a workspace and the
-	// rest of the internet (ADR 0004), so it has to be unguessable from the first visit.
-	const resolved = resolveWorkspaceId(location.search, remembered);
-	const id = resolved === DEFAULT_WORKSPACE_ID && !remembered ? createWorkspaceId() : resolved;
+	// Everything but the storage is `chooseWorkspace`'s: which id wins, and the fact that a
+	// visitor with nothing usable gets a workspace of their own rather than landing in a
+	// shared one. This function only remembers the answer.
+	const session = chooseWorkspace(location.search, remembered);
 	try {
-		if (id !== remembered) localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
+		if (session.id !== remembered) localStorage.setItem(WORKSPACE_STORAGE_KEY, session.id);
 	} catch {
 		// Not being able to remember it only costs us the id on the next reload.
 	}
-	return id;
+	return session;
 }
 
 export class IssueStore {
@@ -68,6 +67,7 @@ export class IssueStore {
 	// the relay connection.
 	#status = new ConnectionStatus();
 	#relaySynced = $state(false);
+	#relayEverSynced = $state(false);
 	#byId = new SvelteMap<string, Issue>();
 	/** Which workspace this store is bound to; the relay uses it as the room name. */
 	readonly workspaceId: string;
@@ -76,9 +76,18 @@ export class IssueStore {
 	#listeners: Array<(delta: IssueDelta) => void> = [];
 	#synced = $state(false);
 	#persisted = $state(true);
+	#invalidWorkspaceParam = $state<string | null>(null);
 
-	constructor(workspaceId: string = sessionWorkspaceId()) {
+	constructor(explicitWorkspaceId?: string) {
+		// An explicit id (tests, benchmarks) bypasses the URL and storage entirely, so there is
+		// no share link for it to have been wrong about.
+		const session: WorkspaceResolution =
+			explicitWorkspaceId === undefined
+				? sessionWorkspace()
+				: { id: explicitWorkspaceId, invalidParam: null };
+		const workspaceId = session.id;
 		this.workspaceId = workspaceId;
+		this.#invalidWorkspaceParam = session.invalidParam;
 		this.#doc = createDoc();
 		this.#map = getIssuesMap(this.#doc);
 		this.#map.observeDeep(this.#onChange);
@@ -89,7 +98,13 @@ export class IssueStore {
 		this.#relay = attachRelay(this.#doc, workspaceId, {
 			onConnection: (state) => this.#status.report(state),
 			onOffline: () => this.#status.reportCertainOffline(),
-			onSynced: (synced) => (this.#relaySynced = synced)
+			onSynced: (synced) => {
+				this.#relaySynced = synced;
+				// Latched apart from the live flag, which a later reconnect drops back to false:
+				// "this client has never heard what is in this workspace" is a question that can
+				// only be answered once, and `settled` below must not un-answer it.
+				if (synced) this.#relayEverSynced = true;
+			}
 		});
 		void this.#persistence.whenSynced.then(
 			() => {
@@ -142,9 +157,47 @@ export class IssueStore {
 		return this.#relaySynced;
 	}
 
+	/**
+	 * The unusable `?ws=` value this session arrived with, or null.
+	 *
+	 * Attacker-supplied text — whatever was in the link — so a UI showing it must render it
+	 * as text and bound its length. Cleared by {@link dismissInvalidWorkspaceParam} once the
+	 * visitor has been told, which is what keeps it a one-time notice rather than a fixture
+	 * of every visit to the list for the rest of the session.
+	 */
+	get invalidWorkspaceParam(): string | null {
+		return this.#invalidWorkspaceParam;
+	}
+
+	/** Acknowledges the notice above. */
+	dismissInvalidWorkspaceParam(): void {
+		this.#invalidWorkspaceParam = null;
+	}
+
 	/** True once the local load has completed (immediately when there's no persistence). */
 	get synced(): boolean {
 		return this.#synced;
+	}
+
+	/**
+	 * True once this workspace's contents are everything they are going to be until someone
+	 * types: the local database has loaded, *and* either the relay has sent its state or
+	 * there is no relay left to hear from.
+	 *
+	 * `synced` is only the local half of that, and it flips within milliseconds on an empty
+	 * IndexedDB — so someone opening a share link looks, by that measure alone, exactly like
+	 * someone whose workspace is genuinely empty, for as long as the relay round trip takes.
+	 * Anything that would tell a visitor their workspace is empty, or offer to fill it, has
+	 * to wait for this instead: seeding a workspace that is still arriving writes into
+	 * somebody else's data, and a CRDT has no undo for that.
+	 */
+	get settled(): boolean {
+		if (!this.#synced) return false;
+		if (this.#relayEverSynced) return true;
+		const connection = this.#status.displayed;
+		// 'local' means no relay is configured at all; 'offline' means we are done waiting for
+		// the one that is. Both are final answers in the only sense that matters here.
+		return connection === 'local' || connection === 'offline';
 	}
 
 	get all(): Issue[] {

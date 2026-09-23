@@ -70,7 +70,11 @@
 	{#if child}
 		{@render child({ props: mergedProps })}
 	{:else}
-		<button bind:this={ref} {...mergedProps}>
+		<!-- `type` is set here rather than accepted as a prop: the props type is
+		     HTMLAttributes<HTMLButtonElement>, which has no `type` key, and mergedProps is
+		     also handed to `child` — where the consumer usually renders an <a>, and a
+		     `type` attribute would be meaningless on it. -->
+		<button bind:this={ref} type="button" {...mergedProps}>
 			{@render children?.()}
 		</button>
 	{/if}

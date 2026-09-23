@@ -22,8 +22,10 @@
 	});
 
 	function close() {
-		// keepFocus lets the sheet's focus scope restore focus to the row link it came from
-		// instead of SvelteKit resetting focus to <body>.
+		// keepFocus only stops SvelteKit from resetting focus to <body> on the way out — it
+		// restores nothing by itself, and neither does the sheet: a sheet that is a route has
+		// no trigger element to hand focus back to. Putting it on the row this sheet belongs
+		// to is the list layout's job, in its afterNavigate.
 		void goto(resolve('/issues'), { replaceState: true, keepFocus: true, noScroll: true });
 	}
 </script>

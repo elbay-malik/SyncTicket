@@ -15,13 +15,22 @@
 		value,
 		onchange,
 		showLabel = false,
-		class: className
+		class: className,
+		tabindex
 	}: {
 		value: IssueStatus;
 		/** Called with the newly chosen status (never with the current one). */
 		onchange: (status: IssueStatus) => void;
 		showLabel?: boolean;
 		class?: string;
+		/**
+		 * For a parent that owns the tab order. The issue list passes -1 from every row: its
+		 * single tab stop is the cursor row's link, and this trigger is reached with the arrow
+		 * keys instead. Left undefined everywhere else, so the trigger keeps its natural tab
+		 * stop. It has to be applied after the trigger's own props, since bits-ui spreads a
+		 * full attribute set onto the button.
+		 */
+		tabindex?: number;
 	} = $props();
 
 	const label = $derived(STATUS_META[value].label);
@@ -36,6 +45,7 @@
 		{#snippet child({ props })}
 			<Button
 				{...props}
+				{tabindex}
 				variant="ghost"
 				size={showLabel ? 'sm' : 'icon-sm'}
 				class={cn('font-normal', className)}

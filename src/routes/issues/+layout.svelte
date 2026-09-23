@@ -3,16 +3,20 @@
 	// /issues/[id] keeps the list mounted behind it — filter, sort and quick-add draft all
 	// survive the round trip, and the sheet is a real URL that can be shared and reloaded.
 
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
 	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
 	import ListFilterIcon from '@lucide/svelte/icons/list-filter';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
-	import { afterNavigate, preloadCode } from '$app/navigation';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import XIcon from '@lucide/svelte/icons/x';
+	import { afterNavigate, goto, preloadCode } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ISSUE_STATUSES, STATUS_META } from '$lib/model/issue.js';
 	import type { IssueSort } from '$lib/model/query.js';
+	import { WORKSPACE_PARAM } from '$lib/model/workspace.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
@@ -43,6 +47,20 @@
 		priority: 'Priority',
 		recent: 'Recently updated'
 	};
+
+	/** How much of an unusable `?ws=` value the notice below quotes back. */
+	const INVALID_PARAM_PREVIEW = 32;
+
+	// Whatever was in the link, so it goes out as a text node (never HTML) and is truncated —
+	// a long value must not be able to push the rest of the notice off the screen.
+	const badWorkspaceParam = $derived.by(() => {
+		const raw = store.invalidWorkspaceParam;
+		if (raw === null) return null;
+		if (raw === '') return 'was empty';
+		const shown =
+			raw.length > INVALID_PARAM_PREVIEW ? `${raw.slice(0, INVALID_PARAM_PREVIEW)}…` : raw;
+		return `was “${shown}”`;
+	});
 
 	// j/k work from anywhere on this route; the arrow keys are handled by the list itself,
 	// where they cannot suppress page scrolling or fight another widget for the same key.
@@ -75,13 +93,50 @@
 		void preloadCode('/issues/*');
 	});
 
-	// Closing the sheet unmounts it, and bits-ui restores focus to whatever opened it. That
-	// element is gone after a delete, and never existed on a deep link, so put focus
-	// somewhere sensible instead of letting it fall to <body>.
-	afterNavigate(({ from, to }) => {
-		if (!from?.params?.id || to?.params?.id) return;
+	// Closing the sheet unmounts it, and bits-ui hands focus back to whatever opened it —
+	// except that nothing did. The sheet is a route, so it has no Sheet.Trigger, and a deep
+	// link had no row to come from either; focus lands on <body> and the next Tab starts the
+	// whole page again. Put it back on the row the sheet belongs to, and fall back to "New
+	// issue" only when that row is genuinely gone, which is the delete case.
+	afterNavigate(async ({ from }) => {
+		// `page.params`, not the callback's `to.params`. On the initial load SvelteKit builds
+		// the navigation object from the pre-initialisation `current.params` — an empty object
+		// (client.js, the enter-navigation branch) — so every `to.params.id` read is dead on a
+		// cold deep link, which is exactly the case this handler exists to serve.
+		const arrivedAt = page.params.id;
+		// Entering an issue points the list's cursor at it, which is also what keeps that row
+		// mounted (virtua renders a window, not the list) so there is something to focus on
+		// the way back out — however far down the list it was deep-linked from.
+		if (arrivedAt) selectedId = arrivedAt;
+		if (!from?.params?.id || arrivedAt) return;
+		// Something already owns focus: leave it there rather than yanking it around.
 		if (document.activeElement && document.activeElement !== document.body) return;
-		newIssueButton?.focus();
+		const cameFrom = from.params.id;
+		await tick();
+		const row = document.querySelector<HTMLElement>(`[data-issue-link="${CSS.escape(cameFrom)}"]`);
+		// The row's link by attribute, never "whatever the list makes tabbable": which control
+		// carries the tab stop is the list's business and it moves.
+		(row ?? newIssueButton)?.focus();
+	});
+
+	// A `?ws=` that could not be used has to leave the address bar too. Left there, the link
+	// goes on looking like it worked, a reload repeats it, and anything copied out of the
+	// address bar passes the same broken link along. `replaceState` rewrites the entry rather
+	// than adding one, so Back cannot walk into it either.
+	//
+	// Deferred by a microtask because SvelteKit marks the router started *after* running these
+	// callbacks for the initial load, so navigating from inside this call races hydration.
+	afterNavigate(({ to }) => {
+		if (store.invalidWorkspaceParam === null || !to) return;
+		if (!to.url.searchParams.has(WORKSPACE_PARAM)) return;
+		// `page.params` again, for the same reason as above: a cold load with a bad `?ws=`
+		// reports no params here, and stripping to `/issues` would close a sheet the visitor
+		// deep-linked to — irrecoverably, since `replaceState` drops the entry.
+		const openIssue = page.params.id;
+		const target = openIssue ? resolve('/issues/[id]', { id: openIssue }) : resolve('/issues');
+		void Promise.resolve().then(() =>
+			goto(target, { replaceState: true, keepFocus: true, noScroll: true })
+		);
 	});
 
 	const activeIssue = $derived(page.params.id ? store.get(page.params.id) : undefined);
@@ -100,6 +155,34 @@
 </svelte:head>
 
 <div class="mx-auto flex h-full w-full max-w-3xl flex-col gap-4">
+	{#if badWorkspaceParam}
+		<div
+			class="flex items-start gap-3 rounded-lg border border-dashed p-3"
+			role="status"
+			data-testid="invalid-workspace-link"
+		>
+			<TriangleAlertIcon class="text-muted-foreground mt-0.5 size-4 shrink-0" />
+			<!-- min-w-0 + break-words because the quoted value is whatever was in the link: a
+			     flex item will not shrink below its content otherwise, and one long word would
+			     push the page sideways on a phone. -->
+			<div class="min-w-0 flex-1 space-y-1">
+				<p class="text-sm font-medium">That share link wasn't valid</p>
+				<p class="text-muted-foreground text-xs break-words">
+					The workspace id in it {badWorkspaceParam}, which is not one this app can open — so you're
+					in a workspace of your own. Ask whoever sent it for the link again.
+				</p>
+			</div>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				aria-label="Dismiss this notice"
+				onclick={() => store.dismissInvalidWorkspaceParam()}
+			>
+				<XIcon />
+			</Button>
+		</div>
+	{/if}
+
 	<div class="flex items-center gap-2">
 		<h1 class="text-lg font-semibold tracking-tight">Issues</h1>
 		{#if query.total > 0}
@@ -207,10 +290,20 @@
 					A demo, not a private tracker: anyone with the link can read and edit this workspace.
 					Please don't put anything real or sensitive in it.
 				</p>
-				<Button variant="outline" size="sm" onclick={() => store.seedDemo()}>
-					<SparklesIcon />
-					Load example issues
-				</Button>
+				<!-- Seeding is offered only once the workspace has actually finished arriving. An
+				     empty IndexedDB syncs in milliseconds, so someone following a share link looks
+				     empty long before the relay has said a word — and fourteen example issues
+				     appended into somebody else's backlog is not something a CRDT can take back. -->
+				{#if store.settled}
+					<Button variant="outline" size="sm" onclick={() => store.seedDemo()}>
+						<SparklesIcon />
+						Load example issues
+					</Button>
+				{:else}
+					<p class="text-muted-foreground max-w-sm text-xs" data-testid="issues-awaiting-relay">
+						Still checking for issues shared with this link…
+					</p>
+				{/if}
 			{:else}
 				<p class="text-base font-medium">No matching issues</p>
 				<p class="text-muted-foreground max-w-sm text-sm">
