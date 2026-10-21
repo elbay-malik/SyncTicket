@@ -57,7 +57,12 @@ describe('listNames', () => {
 });
 
 describe('connectionCopy', () => {
-	const base = { persisted: true, relaySynced: false, peerCount: 0 } as const;
+	const base = {
+		persisted: true,
+		relaySynced: false,
+		peerCount: 0,
+		relayPersistence: 'ok'
+	} as const;
 
 	it('never claims durability a blocked database does not have', () => {
 		expect(connectionCopy({ ...base, connection: 'local' }).stored).toBe('Saved on this device');
@@ -96,9 +101,100 @@ describe('connectionCopy', () => {
 			persisted: false,
 			connection: 'connected',
 			relaySynced: true,
-			peerCount: 2
+			peerCount: 2,
+			relayPersistence: 'ok'
 		});
 		expect(copy.stored).toMatch(/not saved/i);
 		expect(copy.shared).toBe('Shared with 2 others');
+	});
+});
+
+describe('connectionCopy durability sentence', () => {
+	// Connected and synced throughout: the point of this sentence is that relay storage can
+	// fail while the connection and the local database are both perfectly healthy, so the
+	// other two sentences would say nothing is wrong.
+	const base = {
+		persisted: true,
+		connection: 'connected',
+		relaySynced: true,
+		peerCount: 1
+	} as const;
+
+	// Asserted explicitly, not just left untested: a healthy workspace must not grow a
+	// reassurance row in the popover. If `durable` ever returned a string here, every visitor
+	// would see a line about relay storage on every visit and stop reading the popover at all
+	// — which is exactly the attention this notice needs when something is actually wrong.
+	it('says nothing at all when the relay is storing normally', () => {
+		expect(connectionCopy({ ...base, relayPersistence: 'ok' }).durable).toBeNull();
+		expect(
+			connectionCopy({ ...base, persisted: false, relayPersistence: 'ok' }).durable
+		).toBeNull();
+		// A reason cannot arrive with 'ok', but a frame is only as well-behaved as its sender.
+		expect(
+			connectionCopy({ ...base, relayPersistence: 'ok', relayPersistenceReason: 'too-big' }).durable
+		).toBeNull();
+	});
+
+	it('names the ceiling as full, and terminal, when that is what happened', () => {
+		expect(
+			connectionCopy({ ...base, relayPersistence: 'degraded', relayPersistenceReason: 'too-big' })
+				.durable
+		).toBe(
+			"The relay has stopped saving this workspace — it's full. Your work is still saved in this browser, but other people's copies may fall behind."
+		);
+	});
+
+	it('promises a retry only for the failure that actually retries', () => {
+		expect(
+			connectionCopy({ ...base, relayPersistence: 'degraded', relayPersistenceReason: 'unknown' })
+				.durable
+		).toBe(
+			"The relay's last save failed, so it isn't storing this workspace right now. Your work is still saved in this browser. Retrying automatically."
+		);
+	});
+
+	it('drops to the blunter sentence when this browser cannot save either — whatever the reason', () => {
+		const blunt =
+			"The relay has stopped saving this workspace, and this browser can't save locally either. Nothing here will survive closing the tab.";
+		expect(
+			connectionCopy({
+				...base,
+				persisted: false,
+				relayPersistence: 'degraded',
+				relayPersistenceReason: 'too-big'
+			}).durable
+		).toBe(blunt);
+		expect(
+			connectionCopy({
+				...base,
+				persisted: false,
+				relayPersistence: 'degraded',
+				relayPersistenceReason: 'unknown'
+			}).durable
+		).toBe(blunt);
+		// No reason at all is still this case: the local half is the part that matters here.
+		expect(
+			connectionCopy({ ...base, persisted: false, relayPersistence: 'degraded' }).durable
+		).toBe(blunt);
+	});
+
+	it('reports a stale copy as a loss that has already happened', () => {
+		const stale =
+			"Part of this workspace's history was lost: the relay ran out of room before it could save. What you see is the last copy it managed to keep.";
+		expect(connectionCopy({ ...base, relayPersistence: 'stale' }).durable).toBe(stale);
+		expect(
+			connectionCopy({ ...base, relayPersistence: 'stale', relayPersistenceReason: 'too-big' })
+				.durable
+		).toBe(stale);
+	});
+
+	it('leaves the other two sentences alone', () => {
+		const copy = connectionCopy({
+			...base,
+			relayPersistence: 'degraded',
+			relayPersistenceReason: 'too-big'
+		});
+		expect(copy.stored).toBe('Saved on this device');
+		expect(copy.shared).toBe('Shared with 1 other');
 	});
 });

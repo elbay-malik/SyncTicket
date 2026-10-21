@@ -9,6 +9,7 @@ import YProvider from 'y-partyserver/provider';
 import { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
 import { watchConnection, type ConnectionState } from './connection.svelte.js';
+import { parsePersistenceNotice, type PersistenceNotice } from './relay-notice.js';
 
 /**
  * The party name the relay is reachable at.
@@ -53,6 +54,16 @@ export interface RelayHandlers {
 	onOffline(): void;
 	/** Fires with true once the relay and this client have exchanged state. */
 	onSynced(synced: boolean): void;
+	/**
+	 * The relay telling us whether it can still store this workspace — independent of
+	 * whether the socket is up.
+	 *
+	 * The two really are separate: a room whose SQLite write hit Cloudflare's 2 MB row cap
+	 * keeps relaying every update in memory, so the connection is as healthy as it ever was
+	 * while nothing is being persisted. Only the relay knows that, and only because it looks:
+	 * y-partyserver's own save path catches the error and logs it.
+	 */
+	onPersistence(notice: PersistenceNotice): void;
 }
 
 /**
@@ -90,6 +101,12 @@ export function attachRelay(
 		// rather than left as the `#connection` field's default, so 'local' actually reaches
 		// the UI instead of being indistinguishable from a relay that failed to connect.
 		handlers.onConnection('local');
+		// `onPersistence` is deliberately *not* called on this path, unlike the explicit
+		// 'local' report just above. Relay persistence state stays at the store's 'ok'
+		// default, because there is no relay whose storage could be degraded: the only
+		// durability question a local-only session has is IndexedDB, which `persisted`
+		// already answers. Reporting 'ok' here would be the same value by a louder route,
+		// and reporting anything else would invent a relay that does not exist.
 		return { provider: null, awareness, destroy: () => awareness.destroy() };
 	}
 
@@ -136,6 +153,25 @@ export function attachRelay(
 	});
 	provider.on('connection-error', () => handlers.onConnection('offline'));
 	provider.on('synced', (synced: boolean) => handlers.onSynced(synced));
+	// The relay's storage health, pushed as a string frame over y-partyserver's custom
+	// message channel.
+	//
+	// Note what the provider does with a string frame: it emits 'custom-message' and
+	// `return`s *before* `wsLastMessageReceived = time.getUnixTime()`
+	// (`y-partyserver/dist/provider/index.js` ~101-107 — the assignment is on the line after
+	// the `return`, on the binary path only). So these notices are not liveness traffic, and
+	// nothing may later be built on this channel that assumes they are: a heartbeat sent
+	// here would be invisible to every staleness check in the stack. That is the right way
+	// round — ADRs 0007/0008 settled that this stack does not manufacture its own liveness
+	// traffic — and it is recorded here so a future heartbeat is not quietly added to a
+	// channel that cannot carry one.
+	provider.on('custom-message', (raw: string) => {
+		const notice = parsePersistenceNotice(raw);
+		if (notice) handlers.onPersistence(notice);
+		// Anything unrecognised is ignored, on purpose. The frame is whatever the socket
+		// handed us, and the channel carries a closed enum rather than display text, so the
+		// worst a malformed or hostile frame can do is nothing at all.
+	});
 
 	// The two certain-or-cheap signals this stack has for a socket the library itself will
 	// not notice is dead — see connection.svelte.ts for why this is not a periodic watchdog

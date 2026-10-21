@@ -355,8 +355,12 @@ test('the relay keeps a workspace after every client has gone', async ({ browser
 	await input.fill('Survives every client leaving');
 	await input.press('Enter');
 	await expect(alice.getByRole('link', { name: 'Survives every client leaving' })).toBeVisible();
-	// Past the relay's save debounce before the last client disconnects.
-	await alice.waitForTimeout(2500);
+	// Past the relay's save debounce before the last client disconnects. Sized against the
+	// CEILING (`debounceMaxWait: 5000`), not the trailing wait: a second document update
+	// landing shortly after the first rearms the 2 s trailing timer, so a wait chosen for the
+	// trailing value alone can close the context before `onSave` has run and this test then
+	// fails as real data loss. It was 2500 when the ceiling was 2000.
+	await alice.waitForTimeout(6000);
 	await alice.context().close();
 
 	// A brand-new context: empty IndexedDB, so anything it shows came from the relay.

@@ -20,6 +20,7 @@ import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib
 import { seedIssues, seedDemoIssues, type SeedOptions } from '$lib/sync/seed.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
 import { attachRelay, type RelayConnection } from '$lib/sync/provider.js';
+import type { PersistFailure, PersistenceState } from '$lib/sync/relay-notice.js';
 import { ConnectionStatus, type ConnectionState } from '$lib/sync/connection.svelte.js';
 
 /** What changed in one CRDT batch. Emitted to listeners such as the search index. */
@@ -77,6 +78,20 @@ export class IssueStore {
 	#synced = $state(false);
 	#persisted = $state(true);
 	#invalidWorkspaceParam = $state<string | null>(null);
+	// Relay storage health, as last reported by the relay itself. 'ok' until told otherwise:
+	// a workspace with no relay, or one whose relay has not spoken yet, has no known storage
+	// problem, and the UI must not imply one.
+	//
+	// Unlike `#invalidWorkspaceParam`, this is a *live* condition rather than a historical
+	// fact. That one happened once, at load, and dismissing it is the end of it — hence a
+	// field that is simply nulled. Relay storage can degrade, recover and degrade again
+	// within a session, so dismissal here hides only the transition the visitor was shown:
+	// `#acknowledgedPersistenceAt` remembers which one that was, and a later notice carries
+	// a newer `at` and raises itself again.
+	#relayPersistence = $state<PersistenceState>('ok');
+	#relayPersistenceReason = $state<PersistFailure | undefined>(undefined);
+	#relayPersistenceAt = $state(0);
+	#acknowledgedPersistenceAt = $state(0);
 
 	constructor(explicitWorkspaceId?: string) {
 		// An explicit id (tests, benchmarks) bypasses the URL and storage entirely, so there is
@@ -104,6 +119,11 @@ export class IssueStore {
 				// "this client has never heard what is in this workspace" is a question that can
 				// only be answered once, and `settled` below must not un-answer it.
 				if (synced) this.#relayEverSynced = true;
+			},
+			onPersistence: (notice) => {
+				this.#relayPersistence = notice.state;
+				this.#relayPersistenceReason = notice.reason;
+				this.#relayPersistenceAt = notice.at;
 			}
 		});
 		void this.#persistence.whenSynced.then(
@@ -172,6 +192,41 @@ export class IssueStore {
 	/** Acknowledges the notice above. */
 	dismissInvalidWorkspaceParam(): void {
 		this.#invalidWorkspaceParam = null;
+	}
+
+	/**
+	 * Whether the relay can still store this workspace.
+	 *
+	 * 'ok' covers both "storing normally" and "no relay to store it", which are the same
+	 * thing from here: nothing is wrong with the relay's storage. The data is not at risk in
+	 * either case beyond what {@link persisted} already reports.
+	 */
+	get relayPersistence(): PersistenceState {
+		return this.#relayPersistence;
+	}
+
+	/** Why the relay's last save failed, when it did. Undefined while `relayPersistence` is 'ok'. */
+	get relayPersistenceReason(): PersistFailure | undefined {
+		return this.#relayPersistenceReason;
+	}
+
+	/**
+	 * Whether the visitor should currently be shown the relay-storage notice.
+	 *
+	 * Not simply `relayPersistence !== 'ok'`: that would make a dismissal either permanent
+	 * (and hide a *later*, different failure) or useless (re-raising the same one on the next
+	 * render). Comparing timestamps dismisses exactly one transition, which is what the
+	 * notice's `at` is for.
+	 */
+	get relayPersistenceNoticeVisible(): boolean {
+		return (
+			this.#relayPersistence !== 'ok' && this.#relayPersistenceAt > this.#acknowledgedPersistenceAt
+		);
+	}
+
+	/** Dismisses the notice above until the relay reports a newer change in storage health. */
+	acknowledgeRelayPersistence(): void {
+		this.#acknowledgedPersistenceAt = this.#relayPersistenceAt;
 	}
 
 	/** True once the local load has completed (immediately when there's no persistence). */

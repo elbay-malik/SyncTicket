@@ -14,9 +14,11 @@
 	import { afterNavigate, goto, preloadCode } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
+	import { connectionCopy } from '$lib/format.js';
 	import { ISSUE_STATUSES, STATUS_META } from '$lib/model/issue.js';
 	import type { IssueSort } from '$lib/model/query.js';
 	import { WORKSPACE_PARAM } from '$lib/model/workspace.js';
+	import type { PersistenceState } from '$lib/sync/relay-notice.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
@@ -61,6 +63,32 @@
 			raw.length > INVALID_PARAM_PREVIEW ? `${raw.slice(0, INVALID_PARAM_PREVIEW)}…` : raw;
 		return `was “${shown}”`;
 	});
+
+	// The body sentence comes from `connectionCopy`, the same function the status popover
+	// renders, so the banner and the popover cannot drift into saying two different things
+	// about one fact.
+	//
+	// `peerCount` is 0 rather than the real count because only `durable` is read here, and
+	// that sentence depends on the persistence inputs alone — no reason to subscribe this
+	// route to presence just to produce a `shared` sentence nothing renders.
+	const persistenceCopy = $derived(
+		connectionCopy({
+			persisted: store.persisted,
+			connection: store.connection,
+			relaySynced: store.relaySynced,
+			peerCount: 0,
+			relayPersistence: store.relayPersistence,
+			relayPersistenceReason: store.relayPersistenceReason
+		})
+	);
+
+	// Exhaustive over the state, including the 'ok' the banner is never rendered in, so that
+	// adding a fourth state is a type error here rather than an empty headline in the UI.
+	const PERSISTENCE_HEADLINE: Record<PersistenceState, string> = {
+		ok: '',
+		degraded: 'This workspace has stopped saving on the server',
+		stale: "Part of this workspace's history is missing"
+	};
 
 	// j/k work from anywhere on this route; the arrow keys are handled by the list itself,
 	// where they cannot suppress page scrolling or fight another widget for the same key.
@@ -177,6 +205,30 @@
 				size="icon-sm"
 				aria-label="Dismiss this notice"
 				onclick={() => store.dismissInvalidWorkspaceParam()}
+			>
+				<XIcon />
+			</Button>
+		</div>
+	{/if}
+
+	{#if store.relayPersistenceNoticeVisible}
+		<!-- `role="status"` makes this an implicit live region, so inserting the banner is
+		     itself the announcement; a separate sr-only live region would be redundant. -->
+		<div
+			class="flex items-start gap-3 rounded-lg border border-dashed p-3"
+			role="status"
+			data-testid="relay-not-saving"
+		>
+			<TriangleAlertIcon class="text-muted-foreground mt-0.5 size-4 shrink-0" />
+			<div class="min-w-0 flex-1 space-y-1">
+				<p class="text-sm font-medium">{PERSISTENCE_HEADLINE[store.relayPersistence]}</p>
+				<p class="text-muted-foreground text-xs">{persistenceCopy.durable}</p>
+			</div>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				aria-label="Dismiss this notice"
+				onclick={() => store.acknowledgeRelayPersistence()}
 			>
 				<XIcon />
 			</Button>

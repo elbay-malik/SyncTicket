@@ -1,5 +1,7 @@
 // Presentation-only formatting helpers. Pure functions; `now` is injectable for tests.
 
+import type { PersistFailure, PersistenceState } from '$lib/sync/relay-notice.js';
+
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
@@ -52,6 +54,16 @@ export interface ConnectionCopy {
 	stored: string;
 	/** Who else has it, and whether that link is currently working. */
 	shared: string;
+	/**
+	 * Whether the relay can still store this workspace — null when it can.
+	 *
+	 * A third sentence rather than a qualifier on the other two, because it is independent
+	 * of both: the socket is up (so `shared` is cheerfully correct) and this browser has
+	 * saved everything locally (so `stored` is too), and yet the relay is keeping none of
+	 * it. Null in the healthy case on purpose: a workspace with nothing wrong with it must
+	 * not gain a reassurance badge, which would train people to stop reading the popover.
+	 */
+	durable: string | null;
 }
 
 /**
@@ -71,6 +83,10 @@ export function connectionCopy(input: {
 	relaySynced: boolean;
 	/** Other people currently in the workspace — never counts this browser itself. */
 	peerCount: number;
+	/** What the relay last said about its ability to store this workspace. */
+	relayPersistence: PersistenceState;
+	/** Why its last save failed; absent while `relayPersistence` is 'ok'. */
+	relayPersistenceReason?: PersistFailure;
 }): ConnectionCopy {
 	const stored = input.persisted
 		? 'Saved on this device'
@@ -92,7 +108,35 @@ export function connectionCopy(input: {
 		}
 	})();
 
-	return { stored, shared };
+	const durable = (() => {
+		switch (input.relayPersistence) {
+			case 'ok':
+				return null;
+			case 'degraded':
+				// A browser that cannot save locally either is the one case where this is not
+				// just "other people may fall behind" — there is then no copy of this work
+				// anywhere that outlives the tab, which is blunter than either reason on its
+				// own and so is said regardless of which failure it was.
+				if (!input.persisted) {
+					return "The relay has stopped saving this workspace, and this browser can't save locally either. Nothing here will survive closing the tab.";
+				}
+				// 'too-big' is terminal and 'unknown' is not, so they get different endings:
+				// one is a ceiling that will still be there on the next attempt, the other is
+				// a failure the relay's own debounced save will retry on the next edit. No
+				// byte counts and no error codes — neither is anything the reader can act on.
+				return input.relayPersistenceReason === 'too-big'
+					? "The relay has stopped saving this workspace — it's full. Your work is still saved in this browser, but other people's copies may fall behind."
+					: "The relay's last save failed, so it isn't storing this workspace right now. Your work is still saved in this browser. Retrying automatically.";
+			case 'stale':
+				// Past tense, because by the time this is known the loss has already happened:
+				// the room was evicted while a save was failing. Nothing the reader does now
+				// recovers it, so the sentence tells them what they are looking at instead of
+				// asking them to act.
+				return "Part of this workspace's history was lost: the relay ran out of room before it could save. What you see is the last copy it managed to keep.";
+		}
+	})();
+
+	return { stored, shared, durable };
 }
 
 /** ISO string for <time datetime>; invalid/zero timestamps yield undefined (no attr). */

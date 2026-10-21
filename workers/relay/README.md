@@ -21,7 +21,7 @@ The client provider defaults to a party called `main`, which the relay answers w
 
 ## Persistence and hibernation
 
-`static options = { hibernate: true }` lets an idle room be evicted, which is what makes it free — but eviction takes the in-memory `Y.Doc` with it. Everything therefore has to be recoverable: `onLoad` rebuilds the document from the room's own SQLite table and `onSave` writes it back, with the save debounce shortened from the default 2 s / 10 s so the only copy of a change is not held in evictable memory for long.
+`static options = { hibernate: true }` lets an idle room be evicted, which is what makes it free — but eviction takes the in-memory `Y.Doc` with it. Everything therefore has to be recoverable: `onLoad` rebuilds the document from the room's own SQLite table and `onSave` writes it back. The save debounce keeps y-partyserver's default 2 s trailing wait and tightens only its 10 s ceiling, to 5 s: the trailing timer is the worst case, because a gap longer than it fires the save, so bursty typing costs more writes than continuous editing — at the 300 ms this once used, up to ~288,000 row writes a day against an account-wide free-plan budget of 100,000 ([ADR 0010](../../docs/adr/0010-relay-snapshot-durability.md)). The price is that up to 5 s of the newest changes live only in evictable memory, which is safe because every client holds the whole document in IndexedDB and re-syncs.
 
 ## Commands
 
