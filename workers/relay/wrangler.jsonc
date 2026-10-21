@@ -15,5 +15,35 @@
 	},
 	// The free plan only offers SQLite-backed Durable Objects, and Wrangler requires the
 	// migration to live with the worker that defines the class — hence the separate worker.
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["YDocRoom"] }]
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["YDocRoom"] }],
+	// Bounds how often one IP may ask to open a socket. `period` may only be 10 or 60.
+	// Kept in step with CONNECT_LIMIT in src/limits.ts, which limits.test.ts asserts against
+	// so drift fails the suite rather than a deploy. See src/limits.ts for what this does and
+	// does not buy — notably that it cannot delay the free plan's daily request cap.
+	"ratelimits": [
+		{ "name": "CONNECT_LIMIT", "namespace_id": "1", "simple": { "limit": 30, "period": 60 } }
+	],
+	// The relay the e2e suite starts, which is the same worker WITHOUT the rate limit.
+	//
+	// Not a convenience: the suite is a load generator, not a user. It opens well over a
+	// minute's worth of sockets in about 25 seconds, and `wrangler dev` does set
+	// `cf-connecting-ip`, so every test shares the 127.0.0.1 bucket and the last few get
+	// refused — verified, 43/46 with the limit and 46/46 without. Raising the limit instead is
+	// not available: to stop one source exhausting the free plan's 100,000 requests/day it has
+	// to sit below ~69/min, and the suite needs more than that.
+	//
+	// Bindings are not inherited by a named environment unless redeclared, so listing only the
+	// Durable Object here is what drops CONNECT_LIMIT. Confirmed with
+	// `wrangler deploy --dry-run --env e2e`, which prints the Durable Object alone.
+	//
+	// The cost is honest and worth stating: e2e does not exercise the limiter at all.
+	// `src/limits.test.ts` covers its logic, and because `refuseConnect` fails open there is no
+	// path where an untested limiter refuses a real visitor.
+	"env": {
+		"e2e": {
+			"durable_objects": {
+				"bindings": [{ "name": "YDocRoom", "class_name": "YDocRoom" }]
+			}
+		}
+	}
 }

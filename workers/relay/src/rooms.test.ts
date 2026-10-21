@@ -27,7 +27,7 @@ describe('isRoutableRoom', () => {
 		}
 	});
 
-	it('refuses everything a stranger could type', () => {
+	it('refuses every shape the app does not mint, which is enumeration and not creation', () => {
 		const hostile = [
 			'evil-room-1',
 			'a',

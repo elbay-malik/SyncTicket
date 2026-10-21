@@ -15,7 +15,11 @@ export default defineConfig({
 		{
 			// The relay first, so the app has something to connect to. `port` gives a plain TCP
 			// readiness check; a URL check would follow the 404 rules and never settle.
-			command: `pnpm --filter syncticket-relay exec wrangler dev --port ${RELAY_PORT} --persist-to .wrangler/e2e-state`,
+			// `--env e2e` is the same worker without the connection rate limit. The suite opens
+			// more sockets per minute from one address than any real client ever would, and
+			// `wrangler dev` sets `cf-connecting-ip`, so the limit would refuse our own tests.
+			// See workers/relay/wrangler.jsonc for the measurements and the trade-off.
+			command: `pnpm --filter syncticket-relay exec wrangler dev --port ${RELAY_PORT} --persist-to .wrangler/e2e-state --env e2e`,
 			port: RELAY_PORT,
 			timeout: 120_000,
 			// Never adopt a server we did not start: 8787 is a common default, and reusing

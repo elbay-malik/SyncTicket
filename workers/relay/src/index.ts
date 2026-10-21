@@ -16,6 +16,7 @@ import {
 	writeSnapshotSql
 } from './storage.js';
 import { isRoutableRoom } from './rooms.js';
+import { connectKey, refuseConnect } from './limits.js';
 
 export class YDocRoom extends YServer<Env> {
 	// Hibernation is what makes an idle room free: the instance is evicted, its memory with
@@ -69,10 +70,14 @@ export default {
 		// nothing), which is the only place a room can be refused without having already
 		// made one.
 		const routed = await routePartykitRequest(request, env, {
-			onBeforeConnect(_req, lobby) {
+			async onBeforeConnect(req, lobby) {
 				if (!isRoutableRoom(lobby.name)) {
 					return new Response('unknown workspace', { status: 400 });
 				}
+				// After the shape check, so a malformed name costs no limiter call. The name
+				// check is only a shape check — a stranger can mint one — so this is what
+				// bounds the rate at which empty rooms can be created. It fails open.
+				return refuseConnect(env.CONNECT_LIMIT, connectKey(req));
 			},
 			// Nothing legitimate reaches a room over plain HTTP — this relay speaks Yjs over
 			// WebSocket and nothing else — and letting one through would create the room as a

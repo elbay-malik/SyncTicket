@@ -17,8 +17,14 @@
  * with its own SQLite storage — is created for it. Not just over WebSocket: a plain GET
  * initialises the instance (`Server.fetch` awaits `#ensureInitialized()` before it decides
  * the request is not an upgrade), so one unauthenticated `curl` per name was enough to
- * create unbounded rooms. Requiring a 128-bit id the app itself generated removes the
- * enumeration primitive entirely: a stranger cannot guess a routable name.
+ * create unbounded rooms.
+ *
+ * What this does and does not close, because it is easy to overclaim: it removes the
+ * ENUMERATION primitive — an existing workspace cannot be found, though 128 bits of entropy
+ * had already made that infeasible — and it closes the plain-HTTP creation path entirely.
+ * It does NOT stop a stranger creating rooms. There is no secret in this pattern, so
+ * `a` + 32 random hex characters is a routable name anyone can mint as cheaply as the app
+ * does. Bounding the rate of that is `limits.ts`'s job, and even that only narrows it.
  */
 export const ROOM_NAME = /^[a-z][0-9a-f]{32}$/;
 
