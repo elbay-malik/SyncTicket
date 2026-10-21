@@ -136,6 +136,16 @@ test('full CRUD works offline and the result survives a reload', async ({
 	}).toPass({ timeout: 15_000 });
 
 	const dialog = page.getByRole('dialog', { name: 'New issue' });
+	// Wait for the dialog's own autofocus to have landed before typing into it, which is a
+	// real race and not a formality. `fill()` is `.focus()` followed by
+	// `keyboard.insertText()`, and insertText goes to whatever holds focus at that instant —
+	// so if bits-ui's focus scope is still pending when the dialog becomes visible, filling
+	// Title and then Description reads: focus Title, insert, focus Description, *autofocus
+	// fires and pulls focus back to Title*, insert again. Both strings land in Title, and the
+	// issue is created titled "Offline issueWritten with the network off". Reproduced at
+	// roughly 1 run in 6 under `--repeat-each`, and it is what broke CI, which runs one worker
+	// on slower hardware.
+	await expect(dialog.getByLabel('Title')).toBeFocused();
 	await dialog.getByLabel('Title').fill('Offline issue');
 	await dialog.getByLabel('Description').fill('Written with the network off');
 	await page.keyboard.press('ControlOrMeta+Enter');

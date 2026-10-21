@@ -21,6 +21,11 @@ async function seeded(page: Page) {
 		await page.keyboard.press('c');
 		const dialog = page.getByRole('dialog', { name: 'New issue' });
 		await expect(dialog).toBeVisible();
+		// Visible is not yet focused, and filling two fields before the dialog's autofocus
+		// lands merges them: insertText follows focus, so Title ends up holding both strings.
+		// See e2e/issues.e2e.ts for the full mechanism — this loop runs it once per issue, so
+		// it is the most exposed instance in the suite.
+		await expect(dialog.getByLabel('Title')).toBeFocused();
 		await dialog.getByLabel('Title').fill(issue.title);
 		await dialog.getByLabel('Description').fill(issue.description);
 		await page.keyboard.press('ControlOrMeta+Enter');
