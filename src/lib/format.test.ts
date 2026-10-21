@@ -72,7 +72,12 @@ describe('connectionCopy', () => {
 	});
 
 	it('is exhaustive over every connection state, including connected+synced+alone', () => {
-		expect(connectionCopy({ ...base, connection: 'local' }).shared).toMatch(/local only/i);
+		// The exact literal, not a pattern: docs/DEMO.md quotes this sentence and claims it is
+		// pinned by a test. The demo script runs with a relay configured, so `e2e/demo.e2e.ts`
+		// can never reach this state — this assertion is the only thing holding that quote.
+		expect(connectionCopy({ ...base, connection: 'local' }).shared).toBe(
+			'Local only — no relay configured'
+		);
 		expect(connectionCopy({ ...base, connection: 'offline' }).shared).toMatch(/not shared/i);
 		expect(connectionCopy({ ...base, connection: 'connecting' }).shared).toMatch(/connecting/i);
 		expect(connectionCopy({ ...base, connection: 'connected', relaySynced: false }).shared).toMatch(

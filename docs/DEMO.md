@@ -1,7 +1,9 @@
 # The two-minute demo
 
-Everything below is also a Playwright test (`e2e/demo.e2e.ts`), including the exact words
-quoted here — if a screenshot of the popover ever stops matching this page, that test fails.
+Every step below is also a Playwright test (`e2e/demo.e2e.ts`), and every sentence quoted from
+the connection popover is asserted as an exact string — in that test where the demo reaches the
+state, and in `src/lib/format.test.ts` for the one state the demo deliberately does not reach
+(see step 1). If the copy drifts, one of those two fails.
 
 ## Setup
 
@@ -17,11 +19,17 @@ browser window.
 The first visit mints a private workspace — nobody else can reach it without the link. The
 connection badge in the header (a small cloud icon) reads, when you open it:
 
+> Saved on this device. Ready to share — no one else here yet.
+
+That second sentence is the one worth reading carefully: the relay is connected and has nothing
+to say yet, which is a different fact from there being no relay at all. Under `pnpm dev`, with
+`PUBLIC_RELAY_HOST` unset, the same badge reads
+
 > Saved on this device. Local only — no relay configured.
 
-Run `pnpm demo` rather than `pnpm dev` for the rest of this script: it sets
-`PUBLIC_RELAY_HOST`, without which the app is intentionally local-only and every step below
-that involves a second browser has nothing to show.
+and every step below that involves a second browser has nothing to show — which is why this
+script uses `pnpm demo`. The two sentences are never both reachable in one run, so
+`e2e/demo.e2e.ts` pins the first and `src/lib/format.test.ts` pins the second.
 
 ## 2. Share it
 
