@@ -1,6 +1,18 @@
 packages:
   - 'workers/*'
 
+overrides:
+  # GHSA-9rgm-9g3h-6x36 (DoS via malformed input) is fixed in 5.9.1, and devalue is on the
+  # production path: SvelteKit serialises server data through it. Pinned here rather than
+  # left to resolution because nothing in the tree actually asks for a safe version —
+  # @sveltejs/kit 2.70.3 still declares `^5.8.1`, and the patched 5.9.4 only wins because
+  # svelte 5.57.2 happens to declare `^5.9.2` and pnpm dedupes the two. A svelte downgrade
+  # would silently reopen the advisory with no warning and no lockfile conflict.
+  #
+  # `overrides` lives here, not under a `pnpm` key in package.json: pnpm 11 ignores that
+  # field outright and only warns about it.
+  devalue: '>=5.9.1'
+
 allowBuilds:
   '@tailwindcss/oxide': true
   workerd: true
