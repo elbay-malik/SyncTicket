@@ -128,24 +128,34 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
 - **While degraded, the status trigger shows a warning triangle instead of its connection icon**,
   so connected-versus-offline is readable only from the popover. Deliberate: "connected but not
   saving" is the worse fact, and a cloud icon asserting otherwise is an active lie.
-- **There may be a tighter ceiling than this one, and it cannot be settled from here.** Waking a
-  hibernated room re-applies the whole snapshot, and that cost tracks the number of Yjs _items_
-  (ten per issue) rather than the byte count — measured with `Y.applyUpdate`, median of seven, on
-  an M5: 1,100 issues 3.9 ms, 3,000 issues 11.4 ms, 6,000 issues 27.5 ms, and notably 1,315 issues
-  at 1.96 MB only 3.7 ms against 2,760 issues at 1.92 MB taking 12.8 ms. A Workers isolate is
-  slower than this machine by an unmeasured factor.
-  Whether that matters depends on a limit Cloudflare's own documentation does not resolve. The
-  Durable Objects limits page states "CPU per request | 30 seconds (default)" and does not split
-  it by plan; its own FAQ says Durable Objects "have the same per invocation CPU limits as any
-  Workers do" and links to the table where Workers Free reads "CPU time | 10 ms". Both pages were
-  read in full on 2026-10-21 and neither states a free-plan Durable Object CPU figure.
-  Under the 30-second reading this is irrelevant — 27 ms is under a tenth of a percent. Under the
-  10 ms reading the wake ceiling arrives somewhere around 1,000–3,000 issues and is therefore
-  **tighter than the 2 MB blob ceiling this ADR guards**, which would make the size check
-  something that rarely fires first. Deliberately not designed around: guessing wrong in the
-  cautious direction means capping a demo at a quarter of its real capacity for a limit that may
-  not exist. It is answerable in one minute against a real deployed account — seed ~4,000 issues,
+- **There may be a tighter ceiling than this one, on a different axis, and it is now reported.**
+  Waking a hibernated room re-applies the whole snapshot, and that cost tracks the number of Yjs
+  **structs**, not the byte count — measured at 0.465–0.665 microseconds per struct across every
+  shape tried, in Node and inside real workerd, which puts ten structs (a sub-map plus nine
+  fields) on every issue. The byte guard above is therefore blind to it in both directions, and
+  the examples are not hypothetical: 3,000 empty-description issues is 880 KB, under the byte
+  warn, and ~14–18 ms to wake; 500 live issues plus 20,000 churned structs is 512 KB and ~12 ms;
+  while 1,315 long-description issues is 1.96 MB, over the byte ceiling, and only ~6–9 ms.
+  Whether that matters depends on a limit **Cloudflare does not document**. The Durable Objects
+  limits page gives "CPU per request | 30 seconds (default)" with no plan split, and its footnotes
+  describe the 30 seconds unconditionally; its own FAQ says Durable Objects have "the same per
+  invocation CPU limits as any Workers do" and links to a table reading "CPU time | 10 ms" for
+  Workers Free. Two independent passes over the Workers limits, Durable Objects limits, Workers
+  pricing, Wrangler configuration and both changelogs found no page stating a free-plan Durable
+  Object CPU figure, and no changelog entry ever raising the 10 ms Workers Free value. It is also
+  not testable locally: Wrangler documents that limits "are only enforced when deployed to
+  Cloudflare's network, not in local development", so real workerd under `wrangler dev` will not
+  reproduce it either. **It is answerable only against a deployed account** — seed ~4,000 issues,
   let the room hibernate, reconnect — and that is the check to run once credentials exist.
+  So this ADR does not design around either reading. It emits one log line,
+  `event=wake-cost`, when a document passes `WAKE_WARN_STRUCTS` (20,000 structs, about 2,000
+  issues, roughly where the pessimistic limit would be crossed), latched for the life of the room
+  because structs never decrease. Under the 30-second reading that line is noise. Under the 10 ms
+  reading it is the only warning available, because this failure has no graceful degradation: the
+  byte ceiling still lets a room relay in memory, whereas a room that cannot finish `onLoad`
+  cannot serve at all. A cap was rejected for the same reason the ceiling is not raised — capping
+  a demo at a quarter of its measured capacity, for a limit that may not exist, is the worse
+  error.
 - **No telemetry.** The owner learns about a wedged room by opening the demo, or by reading
   `wrangler tail` within three days. Right for a portfolio demo, wrong for a product.
 - `CREATE TABLE IF NOT EXISTS` now runs twice per wake instead of once. Whether a no-op DDL

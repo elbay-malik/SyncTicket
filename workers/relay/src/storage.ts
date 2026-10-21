@@ -69,6 +69,57 @@ export function classifyWriteError(err: unknown): PersistFailure {
 }
 
 /** The single row every room keeps: the whole document as one update. */
+/**
+ * How many structs a cold wake can re-apply before it is worth a log line.
+ *
+ * A DIFFERENT AXIS from the byte budget above, and the reason both exist. Waking a hibernated
+ * room runs `Y.applyUpdate` over the whole snapshot, and that cost tracks the number of Yjs
+ * structs, not the byte count — measured at 0.465-0.665 microseconds per struct across every
+ * shape tried, in Node and inside real workerd. The two ceilings therefore do not imply each
+ * other, and the byte guard is blind to this one in both directions:
+ *
+ *   3,000 issues, empty descriptions   880 KB   byte guard SILENT   ~14-18 ms wake
+ *   500 issues + 20,000 churned        512 KB   byte guard SILENT   ~12 ms wake
+ *   1,315 issues, long descriptions    1.96 MB  byte guard OVER     ~6-9 ms wake
+ *
+ * 20,000 structs is about 2,000 issues (ten structs each: the sub-map plus nine fields), which
+ * is roughly where the wake passes 10 ms. Why 10 ms matters is genuinely unresolved: the
+ * Durable Objects limits page gives "CPU per request | 30 seconds (default)" with no plan
+ * split, while its own FAQ says Durable Objects have "the same per invocation CPU limits as any
+ * Workers do" and links to a table reading "CPU time | 10 ms" for Workers Free. Neither page
+ * states a free-plan Durable Object figure, and Wrangler documents that limits "are only
+ * enforced when deployed to Cloudflare's network, not in local development" — so this cannot
+ * be settled anywhere but a real deployed account (ADR 0010).
+ *
+ * Hence a LOG LINE and nothing else: no user notice, no cap, no refusal. Under the 30-second
+ * reading this is noise in a log nobody reads; under the 10 ms reading it is the only warning
+ * that a workspace is approaching the point where its room stops loading at all — which,
+ * unlike the byte ceiling, has no graceful degradation, because a room must load to serve.
+ */
+export const WAKE_WARN_STRUCTS = 20_000;
+
+/** Microseconds per struct, measured. Only ever used to put a number in a log line. */
+const WAKE_US_PER_STRUCT = 0.6;
+
+/**
+ * Total structs in the document, including tombstones — what a cold wake re-applies.
+ *
+ * The state vector holds one clock per client and the clock is that client's struct count, so
+ * summing it is both exact and cheap. Deliberately schema-free: counting issues instead would
+ * make this worker the third place that knows the app's document shape, and it would miss
+ * churn residue entirely, which the 512 KB row above shows is reachable on its own.
+ */
+export function countStructs(doc: Y.Doc): number {
+	let total = 0;
+	for (const clock of Y.decodeStateVector(Y.encodeStateVector(doc)).values()) total += clock;
+	return total;
+}
+
+/** A rough wake cost for the log line, in whole milliseconds. Not a promise. */
+export function approxWakeMs(structs: number): number {
+	return Math.round((structs * WAKE_US_PER_STRUCT) / 1000);
+}
+
 export const SNAPSHOT_TABLE = 'ydoc_snapshot';
 
 export function createTableSql(): string {

@@ -8,7 +8,10 @@ import {
 	classifyWriteError,
 	decodeSnapshot,
 	encodePersistenceNotice,
-	encodeSnapshot
+	encodeSnapshot,
+	WAKE_WARN_STRUCTS,
+	approxWakeMs,
+	countStructs
 } from './storage.js';
 
 function docWith(entries: Record<string, string>): Y.Doc {
@@ -165,5 +168,61 @@ describe('real documents against the ceiling', () => {
 		// be stored.
 		expect(classifySnapshot(encodeSnapshot(docWithIssues(5_000)).byteLength)).toBe('ok');
 		expect(classifySnapshot(encodeSnapshot(docWithIssues(10_000)).byteLength)).toBe('over');
+	});
+});
+
+describe('wake cost, which the byte guard cannot see', () => {
+	function docWithIssues(count: number): Y.Doc {
+		const doc = new Y.Doc();
+		const issues = doc.getMap('issues');
+		doc.transact(() => {
+			for (let i = 0; i < count; i++) {
+				const issue = new Y.Map<unknown>();
+				issue.set('title', `Issue ${i}`);
+				issue.set('description', '');
+				issue.set('status', 'todo');
+				issue.set('priority', 'medium');
+				issue.set('assignee', null);
+				issue.set('labels', []);
+				issue.set('order', `a${i.toString(36)}`);
+				issue.set('createdAt', 1700000000000);
+				issue.set('updatedAt', 1700000000000);
+				issues.set(`i${String(i).padStart(10, '0')}`, issue);
+			}
+		});
+		return doc;
+	}
+
+	it('counts ten structs per issue — the sub-map plus its nine fields', () => {
+		expect(countStructs(docWithIssues(100))).toBe(1_000);
+		expect(countStructs(docWithIssues(500))).toBe(5_000);
+	});
+
+	it('keeps counting structs that gc has already emptied of content', () => {
+		// The reason this is not derived from bytes. gc reclaims the *content* of deleted
+		// issues — ~95% of it — but never the structs, so a churned workspace stays expensive
+		// to wake while shrinking on disk. 500 live issues plus 1,500 created-and-deleted:
+		const doc = docWithIssues(500);
+		const issues = doc.getMap('issues');
+		doc.transact(() => {
+			for (let i = 0; i < 1_500; i++) {
+				issues.set(`tmp${i}`, new Y.Map<unknown>());
+				issues.delete(`tmp${i}`);
+			}
+		});
+		expect(countStructs(doc)).toBeGreaterThan(6_000);
+	});
+
+	it('sees a document the byte guard calls fine', () => {
+		// 3,000 empty-description issues: comfortably under SNAPSHOT_WARN_BYTES, and over the
+		// wake threshold. Exactly the blind spot this axis exists for.
+		const doc = docWithIssues(3_000);
+		expect(classifySnapshot(encodeSnapshot(doc).byteLength)).toBe('ok');
+		expect(countStructs(doc)).toBeGreaterThan(WAKE_WARN_STRUCTS);
+	});
+
+	it('reports a whole number of milliseconds, and nothing clever', () => {
+		expect(approxWakeMs(30_000)).toBe(18);
+		expect(approxWakeMs(0)).toBe(0);
 	});
 });

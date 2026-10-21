@@ -11,6 +11,8 @@
 // that can be reasoned about is decided here, where plain-Node tests can enumerate it.
 
 import {
+	WAKE_WARN_STRUCTS,
+	approxWakeMs,
 	classifyWriteError,
 	encodePersistenceNotice,
 	type PersistenceState,
@@ -28,6 +30,8 @@ export interface PersistPlan {
 	log: string | null;
 	/** Whether to write the health row — ONLY on a transition. */
 	recordHealth: boolean;
+	/** Set once the wake-cost line has been emitted, so the caller can latch it. */
+	wakeWarned?: boolean;
 }
 
 /**
@@ -48,10 +52,27 @@ export function planSave(input: {
 	size: SnapshotSize;
 	state: PersistenceState;
 	warned: boolean;
+	/** Structs in the document — the wake-cost axis, independent of `bytes`. */
+	structs: number;
+	/** Whether the wake-cost line has already been logged for this excursion. */
+	wakeWarned: boolean;
 	room: string;
 	now: number;
 }): PersistPlan {
-	const { bytes, size, state, warned, room, now } = input;
+	const { bytes, size, state, warned, structs, wakeWarned, room, now } = input;
+
+	// Reported before anything else and independently of everything else: a document can be
+	// expensive to wake while nowhere near the byte ceiling, and vice versa. `wakeLog` is
+	// merged into whichever plan is returned below rather than short-circuiting, because the
+	// two conditions are unrelated and a room can cross both on the same save.
+	const wakeLog =
+		structs > WAKE_WARN_STRUCTS && !wakeWarned
+			? `relay.persistence event=wake-cost room=${room} structs=${structs} approx_ms=${approxWakeMs(structs)}`
+			: null;
+	const withWake = (plan: PersistPlan): PersistPlan =>
+		wakeLog === null
+			? plan
+			: { ...plan, log: plan.log === null ? wakeLog : `${plan.log}\n${wakeLog}`, wakeWarned: true };
 
 	if (size === 'over') {
 		// Already failing: total silence. This is the rule that keeps the fix from becoming
@@ -70,51 +91,55 @@ export function planSave(input: {
 		// statement (the stored snapshot is known-incomplete, not merely un-updated) and
 		// nothing here learns anything that would justify weakening it.
 		if (state !== 'ok') {
-			return {
+			// `withWake` even here, where everything else is silent: the wake cost is a
+			// different axis and a crossing on it is new information. Dropping it in the
+			// degraded state would hide the one failure that has no graceful degradation,
+			// because a room must load in order to serve at all.
+			return withWake({
 				write: false,
 				next: state,
 				reason: 'too-big',
 				notice: null,
 				log: null,
 				recordHealth: false
-			};
+			});
 		}
-		return {
+		return withWake({
 			write: false,
 			next: 'degraded',
 			reason: 'too-big',
 			notice: encodePersistenceNotice({ state: 'degraded', reason: 'too-big', at: now }),
 			log: line('degraded', room, bytes, ' reason=too-big'),
 			recordHealth: true
-		};
+		});
 	}
 
 	// A successful save is what clears both 'degraded' and the latched 'stale', and the
 	// health row is rewritten to 'ok' so the next cold start does not re-announce it.
 	if (state !== 'ok') {
-		return {
+		return withWake({
 			write: true,
 			next: 'ok',
 			notice: encodePersistenceNotice({ state: 'ok', at: now }),
 			log: line('recovered', room, bytes),
 			recordHealth: true
-		};
+		});
 	}
 
 	// 75% is not a user-facing fact — there is nothing for a user to do about it and nothing
 	// has been lost — so the crossing is logged once and no further. The caller latches
 	// `warned` and clears it when the size is back to 'ok'.
 	if (size === 'warn' && !warned) {
-		return {
+		return withWake({
 			write: true,
 			next: 'ok',
 			notice: null,
 			log: line('warn', room, bytes),
 			recordHealth: false
-		};
+		});
 	}
 
-	return { write: true, next: 'ok', notice: null, log: null, recordHealth: false };
+	return withWake({ write: true, next: 'ok', notice: null, log: null, recordHealth: false });
 }
 
 /** Decides what a write that threw anyway should say. */

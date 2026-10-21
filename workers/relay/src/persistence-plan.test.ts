@@ -11,6 +11,8 @@ function save(
 		size: SnapshotSize;
 		state: PersistenceState;
 		warned: boolean;
+		structs: number;
+		wakeWarned: boolean;
 	}> = {}
 ) {
 	return planSave({
@@ -18,6 +20,12 @@ function save(
 		size: 'ok',
 		state: 'ok',
 		warned: false,
+		// Well under WAKE_WARN_STRUCTS, so the wake axis stays out of every test that is not
+		// about it. Spelled out rather than left to default, because an omitted `structs`
+		// would compare `undefined > 20_000` as false and silently mean "never warn" — the
+		// typecheck is the only thing that catches that, so it must stay required.
+		structs: 1_000,
+		wakeWarned: false,
 		room: ROOM,
 		now: NOW,
 		...over
@@ -103,6 +111,58 @@ describe('planSave — under the ceiling', () => {
 
 	it('recovers from a warn-sized snapshot too — only "over" blocks the write', () => {
 		expect(save({ size: 'warn', state: 'degraded' }).next).toBe('ok');
+	});
+});
+
+describe('planSave — the wake-cost axis', () => {
+	// Independent of bytes in BOTH directions, which is the reason it exists. A document can
+	// be expensive to wake while far under the byte warn, and cheap to wake while over the
+	// byte ceiling, so neither guard implies the other.
+	it('logs once when a cheap-looking document is expensive to wake', () => {
+		// 880 KB of snapshot — the byte guard is silent — but 30,000 structs is ~18 ms.
+		const plan = save({ bytes: 881_591, size: 'ok', structs: 30_000 });
+		expect(plan.write).toBe(true);
+		expect(plan.log).toBe(
+			'relay.persistence event=wake-cost room=a1b2c3d4 structs=30000 approx_ms=18'
+		);
+		expect(plan.wakeWarned).toBe(true);
+		// Still not a user-facing fact: nobody is told, and nothing is recorded.
+		expect(plan.notice).toBeNull();
+		expect(plan.recordHealth).toBe(false);
+	});
+
+	it('says nothing once the line has been logged', () => {
+		expect(save({ size: 'ok', structs: 30_000, wakeWarned: true }).log).toBeNull();
+	});
+
+	it('says nothing about a large but cheap document', () => {
+		// 1.96 MB over the ceiling, yet only 13,150 structs — about 8 ms to wake.
+		const plan = save({ bytes: 1_958_321, size: 'over', structs: 13_150 });
+		expect(plan.log).toBe(
+			'relay.persistence event=degraded room=a1b2c3d4 bytes=1958321 reason=too-big'
+		);
+		expect(plan.wakeWarned).toBeUndefined();
+	});
+
+	it('reports both axes when a save crosses them together', () => {
+		// They are unrelated conditions, so one must not swallow the other.
+		const plan = save({ bytes: 1_600_000, size: 'warn', structs: 30_000 });
+		expect(plan.log?.split('\n')).toEqual([
+			'relay.persistence event=warn room=a1b2c3d4 bytes=1600000',
+			'relay.persistence event=wake-cost room=a1b2c3d4 structs=30000 approx_ms=18'
+		]);
+	});
+
+	it('still reports the wake cost while the room is already degraded and silent', () => {
+		// The degraded steady state is otherwise total silence. A wake-cost crossing is new
+		// information on a different axis, and losing it there would hide the one failure that
+		// has no graceful degradation.
+		const plan = save({ bytes: 2_041_188, size: 'over', state: 'degraded', structs: 30_000 });
+		expect(plan.notice).toBeNull();
+		expect(plan.recordHealth).toBe(false);
+		expect(plan.log).toBe(
+			'relay.persistence event=wake-cost room=a1b2c3d4 structs=30000 approx_ms=18'
+		);
 	});
 });
 

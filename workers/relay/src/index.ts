@@ -10,6 +10,7 @@ import type * as Y from 'yjs';
 import { YServer } from 'y-partyserver';
 import {
 	classifySnapshot,
+	countStructs,
 	createHealthTableSql,
 	createTableSql,
 	decodeSnapshot,
@@ -50,6 +51,8 @@ export class YDocRoom extends YServer<Env> {
 	#reason: PersistFailure | undefined;
 	/** Latched so the 75% crossing is logged once per excursion, not once per save. */
 	#warned = false;
+	/** Latches the wake-cost line, which is on its own axis and has its own excursion. */
+	#wakeWarned = false;
 	#noticeAt = 0;
 
 	override async onLoad(): Promise<Y.Doc | void> {
@@ -85,6 +88,10 @@ export class YDocRoom extends YServer<Env> {
 		// failure, and must not be reported to users as degraded persistence.
 		const bytes = encodeSnapshot(this.document);
 		const size = classifySnapshot(bytes.byteLength);
+		// A second, unrelated measurement: what a cold wake would cost. Cheap — the state
+		// vector is one clock per client — and not derivable from `bytes`, which is the whole
+		// point of measuring it separately.
+		const structs = countStructs(this.document);
 		// One clock reading for the whole attempt, so the timestamp inside a broadcast notice
 		// and the one `onConnect` later re-encodes for a late joiner are the same instant.
 		const now = Date.now();
@@ -93,6 +100,8 @@ export class YDocRoom extends YServer<Env> {
 			size,
 			state: this.#persist,
 			warned: this.#warned,
+			structs,
+			wakeWarned: this.#wakeWarned,
 			room: this.#roomTag(),
 			now
 		});
@@ -127,6 +136,12 @@ export class YDocRoom extends YServer<Env> {
 		// it is back under the warn threshold, and left alone while it is over the ceiling
 		// (where the degraded notice has already said something louder).
 		this.#warned = size === 'ok' ? false : size === 'warn' ? true : this.#warned;
+		// Its own latch, on its own axis: a document can shed bytes without shedding structs
+		// (gc reclaims deleted *content*, never the tombstones), so clearing this one from the
+		// byte size would re-arm a line whose condition has not changed. Only `planSave`
+		// setting it latches it; nothing clears it for the life of the room, because structs
+		// never decrease.
+		if (plan.wakeWarned) this.#wakeWarned = true;
 		if (plan.recordHealth) {
 			try {
 				this.ctx.storage.sql.exec(writeHealthSql(), plan.next, bytes, now, plan.reason ?? null);
