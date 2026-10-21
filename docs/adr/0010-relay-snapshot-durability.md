@@ -128,6 +128,24 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
 - **While degraded, the status trigger shows a warning triangle instead of its connection icon**,
   so connected-versus-offline is readable only from the popover. Deliberate: "connected but not
   saving" is the worse fact, and a cloud icon asserting otherwise is an active lie.
+- **There may be a tighter ceiling than this one, and it cannot be settled from here.** Waking a
+  hibernated room re-applies the whole snapshot, and that cost tracks the number of Yjs _items_
+  (ten per issue) rather than the byte count — measured with `Y.applyUpdate`, median of seven, on
+  an M5: 1,100 issues 3.9 ms, 3,000 issues 11.4 ms, 6,000 issues 27.5 ms, and notably 1,315 issues
+  at 1.96 MB only 3.7 ms against 2,760 issues at 1.92 MB taking 12.8 ms. A Workers isolate is
+  slower than this machine by an unmeasured factor.
+  Whether that matters depends on a limit Cloudflare's own documentation does not resolve. The
+  Durable Objects limits page states "CPU per request | 30 seconds (default)" and does not split
+  it by plan; its own FAQ says Durable Objects "have the same per invocation CPU limits as any
+  Workers do" and links to the table where Workers Free reads "CPU time | 10 ms". Both pages were
+  read in full on 2026-10-21 and neither states a free-plan Durable Object CPU figure.
+  Under the 30-second reading this is irrelevant — 27 ms is under a tenth of a percent. Under the
+  10 ms reading the wake ceiling arrives somewhere around 1,000–3,000 issues and is therefore
+  **tighter than the 2 MB blob ceiling this ADR guards**, which would make the size check
+  something that rarely fires first. Deliberately not designed around: guessing wrong in the
+  cautious direction means capping a demo at a quarter of its real capacity for a limit that may
+  not exist. It is answerable in one minute against a real deployed account — seed ~4,000 issues,
+  let the room hibernate, reconnect — and that is the check to run once credentials exist.
 - **No telemetry.** The owner learns about a wedged room by opening the demo, or by reading
   `wrangler tail` within three days. Right for a portfolio demo, wrong for a product.
 - `CREATE TABLE IF NOT EXISTS` now runs twice per wake instead of once. Whether a no-op DDL
