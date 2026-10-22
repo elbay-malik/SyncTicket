@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "wrangler dev --port 8791",
+		"dev": "wrangler dev --port 18791",
 		"check": "wrangler types && tsc --noEmit -p .",
 		"cf-typegen": "wrangler types",
 		"deploy": "wrangler deploy --env=\"\"",

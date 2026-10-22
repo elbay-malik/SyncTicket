@@ -1,7 +1,12 @@
 import { defineConfig } from '@playwright/test';
 
 /** Where the relay listens during tests; the app is built pointing at it. */
-const RELAY_PORT = 8791;
+// 18791, not the 8791 this used to be, and not anything in wrangler's own 878x neighbourhood:
+// another project on this machine serves a static build on 8791, and 8788 was occupied while
+// this was written. A test suite has no business competing for a port a person is using — the
+// clash shows up as a mysterious sync failure here and a dead server over there. High and
+// specific is the cheapest way to stay out of everyone's way.
+const RELAY_PORT = 18791;
 const APP_PORT = 4173;
 
 export default defineConfig({
