@@ -206,7 +206,11 @@
 	Verified safe for bits-ui: its presence layer waits on `getAnimations()` +
 	`Animation.finished` (internal/animations-complete.js), never on an `animationend` event, and
 	it treats an empty `getAnimations()` as "nothing to wait for" — so an animation shortened to
-	0.01ms (already finished, or resolving on the next frame) still unmounts the dialog.
+	0.01ms (already finished, or resolving on the next frame) still unmounts the dialog. That was
+	read out of the library rather than observed, and both Svelte and bits-ui have moved versions
+	since, so `e2e/reduced-motion.e2e.ts` now asserts it in a browser: the dialog's resolved
+	duration under `reduce`, that Escape still unmounts it, and that the app underneath is not
+	left behind a dead overlay. Removing this block fails that test.
 
 	Deliberately partial: Svelte's `transition:` and `animate:flip` run through
 	`element.animate()`, and WAAPI timings ignore CSS animation-duration. Motion driven that way
