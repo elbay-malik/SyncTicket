@@ -17,8 +17,8 @@
 	// migration to live with the worker that defines the class — hence the separate worker.
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["YDocRoom"] }],
 	// Bounds how often one IP may ask to open a socket. `period` may only be 10 or 60.
-	// Kept in step with CONNECT_LIMIT in src/limits.ts, which limits.test.ts asserts against
-	// so drift fails the suite rather than a deploy. See src/limits.ts for what this does and
+	// These two numbers are the ones Cloudflare enforces; CONNECT_LIMIT in src/limits.ts is a
+	// second copy of them, and src/wrangler-coherence.test.ts fails if the two drift apart. See src/limits.ts for what this does and
 	// does not buy — notably that it cannot delay the free plan's daily request cap.
 	"ratelimits": [
 		{ "name": "CONNECT_LIMIT", "namespace_id": "1", "simple": { "limit": 30, "period": 60 } }

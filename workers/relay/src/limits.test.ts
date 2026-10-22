@@ -80,14 +80,14 @@ describe('connectKey', () => {
 });
 
 describe('CONNECT_LIMIT', () => {
-	// Deliberately NOT asserted against wrangler.jsonc by reading it here. Doing that needs
-	// `node:fs`, and Node's types cannot be added to this package without colliding with
-	// workerd's (they disagree about URLSearchParams, among others) — so the coherence check
-	// would cost a second tsconfig and a weaker production program to buy what
-	// `pnpm --filter syncticket-relay run dry-run` already prints on every CI run:
-	//     env.CONNECT_LIMIT (30 requests/60s)   Rate Limit
-	// Drift is therefore caught at build time rather than here. What is still worth asserting
-	// is the one value the binding silently rejects.
+	// Coherence with wrangler.jsonc is asserted in `wrangler-coherence.test.ts`, not here. The
+	// reason it is a separate file is worth knowing before moving it back: reading the config
+	// looked like it needed `node:fs`, and Node's types cannot be added to this package without
+	// colliding with workerd's (they disagree about URLSearchParams, among others). Vite's
+	// `?raw` import gets the file as text with no Node types at all, which is why the check
+	// exists rather than being left to a human reading the dry-run's output.
+	//
+	// What is still worth asserting here is the one value the binding silently rejects.
 	it('uses a period the binding actually accepts', () => {
 		// The API takes 10 or 60 and nothing else; anything else fails at deploy.
 		expect([10, 60]).toContain(CONNECT_LIMIT.period);

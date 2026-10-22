@@ -33,9 +33,10 @@
 //     row write, competing directly with the snapshot writes that are the actual data path.
 
 /**
- * The limit this relay asks Cloudflare to enforce, and the single source of truth
- * `limits.test.ts` asserts `wrangler.jsonc` against — so config drift fails the suite instead
- * of a deploy.
+ * The limit this relay asks Cloudflare to enforce. `wrangler.jsonc` carries the copy that
+ * Cloudflare actually reads, so this constant is documentation of it rather than its source;
+ * `wrangler-coherence.test.ts` asserts the two agree, which is what makes drift fail the suite
+ * instead of being noticed in a deploy's output or not at all.
  *
  * `period` may only be 10 or 60; the Rate Limiting binding accepts nothing else.
  *
@@ -76,13 +77,20 @@ export function connectKey(request: Pick<Request, 'headers'>): string | null {
  * check has.
  *
  * Fails OPEN on every uncertainty: an unbound binding, a throwing one, and a request with no
- * `cf-connecting-ip` to key on all resolve `undefined`. Cloudflare's docs state no plan gate for this binding but no primary source
- * confirms it is available on the free plan, so the unavailable case has to degrade to exactly
- * today's behaviour rather than to a relay that refuses everyone.
+ * `cf-connecting-ip` to key on all resolve `undefined`. That was written when it was unknown
+ * whether the binding works on the free plan at all — if it silently did nothing, failing open
+ * is the only degradation that does not take the demo down with it.
+ *
+ * It does work, measured against the deploy on 2026-10-22: 60 concurrent upgrade attempts from
+ * one address got 42 × 101 and 18 × 429, and `wrangler tail` logged no `limiter unavailable`
+ * across the burst. The fail-open paths stay exactly as they are — they cover a broken binding
+ * and a missing client IP, neither of which this measurement rules out.
  *
  * Counters are per Cloudflare location and the API is documented as permissive and eventually
  * consistent — "intentionally designed to not be used as an accurate accounting system". This
- * turns a flood into a trickle. It guarantees nothing.
+ * turns a flood into a trickle. It guarantees nothing, and the measurement above shows the gap
+ * is real rather than theoretical: a nominal 30/60s let 42 through when asked 60 times at once.
+ * Treat the limit as an order of magnitude, never as a count.
  */
 export async function refuseConnect(
 	limiter: RateLimit | undefined,

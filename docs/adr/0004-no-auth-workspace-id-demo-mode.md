@@ -15,6 +15,18 @@ Ship demo mode with no authentication: a workspace is identified by an unguessab
 
 What exists now is three things, and only three. First, the relay routes a room only for a name matching the shape the app mints, `^[a-z][0-9a-f]{32}$` (`workers/relay/src/rooms.ts`), checked in `routePartykitRequest`'s `onBeforeConnect` — which the library awaits _before_ it fetches the Durable Object stub, so a refusal creates no object — and every non-WebSocket request to a room is refused with 404, so no plain HTTP request can bring a room into existence. Second, at that same site, a limit of 30 WebSocket upgrades per 60 seconds per client IP via the Workers Rate Limiting binding (`workers/relay/src/limits.ts`); its counters are per Cloudflare location and the API is documented as permissive and eventually consistent, so this turns a flood into a trickle and guarantees nothing. Third, the free plan's daily caps — which are a backstop that kills the demo rather than a control that protects it: exceeding one makes further operations of that type fail until 00:00 UTC.
 
+**Measured (2026-10-22, against the first real deploy).** Two of those three were unverified
+claims about production until the workers were live, and both now have numbers. The rate limit
+is genuinely enforced on the free plan — 60 concurrent upgrade attempts from one address
+returned 42 × `101` and 18 × `429 Retry-After: 60`, with no `limiter unavailable` logged in
+`wrangler tail` — which matters because `refuseConnect` fails open, so a binding the free plan
+ignored would have looked identical to one that works. It is also as permissive as the docs
+warn: a nominal 30-per-60-seconds let 42 through, so the limit is an order of magnitude and not
+a count. The room-shape check refuses a malformed name with `400` on the WebSocket path and
+`404` on any plain HTTP request to a room, both before the Durable Object stub is fetched. None
+of this changes what the paragraph above says these controls are worth — a flood becomes a
+trickle, and a stranger can still mint a routable name.
+
 What none of that stops, stated plainly so nobody has to re-derive it. The 128-bit id means an existing workspace cannot be found by brute force, but the relay's check is a _shape_ check with no secret in it, so a stranger can **mint** a correctly-shaped name and create an empty room; the rate limit narrows that rate and does not close the path, and a distributed source walks past a per-location counter. A refused request still costs a Worker request against an account-wide budget of 100,000 per day, so no code in this repo can stop a determined flood from exhausting the free plan for the day and returning Error 1027 for the app worker as well as the relay — that limit is the plan, not the architecture. And nothing limits Yjs messages on an established socket, deliberately: `hibernate: true` evicts any in-memory counter, and a storage-backed one would spend more of the 100,000 rows-per-day write budget than the messages it polices, since inbound messages bill at a twentieth of a request while one counter write costs a whole row.
 
 So the rate limiting here is one narrow bound on the one abuse event that leaves a Durable Object behind. It is not the general abuse control the struck sentence implied. Anyone with the URL can still read and write.
