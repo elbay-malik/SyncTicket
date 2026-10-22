@@ -87,6 +87,8 @@ pnpm test                     # vitest unit + browser-mode component tests
 pnpm exec playwright test     # e2e against the built worker (needs `playwright install chromium`)
 pnpm build                    # production build via adapter-cloudflare
 pnpm preview                  # the BUILT worker under real workerd (wrangler dev, :4173)
+pnpm ci:local                 # every CI step, in CI's order, locally (--no-e2e for the fast
+                               # subset; --help lists what it deliberately does NOT check)
 ```
 
 ## Trying the collaboration

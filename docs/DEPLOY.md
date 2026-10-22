@@ -131,6 +131,11 @@ asset is under Cloudflare's 25 MiB per-file limit, all without needing a Cloudfl
 at all. It never runs a real `wrangler deploy`: that always requires the authenticated step
 above, run by a person, on purpose.
 
+When Actions is not available — a billing hold, a private repo out of minutes, no network —
+`pnpm ci:local` runs the same steps in the same order on your own machine, and prints what it
+cannot check (see its `--help`). It is the right thing to run before a deploy whose commit CI
+never saw.
+
 ## The deploy that exists
 
 First deployed 2026-10-22, on the free plan, from the account `eleo.666@gmail.com`:

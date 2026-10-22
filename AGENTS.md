@@ -136,6 +136,7 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 
 - Vitest browser locators are `getByLabelText` / `getByPlaceholder` (Playwright's are `getByLabel` / `getByPlaceholder`) — chaining `getByLabel` off a Vitest locator throws at runtime, not at typecheck.
 - `src/**/*.test.ts` → Vitest node project. `src/**/*.svelte.test.ts` → Vitest browser mode (needs `pnpm exec playwright install chromium`). `e2e/*.e2e.ts` → Playwright, whose webServer runs the **built worker under workerd** (`pnpm build && pnpm preview`, port 4173) — not vite preview.
+- **`pnpm ci:local` (`scripts/ci-local.sh`) mirrors `.github/workflows/ci.yml` step for step, in the same order** — it exists so that "the tests pass" is a checkable claim when Actions is unavailable, and it is only worth having while it stays a faithful mirror. **Add a step to `ci.yml` and you must add it here too**, or the script quietly starts certifying less than it claims. Its `--help` prints the four things it deliberately does not check (chiefly: no clean checkout, so lockfile drift is invisible to it, and your platform is not `ubuntu-latest`); those are the only differences, and the summary reprints them after every run so a green local result is never mistaken for a green CI result.
 
 ## Commits
 
