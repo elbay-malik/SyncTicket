@@ -36,6 +36,12 @@
 	// Durable Object here is what drops CONNECT_LIMIT. Confirmed with
 	// `wrangler deploy --dry-run --env e2e`, which prints the Durable Object alone.
 	//
+	// Because this environment exists, a bare `wrangler deploy` warns that no target was given
+	// — it still picks the top-level config, but the only thing keeping an unlimited relay off
+	// the live URL would be nobody ever typing `--env e2e`. So the `deploy` and `dry-run`
+	// scripts in package.json pass `--env=""`, which names the top-level environment
+	// explicitly: CI then validates exactly the bundle a deploy ships.
+	//
 	// The cost is honest and worth stating: e2e does not exercise the limiter at all.
 	// `src/limits.test.ts` covers its logic, and because `refuseConnect` fails open there is no
 	// path where an untested limiter refuses a real visitor.
