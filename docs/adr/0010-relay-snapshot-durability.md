@@ -41,6 +41,17 @@ clean bulk deletes, ~49 when creates and deletes interleave. Reaching 2 MB on re
 roughly 40,000–100,000 created-and-deleted issues, or ~90,000 field edits on a 500-issue
 workspace.
 
+**Guarded (2026-10-22).** The capacity figures above were measured once and asserted nowhere, so
+one added field on the issue model could have moved the real ceiling by thousands of issues
+while this ADR went on quoting the old number — and the first sign would have been a demo
+workspace that quietly stopped persisting. `src/lib/sync/snapshot-capacity.test.ts` now measures
+it: 307.6 bytes per generated issue, 4,000 issues below even the warning threshold, 8,000 above
+the refusal one, and the crossover inside the range stated here. It reads
+`SNAPSHOT_MAX_BYTES` out of the relay's source as text rather than importing it (which would
+pull workerd's types into the app's program) or copying it, so retuning or renaming the
+threshold fails the test rather than silently invalidating this paragraph. One field added or
+removed moves the per-issue figure by about 22 bytes, which is what the band is sized to catch.
+
 A **second route to the same silent failure** surfaced while measuring: the free plan's
 100,000 rows-written-per-day budget is account-wide, and exceeding it makes "further operations of
 that type fail with an error" — the same throw, into the same swallow. The old
