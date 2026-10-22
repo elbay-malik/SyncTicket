@@ -23,6 +23,18 @@ Target Cloudflare Workers (not Pages) via adapter-cloudflare 7.x with `wrangler.
 - The browser connects to the relay's own URL directly over WebSocket; the SvelteKit worker never proxies sync traffic (good: hibernation accounting stays in the relay; bad: two deploys to manage).
 - `compatibility_date` is capped by the workerd bundled with the pinned wrangler (2026-07-06 for wrangler 4.107/4.108) — a later date hard-fails `wrangler dev`, which is also the Playwright e2e webServer. Bump it together with wrangler upgrades.
 - Dry-run does not validate account-level concerns (workers.dev subdomain, name availability, quotas); expect small surprises at first real deploy.
+
+  **Resolved (2026-10-22, first real deploy).** Both workers deployed to the free plan without a
+  single bundle-level surprise: `syncticket-relay.eleo-666.workers.dev` (333.83 KiB, the `v1`
+  `new_sqlite_classes` migration applied silently) and `syncticket.eleo-666.workers.dev`
+  (1,579.82 KiB plus 42 static assets, the largest being the 23.5 MB ONNX runtime — under the
+  25 MiB per-asset cap, with less headroom than is comfortable). The two surprises this
+  consequence anticipated were both in the _tooling_, not the account: `wrangler login` printed
+  `Timed out waiting for authorization code` while having already written valid credentials, so
+  `whoami` is the check and the exit code is not; and because the relay config carries an `e2e`
+  environment with no rate limiter, a bare `wrangler deploy` only **warns** that no target was
+  named — so both relay deploy scripts now pass `--env=""`.
+
 - Revisit the two-worker split if kit PR #15627 merges and adapter v8 stabilizes on SvelteKit 3.
 
 ## Alternatives considered

@@ -49,10 +49,18 @@ because the **trailing** timer is the worst case: any gap longer than `debounceW
 so bursty human typing costs more than continuous editing. At 300 ms that is up to ~288,000 row
 writes a day from one room, i.e. one room could exhaust the whole account in about 8.3 hours.
 
-Nothing is deployed yet — CI only runs `wrangler deploy --dry-run` for both workers — so there are
-no stored snapshots to stay compatible with. That freedom is used below for a new table, with no
+~~Nothing is deployed yet — CI only runs `wrangler deploy --dry-run` for both workers — so there are
+no stored snapshots to stay compatible with.~~ That freedom is used below for a new table, with no
 legacy-read branch. It is not, however, an argument for a larger mechanism: being free to change
 the schema says something about cost, not about whether a mechanism is wanted.
+
+**Expired, not wrong (2026-10-22, first real deploy).** Both workers are now live. The struck
+sentence is left in place because it is the premise the next one rests on, and that premise held
+at the only moment it had to: this ADR shipped _before_ the first deploy, so the schema it
+describes is the first one any Durable Object ever wrote, and the absent legacy-read branch has
+nothing to read. The sentence is now a statement about the past rather than the present — which
+also means this freedom is spent. Any future change to the `ydoc_health` table or the snapshot
+key faces stored data and needs a migration path.
 
 ## Decision
 

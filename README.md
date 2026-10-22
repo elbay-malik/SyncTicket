@@ -4,13 +4,28 @@
 
 [![CI](https://github.com/EleoXDA/SyncTicket/actions/workflows/ci.yml/badge.svg)](https://github.com/EleoXDA/SyncTicket/actions/workflows/ci.yml)
 
+**Live demo: <https://syncticket.eleo-666.workers.dev>** — open it in two browsers and press
+**Share**. No sign-up; the link itself is the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)).
+
 ## Why this exists
 
 SyncTicket is a portfolio project that takes the hard parts of a Linear-class issue tracker seriously: the browser owns the data (CRDTs in IndexedDB, not a cache of a server), real-time collaboration rides on a Cloudflare Durable Object relay that costs 0 €, presence and connection state tell the truth even when the underlying libraries won't do it for free, and search — lexical and semantic — runs entirely client-side with zero third-party dependency, even for the model. The interesting problems here are sync, offline correctness, distributed liveness, and in-browser ML, not CRUD forms.
 
 ## Status
 
-**All 13 phases done but one.** Every engineering decision below is complete, tested, and current — presence, connection resilience, and a fully self-hosted demo all shipped in Phases 10–12. The one thing left is the live `wrangler deploy` of both workers: it needs a Cloudflare account this environment has never had connected (confirmed with `wrangler whoami`, not assumed), and that is an authentication step an agent session should not take on a user's behalf without being asked. Both workers already pass `wrangler deploy --dry-run` cleanly; [docs/DEPLOY.md](docs/DEPLOY.md) is the exact two-command runbook for whoever has the credentials to finish it. See [docs/ROADMAP.md](docs/ROADMAP.md) for the full 13-phase plan with acceptance criteria per phase.
+**All 13 phases done, and deployed.** Every engineering decision below is complete, tested, and
+current. Both workers run on the Cloudflare free plan — the app at
+`syncticket.eleo-666.workers.dev` and the relay at `syncticket-relay.eleo-666.workers.dev` — and
+the deploy was verified the way [docs/DEPLOY.md](docs/DEPLOY.md) insists on rather than by the
+absence of an error: the connection popover settles on "Ready to share", and an issue created in
+a second, separate browser given only the share link appears in the first immediately. See
+[docs/ROADMAP.md](docs/ROADMAP.md) for the full 13-phase plan with acceptance criteria per phase.
+
+Two things the first real deploy taught that the dry-run could not. `wrangler login` can print
+`Timed out waiting for authorization code` and **still** have written valid credentials — check
+`wrangler whoami` before retrying. And the relay's config defines an `e2e` environment with no
+rate limiter, so both of its deploy scripts now pass `--env=""` to name the top-level environment
+explicitly; a bare `wrangler deploy` merely warns.
 
 ## Architecture
 
@@ -237,7 +252,7 @@ Two lexical engines, measured over 10,000 generated issues in Node before choosi
 - **Semantic search stopped depending on anyone else.** The embedding model and the ONNX runtime that executes it are vendored as static assets rather than fetched from Hugging Face and jsDelivr at demo time, with `env.allowRemoteModels = false` making that a guarantee rather than a preference — a missing local file fails loudly into lexical-only search instead of silently reaching the network ([ADR 0009](docs/adr/0009-self-host-the-embedding-model-and-onnx-runtime.md)).
 - **Verifying that surfaced two real bugs that had nothing to do with where the files lived.** Fetching ~46 MB over one connection failed transiently roughly one run in three in repeated testing, and that failure used to be permanent — nothing retried, and the palette's "unavailable" state had no way back except a full reload. It now retries twice with a short backoff, and gained a "Try again" button. Separately, the loading percentage was wrong by 100×: the library reports progress on a 0–100 scale, this app's own protocol documents 0–1, and passed through unconverted the indicator would flash "10000%" mid-load.
 - **The empty state can seed itself, but only when asked.** `query.total === 0` is also true of a workspace that is genuinely, permanently empty, and most of the e2e suite depends on that staying true after nothing but constructing a store — so "Load example issues" is a button, not something that happens to a fresh visitor automatically. It is also withheld until the store has _settled_ — local load plus the relay's first word, or the relay being given up on — because on a share link `query.total === 0` means "not here yet", and seeding over data still in flight writes 14 issues into someone else's workspace permanently.
-- **Nobody in this session could run the last step.** `wrangler deploy` needs an authenticated Cloudflare account, and this environment has none connected — confirmed with `wrangler whoami` rather than assumed, and not something an agent session should authenticate on a user's behalf without being asked. Both workers pass `wrangler deploy --dry-run` cleanly; [docs/DEPLOY.md](docs/DEPLOY.md) is the exact two-command runbook for whoever has the credentials to finish it.
+- **The last step was a person's to take, and then it was taken.** For most of this project's life `wrangler deploy` had no account to deploy to, and authenticating one is not something an agent session should do on a user's behalf — so the phase sat finished-but-unshipped behind a clean `--dry-run`. Both workers went live on the free plan on 2026-10-22: `syncticket` at 1,579.82 KiB plus 42 static assets, `syncticket-relay` at 333.83 KiB with its `v1` `new_sqlite_classes` migration applying silently. What the dry-run could not have told anyone is that **both** surprises were in the tooling rather than the bundle: `wrangler login` reported `Timed out waiting for authorization code` and exited non-zero while having already written valid credentials, so `whoami` is the check and the exit code is not; and a bare `wrangler deploy` only _warns_ that the relay's config carries an `e2e` environment with no rate limiter, which is now closed by `--env=""` in both of its scripts. [docs/DEPLOY.md](docs/DEPLOY.md) records what exists under "The deploy that exists".
 
 ## License
 
