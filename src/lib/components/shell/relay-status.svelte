@@ -77,7 +77,7 @@
 		data-synced={store.relaySynced}
 		data-persistence={store.relayPersistence}
 		aria-label={label}
-		class="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors"
+		class="text-muted-foreground hover:bg-muted hover:text-foreground flex min-h-6 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors"
 	>
 		<!-- Ahead of every connection branch, replacing whichever one would have rendered
 		     rather than joining them as another connection state: when the relay cannot save,
@@ -99,6 +99,27 @@
 		{:else}
 			<CloudOffIcon class="size-3.5" aria-hidden="true" />
 		{/if}
+		<!-- The visible half of the label, and the reason it exists: these sentences used to be
+		     readable only after clicking an unlabelled glyph, so a visitor who never clicked saw
+		     no evidence that this product stores anything locally or shares anything at all —
+		     on a surface whose entire claim is exactly that.
+
+		     Two breakpoints rather than one. Below `sm` the glyph stands alone, which is what
+		     keeps the 320px header from gaining a line (it already wraps there; see the note in
+		     the root layout). From `sm` the state shows, and from `lg` the storage fact joins it.
+		     `aria-hidden` because the full three sentences are already on the trigger's
+		     `aria-label`; without it a screen reader would hear the summary and then the
+		     sentence it summarises. -->
+		<span
+			class="hidden truncate sm:inline"
+			class:text-destructive={store.relayPersistence !== 'ok'}
+			aria-hidden="true"
+		>
+			<!-- The separator's trailing space is `&nbsp;` because an ordinary one is collapsed at
+			     the element boundary, which renders "Saved locally ·Ready to share". -->
+			<span class="hidden lg:inline">{copy.short.stored}&nbsp;·&nbsp;</span>{copy.short.durable ??
+				copy.short.shared}
+		</span>
 	</Popover.Trigger>
 	<Popover.Content
 		role="dialog"

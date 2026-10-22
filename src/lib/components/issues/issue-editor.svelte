@@ -79,8 +79,11 @@
 	});
 </script>
 
-<div class="flex flex-col gap-5 px-4 pb-4">
+<div class="flex min-w-0 flex-col gap-5 px-4 pb-4">
 	<div class="flex flex-col gap-1.5">
+		<!-- The title's `pr-9` clears the sheet's close button, which is absolutely positioned
+		     in the sheet's top-right corner and otherwise sits on top of the end of the title
+		     at every width — the title is the first thing in the editor, so they collide. -->
 		<Label for="issue-title" class="sr-only">Title</Label>
 		<Input
 			id="issue-title"
@@ -95,7 +98,7 @@
 				}
 				cancelOnEscape(event, titleDraft !== null, () => (titleDraft = null));
 			}}
-			class="h-auto border-transparent bg-transparent px-2 py-1 text-base font-medium shadow-none dark:bg-transparent"
+			class="h-auto border-transparent bg-transparent px-2 py-1 pr-9 text-base font-medium shadow-none dark:bg-transparent"
 		/>
 	</div>
 
@@ -120,7 +123,12 @@
 		/>
 	</div>
 
-	<div class="grid grid-cols-[6rem_1fr] items-center gap-x-3 gap-y-2">
+	<!-- `minmax(0,1fr)` rather than `1fr`: a 1fr track takes `min-width: auto`, so the inputs'
+	     intrinsic minimum widened this grid past the sheet that contains it. In a 320px viewport
+	     the sheet is 240px and the fields ran off its right edge — title included, because the
+	     column above stretches to whatever this grid forced the editor to become. The track has
+	     to be allowed to shrink. -->
+	<div class="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
 		<span class="text-muted-foreground text-sm">Status</span>
 		<div>
 			<StatusPicker

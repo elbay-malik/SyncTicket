@@ -45,7 +45,11 @@
 	let newIssueButton = $state<HTMLButtonElement | null>(null);
 
 	const SORT_LABEL: Record<IssueSort, string> = {
-		manual: 'Manual order',
+		// "Board order", not "Manual order": this list cannot reorder anything — dragging exists
+		// only on /board, and nothing here writes the `order` key. The old label advertised a
+		// capability at the top of the surface that the surface does not have, which is a
+		// promise a user discovers is false by looking for a drag handle that was never there.
+		manual: 'Board order',
 		priority: 'Priority',
 		recent: 'Recently updated'
 	};
@@ -173,8 +177,12 @@
 		event.preventDefault();
 		const title = draft.trim();
 		if (!title) return;
-		store.create({ title });
+		const id = store.create({ title });
 		draft = '';
+		// Take the cursor to it and flash it. Without this the field just empties: the new issue
+		// is appended after the maximum order key, so under the default sort it lands at the end
+		// of a virtualized list, off-screen, with nothing to say it arrived.
+		list?.reveal(id);
 	}
 </script>
 
@@ -272,6 +280,20 @@
 		<Button type="submit" variant="outline" disabled={!draft.trim()}>Add</Button>
 	</form>
 
+	<!-- Required by ADR 0004: the workspace id in the URL is the only thing protecting this
+	     workspace, so a visitor has to be told before they type anything real.
+
+	     It used to live in the empty state, which met the letter of that and not its point: a
+	     visitor who clicked "Load example issues" or followed a share link into a populated
+	     workspace never saw it, and those are the two states where there is something to lose.
+	     Here it sits under the field they type into, in every state, which is what the ADR
+	     actually asks for. Caption size and muted so it reads as a standing condition rather
+	     than an alert that never resolves. -->
+	<p class="text-muted-foreground -mt-1 text-xs">
+		Anyone with this link can read and edit this workspace — please don't put anything real or
+		sensitive in it.
+	</p>
+
 	<div class="flex items-center justify-between">
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
@@ -335,12 +357,6 @@
 				<p class="text-muted-foreground max-w-sm text-sm">
 					Add one above — it's stored entirely in your browser (local-first, offline-ready) and
 					reappears after a reload.
-				</p>
-				<!-- Required by ADR 0004: the workspace id in the URL is the only thing protecting
-				     this workspace, so a visitor has to be told before they type anything real. -->
-				<p class="text-muted-foreground max-w-sm text-xs">
-					A demo, not a private tracker: anyone with the link can read and edit this workspace.
-					Please don't put anything real or sensitive in it.
 				</p>
 				<!-- Seeding is offered only once the workspace has actually finished arriving. An
 				     empty IndexedDB syncs in milliseconds, so someone following a share link looks

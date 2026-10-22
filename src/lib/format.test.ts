@@ -203,3 +203,64 @@ describe('connectionCopy durability sentence', () => {
 		expect(copy.shared).toBe('Shared with 1 other');
 	});
 });
+
+describe('connectionCopy().short', () => {
+	// The header label is the first and often only connection fact a visitor reads, so the
+	// thing worth testing is not its wording but that it cannot say something the long
+	// sentence beneath it contradicts.
+	const base = {
+		persisted: true,
+		connection: 'connected' as const,
+		relaySynced: true,
+		peerCount: 0,
+		relayPersistence: 'ok' as const
+	};
+
+	it('never claims local storage the browser does not have', () => {
+		expect(connectionCopy({ ...base, persisted: false }).short.stored).toBe('Not saved');
+		expect(connectionCopy(base).short.stored).toBe('Saved locally');
+	});
+
+	it('distinguishes a missing relay from an unreachable one', () => {
+		// 'Local only' and 'Offline' are different facts: no relay configured at all versus a
+		// relay this browser cannot currently reach. Collapsing them was the original sin the
+		// long copy already avoids.
+		expect(connectionCopy({ ...base, connection: 'local' }).short.shared).toBe('Local only');
+		expect(connectionCopy({ ...base, connection: 'offline' }).short.shared).toBe('Offline');
+	});
+
+	it('does not say "ready to share" before the relay has spoken', () => {
+		expect(connectionCopy({ ...base, relaySynced: false }).short.shared).toBe('Syncing…');
+		expect(connectionCopy(base).short.shared).toBe('Ready to share');
+	});
+
+	it('counts peers', () => {
+		expect(connectionCopy({ ...base, peerCount: 1 }).short.shared).toBe('Shared with 1');
+		expect(connectionCopy({ ...base, peerCount: 4 }).short.shared).toBe('Shared with 4');
+	});
+
+	it('adds no durability badge when nothing is wrong', () => {
+		// The header must not reassure. Same rule as the popover's third sentence.
+		expect(connectionCopy(base).short.durable).toBeNull();
+		expect(connectionCopy({ ...base, relayPersistence: 'degraded' }).short.durable).toBe(
+			'Not saving'
+		);
+		expect(connectionCopy({ ...base, relayPersistence: 'stale' }).short.durable).toBe(
+			'History lost'
+		);
+	});
+
+	it('stays short enough for a header at every state', () => {
+		// A label that wraps the header is a layout bug that only shows up in one state, which
+		// is exactly the kind nobody catches. 18 characters is the longest shipped here.
+		for (const connection of ['local', 'offline', 'connecting', 'connected'] as const) {
+			for (const persisted of [true, false]) {
+				for (const peerCount of [0, 1, 12]) {
+					const { short } = connectionCopy({ ...base, connection, persisted, peerCount });
+					expect(short.stored.length).toBeLessThanOrEqual(18);
+					expect(short.shared.length).toBeLessThanOrEqual(18);
+				}
+			}
+		}
+	});
+});

@@ -69,10 +69,22 @@ test('an issue can be created, found, opened, edited and deleted by keyboard alo
 });
 
 test('the list cursor walks with j/k and arrows, and stops at the ends', async ({ page }) => {
+	// `seeded` quick-adds, and quick-add now leaves the cursor on the issue it just created
+	// (see issues.e2e.ts): the row is scrolled to, flashed and marked aria-current, so that the
+	// one interaction that could prove "instant by construction" is visible. The cursor
+	// therefore starts at the LAST seeded issue rather than nowhere, which is why this walks
+	// upward first. The property under test is unchanged — the cursor moves one row per press
+	// and clamps at both ends.
 	await seeded(page, ['First', 'Second', 'Third']);
 
-	await page.keyboard.press('j');
+	await page.keyboard.press('k');
+	await expect(page.getByRole('link', { name: 'Second' })).toBeFocused();
+	await page.keyboard.press('k');
 	await expect(page.getByRole('link', { name: 'First' })).toBeFocused();
+	// Clamped at the top: another press cannot walk off the start of the list.
+	await page.keyboard.press('k');
+	await expect(page.getByRole('link', { name: 'First' })).toBeFocused();
+
 	await page.keyboard.press('j');
 	await expect(page.getByRole('link', { name: 'Second' })).toBeFocused();
 
@@ -81,13 +93,6 @@ test('the list cursor walks with j/k and arrows, and stops at the ends', async (
 	await expect(page.getByRole('link', { name: 'Third' })).toBeFocused();
 	await page.keyboard.press('ArrowDown');
 	await expect(page.getByRole('link', { name: 'Third' })).toBeFocused();
-
-	await page.keyboard.press('k');
-	await expect(page.getByRole('link', { name: 'Second' })).toBeFocused();
-	await page.keyboard.press('k');
-	await expect(page.getByRole('link', { name: 'First' })).toBeFocused();
-	await page.keyboard.press('k');
-	await expect(page.getByRole('link', { name: 'First' })).toBeFocused();
 });
 
 test('one Tab enters the list at the cursor rather than walking every row', async ({ page }) => {

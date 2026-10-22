@@ -78,6 +78,35 @@
 				group: 'Navigation',
 				run: () => void goto(resolve('/board'))
 			}),
+			// Undo and redo are registered here rather than on the issues route because they are
+			// not a list feature: a status changed from the board, or from the detail sheet, is
+			// the same edit and the same stack.
+			//
+			// Deliberately NOT `hidden: true`. Every other real feature this app hid from the
+			// shortcuts sheet (j/k) turned out to be undiscoverable in practice, and an undo
+			// nobody knows about does not do the one job it exists for in a shared workspace
+			// with no accounts: making a mis-click recoverable.
+			//
+			// NOT `allowInInput`, which was the first version and was wrong. The registry calls
+			// `preventDefault()` before `run()` and cannot take it back, so a document-level ⌘Z
+			// inside a text field would swallow the browser's own undo — which is character-level
+			// and strictly better for the field you are actually typing in — and replace it with
+			// a CRDT undo of the last *committed* change. Leaving inputs alone gives each undo
+			// the scope it is good at: the browser's inside a field, this one everywhere else.
+			shortcuts.register({
+				id: 'undo',
+				chord: 'mod+z',
+				label: 'Undo my last change',
+				group: 'Issues',
+				run: () => store.undo()
+			}),
+			shortcuts.register({
+				id: 'redo',
+				chord: 'mod+shift+z',
+				label: 'Redo',
+				group: 'Issues',
+				run: () => store.redo()
+			}),
 			shortcuts.register({
 				id: 'help',
 				chord: '?',

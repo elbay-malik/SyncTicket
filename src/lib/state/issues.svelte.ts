@@ -6,7 +6,7 @@
 
 import { browser } from '$app/environment';
 import { SvelteMap } from 'svelte/reactivity';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import {
 	DEFAULT_WORKSPACE_ID,
@@ -61,6 +61,7 @@ function sessionWorkspace(): WorkspaceResolution {
 export class IssueStore {
 	#doc: Y.Doc;
 	#map: Y.Map<YIssue>;
+	#undo: Y.UndoManager;
 	#persistence: WorkspacePersistence;
 	#relay: RelayConnection;
 	// Not itself $state — ConnectionStatus holds its own runes and this store's `connection`
@@ -72,6 +73,15 @@ export class IssueStore {
 	#byId = new SvelteMap<string, Issue>();
 	/** Which workspace this store is bound to; the relay uses it as the room name. */
 	readonly workspaceId: string;
+	/**
+	 * Whether this client has anything of its own to take back, or to reapply.
+	 *
+	 * Public and reactive so a control can be disabled rather than failing silently when the
+	 * stack is empty. Mirrored from the UndoManager's events rather than recomputed, because
+	 * `canUndo()` is a method on a non-reactive object and nothing would re-read it.
+	 */
+	canUndo = $state(false);
+	canRedo = $state(false);
 	// A plain array, not a Set: eslint's svelte/prefer-svelte-reactivity rejects a bare Set in
 	// a .svelte.ts module, and this collection is never read reactively anyway.
 	#listeners: Array<(delta: IssueDelta) => void> = [];
@@ -106,6 +116,26 @@ export class IssueStore {
 		this.#doc = createDoc();
 		this.#map = getIssuesMap(this.#doc);
 		this.#map.observeDeep(this.#onChange);
+		// Undo, scoped to this client's own edits and nobody else's.
+		//
+		// The scoping is the whole point and it is free: Yjs tracks only transactions whose
+		// origin is in `trackedOrigins`, which defaults to `new Set([null])`. Local mutations
+		// transact with no origin, while IndexedDB and the relay both apply with their provider
+		// as the origin — so ⌘Z takes back what you did and can never take back what a peer
+		// did, which in a shared workspace with no accounts is the difference between an undo
+		// and an attack. It is also why undo survives a merge: the stack holds this client's
+		// changes, and Yjs re-applies the inverse against whatever the document has become.
+		//
+		// `captureTimeout` is 300ms rather than the 500ms default so that typing a title and
+		// then changing a status are two undo steps rather than one.
+		this.#undo = new Y.UndoManager(this.#map, { captureTimeout: 300 });
+		const syncUndoState = () => {
+			this.canUndo = this.#undo.canUndo();
+			this.canRedo = this.#undo.canRedo();
+		};
+		this.#undo.on('stack-item-added', syncUndoState);
+		this.#undo.on('stack-item-popped', syncUndoState);
+		this.#undo.on('stack-cleared', syncUndoState);
 		this.#persistence = attachPersistence(this.#doc, workspaceId);
 		// Attached synchronously, like persistence: a provider that arrives late misses the
 		// updates made in the gap. A remote update arriving before IndexedDB has finished
@@ -263,6 +293,25 @@ export class IssueStore {
 		return this.#byId.get(id);
 	}
 
+	/**
+	 * Takes back this client's last change. Never a peer's — see the constructor.
+	 *
+	 * Returns false when there is nothing to undo, so a caller can decide whether the
+	 * keystroke was handled rather than swallowing every ⌘Z the document did not use.
+	 */
+	undo(): boolean {
+		if (!this.#undo.canUndo()) return false;
+		this.#undo.undo();
+		return true;
+	}
+
+	/** Reapplies what {@link undo} took back. */
+	redo(): boolean {
+		if (!this.#undo.canRedo()) return false;
+		this.#undo.redo();
+		return true;
+	}
+
 	create(input?: NewIssueInput): string {
 		return createIssue(this.#map, input);
 	}
@@ -317,6 +366,7 @@ export class IssueStore {
 
 	destroy(): void {
 		this.#map.unobserveDeep(this.#onChange);
+		this.#undo.destroy();
 		// The relay goes first: it does not detach itself on doc.destroy(), so a socket left
 		// open would apply an inbound sync message to a destroyed document.
 		this.#relay.destroy();

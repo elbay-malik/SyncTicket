@@ -427,3 +427,59 @@ test('the share link is the whole demo: mint, invite, sync, and stay private', a
 
 	await Promise.all([aliceContext.close(), bobContext.close(), strangerContext.close()]);
 });
+
+test("undo takes back my own change across a merge, and never the other browser's", async ({
+	browser
+}) => {
+	// The one demonstration that a CRDT is really here rather than asserted in a README, and
+	// the one safety property that makes undo usable at all in a workspace with no accounts:
+	// Yjs tracks only transactions whose origin is in `trackedOrigins` (default: null). Local
+	// mutations transact with no origin; IndexedDB and the relay apply with their provider as
+	// origin. So Alice's ⌘Z can reach Alice's edits and can never reach Bob's — which is the
+	// difference between an undo and a remote delete button.
+	const workspaceId = room();
+	const alice = await openPeer(browser, workspaceId);
+	const bob = await openPeer(browser, workspaceId);
+
+	const add = async (page: Page, title: string) => {
+		const field = page.getByRole('textbox', { name: 'New issue title' });
+		await field.fill(title);
+		await field.press('Enter');
+		await expect(page.getByRole('link', { name: title })).toBeVisible();
+	};
+
+	await add(alice, 'Alice wrote this');
+	await add(bob, 'Bob wrote this');
+
+	// Both converge before the undo, so the stack is exercised against a merged document
+	// rather than against the state Alice last saw on her own.
+	await expect(alice.getByRole('link', { name: 'Bob wrote this' })).toBeVisible({
+		timeout: 15_000
+	});
+	await expect(bob.getByRole('link', { name: 'Alice wrote this' })).toBeVisible({
+		timeout: 15_000
+	});
+
+	// Away from the quick-add field, because inside an input ⌘Z belongs to the browser's own
+	// text undo and this shortcut deliberately does not take it. The heading is inert, so this
+	// leaves focus on the document rather than on any control.
+	await alice.getByRole('heading', { name: 'Issues' }).click();
+	await alice.keyboard.press('ControlOrMeta+z');
+
+	// Alice's own issue is gone, on both sides.
+	await expect(alice.getByRole('link', { name: 'Alice wrote this' })).toBeHidden({
+		timeout: 15_000
+	});
+	await expect(bob.getByRole('link', { name: 'Alice wrote this' })).toBeHidden({
+		timeout: 15_000
+	});
+
+	// And Bob's survived it — the assertion the whole scoping exists for. Pressing undo again
+	// must not reach further into a document that now contains somebody else's work.
+	await alice.keyboard.press('ControlOrMeta+z');
+	await expect(alice.getByRole('link', { name: 'Bob wrote this' })).toBeVisible();
+	await expect(bob.getByRole('link', { name: 'Bob wrote this' })).toBeVisible();
+
+	await alice.context().close();
+	await bob.context().close();
+});

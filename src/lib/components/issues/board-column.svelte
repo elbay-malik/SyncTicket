@@ -236,7 +236,7 @@
 						{#if issue.labels.length > 0}
 							<div class="ml-auto flex gap-1 overflow-hidden">
 								{#each issue.labels.slice(0, 2) as label (label)}
-									<Badge variant="secondary" class="shrink-0 text-[10px]">{label}</Badge>
+									<Badge variant="secondary" class="shrink-0 text-xs">{label}</Badge>
 								{/each}
 							</div>
 						{/if}

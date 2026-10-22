@@ -47,6 +47,10 @@
 
 	let scroller = $state<HTMLElement | null>(null);
 	let virtualizer = $state<ReturnType<typeof Virtualizer> | null>(null);
+	/** The row to mark as just-created; see `reveal`. */
+	let flashId = $state<string | null>(null);
+	/** An id waiting to be scrolled to, held until the row actually exists. */
+	let pendingReveal = $state<string | null>(null);
 
 	const selectedIndex = $derived(issues.findIndex((issue) => issue.id === selectedId));
 
@@ -95,6 +99,61 @@
 	 * far outside the rendered window. `keepMounted` above guarantees the cursor's row stays
 	 * in the DOM, so this only has to wait one frame for the move to be laid out.
 	 */
+	/**
+	 * Takes the cursor to an issue and says so — for an issue the visitor just created.
+	 *
+	 * Quick-add appends after the maximum order key, so under the default sort a new issue
+	 * lands at the END of the list, which in a virtualized list means off-screen. Before this,
+	 * pressing Enter cleared the field and produced no other visible change anywhere: the one
+	 * interaction that could demonstrate "instant by construction" was the one that looked
+	 * like nothing had happened.
+	 *
+	 * `await tick()` because the row does not exist yet at call time. `create()` returns the id
+	 * synchronously, but the Yjs observer -> projection -> `$derived` chain has not produced the
+	 * new `issues` array when the caller's handler is still running, so an index lookup here
+	 * would find -1 and scroll nowhere.
+	 */
+	export function reveal(id: string) {
+		selectedId = id;
+		flashId = id;
+		pendingReveal = id;
+		// Clearing on a timer rather than on animationend: with prefers-reduced-motion the
+		// animation is cut to 0.01ms and may finish before the class is even observed, and an
+		// event that never arrives would pin the class forever.
+		setTimeout(() => {
+			if (flashId === id) flashId = null;
+		}, 900);
+	}
+
+	// The scroll waits for the row to exist, however long that takes.
+	//
+	// It cannot be done inline in `reveal`: `create()` returns the id synchronously, but the
+	// issue reaches this component through Yjs observer -> projection -> `$derived` -> prop,
+	// and one `await tick()` is measurably not enough — the index lookup finds -1 and the list
+	// never moves, which is exactly the "nothing happened" this feature exists to fix. An
+	// effect re-runs when `issues` changes, so it scrolls on the render the row first appears
+	// in, whichever one that is.
+	$effect(() => {
+		const id = pendingReveal;
+		if (id === null) return;
+		const index = issues.findIndex((issue) => issue.id === id);
+		if (index === -1) return;
+		pendingReveal = null;
+		// Two scrolls, because two different things can be out of view. `scrollToIndex` moves
+		// virtua's own scroller so the row enters the rendered window. That is not enough on its
+		// own: the list is `h-full` inside the route column, so at short viewport heights the
+		// list has nothing to scroll and `<main>` is the scroller — `scrollToIndex` then
+		// succeeds and moves nothing, which is how this shipped broken the first time. The row
+		// is in the DOM either way (`keepMounted` pins the cursor's row), so asking the element
+		// itself to come into view scrolls whichever ancestor is actually scrolling.
+		virtualizer?.scrollToIndex(index, { align: 'nearest' });
+		requestAnimationFrame(() => {
+			scroller
+				?.querySelector(`[data-issue-link="${CSS.escape(id)}"]`)
+				?.scrollIntoView({ block: 'nearest' });
+		});
+	});
+
 	export function moveCursor(delta: number) {
 		if (issues.length === 0) return;
 		// Start from where focus actually is, so a move after a click (or after bits-ui hands
@@ -199,6 +258,7 @@
 				{store}
 				selected={issue.id === selectedId}
 				tabbable={issue.id === tabbableId}
+				flash={issue.id === flashId}
 				viewers={presence.viewersOf(issue.id)}
 			/>
 		{/snippet}

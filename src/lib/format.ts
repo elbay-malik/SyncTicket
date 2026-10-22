@@ -64,6 +64,23 @@ export interface ConnectionCopy {
 	 * not gain a reassurance badge, which would train people to stop reading the popover.
 	 */
 	durable: string | null;
+	/**
+	 * The same three facts at header size, for the status control's visible label.
+	 *
+	 * These exist because the sentences above were readable only after clicking an
+	 * unlabelled glyph, which meant a visitor who never clicked saw no evidence that this
+	 * product stores anything locally or shares anything at all — on a surface whose whole
+	 * claim is exactly that. Derived here rather than written in the header so a new
+	 * connection state cannot produce a label that disagrees with the sentence beneath it.
+	 *
+	 * `durable` stays null in the healthy case for the same reason it does above: the
+	 * header says what IS true, and invents no badge for the absence of a problem.
+	 */
+	short: {
+		stored: string;
+		shared: string;
+		durable: string | null;
+	};
 }
 
 /**
@@ -136,7 +153,34 @@ export function connectionCopy(input: {
 		}
 	})();
 
-	return { stored, shared, durable };
+	// Short forms. Every one is a compression of the sentence above it, never a different
+	// claim: "Saved locally" is the same fact as "Saved on this device", and the browser
+	// that blocked storage gets "Not saved" rather than a cheerful default.
+	const short = {
+		stored: input.persisted ? 'Saved locally' : 'Not saved',
+		shared: (() => {
+			switch (input.connection) {
+				case 'local':
+					return 'Local only';
+				case 'offline':
+					return 'Offline';
+				case 'connecting':
+					return 'Connecting…';
+				case 'connected':
+					if (!input.relaySynced) return 'Syncing…';
+					if (input.peerCount === 0) return 'Ready to share';
+					return `Shared with ${input.peerCount}`;
+			}
+		})(),
+		durable:
+			input.relayPersistence === 'ok'
+				? null
+				: input.relayPersistence === 'stale'
+					? 'History lost'
+					: 'Not saving'
+	};
+
+	return { stored, shared, durable, short };
 }
 
 /** ISO string for <time datetime>; invalid/zero timestamps yield undefined (no attr). */

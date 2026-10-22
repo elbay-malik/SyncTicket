@@ -13,12 +13,15 @@
 		issue,
 		store,
 		selected = false,
+		flash = false,
 		tabbable = false,
 		viewers = []
 	}: {
 		issue: Issue;
 		store: IssueStore;
 		selected?: boolean;
+		/** Briefly marks a row the visitor just created, so the scroll lands on something. */
+		flash?: boolean;
 		/** Whether this is the cursor row, and so carries the list's single tab stop. */
 		tabbable?: boolean;
 		/** Other people with this issue open right now. */
@@ -47,6 +50,7 @@
 	data-issue-row={issue.id}
 	class="group hover:bg-muted/50 flex items-center gap-2 px-2 py-1.5 transition-colors"
 	class:bg-muted={selected}
+	class:row-flash={flash}
 >
 	<!-- The pickers are siblings of the link, not descendants, so their clicks never reach
 	     it — no propagation guard is needed (and adding onclick after the trigger's spread
@@ -85,7 +89,7 @@
 	{#if issue.labels.length > 0}
 		<div class="hidden shrink-0 gap-1 sm:flex">
 			{#each issue.labels.slice(0, 2) as label (label)}
-				<Badge variant="secondary" class="text-[10px]">{label}</Badge>
+				<Badge variant="secondary" class="text-xs">{label}</Badge>
 			{/each}
 		</div>
 	{/if}

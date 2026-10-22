@@ -238,3 +238,41 @@ test('the empty state can seed itself with example issues, on request only', asy
 	await expect(page.getByRole('link', { name: /Board column drag is broken/ })).toBeVisible();
 	await expect(page.getByRole('listitem')).toHaveCount(rowCount);
 });
+
+test('a quick-added issue is scrolled to and marked, not filed silently off-screen', async ({
+	page
+}) => {
+	// Quick-add appends after the maximum order key, so under the default sort a new issue lands
+	// at the END of a virtualized list — off-screen in any viewport that does not show every
+	// row. Before `reveal()` the field simply emptied and nothing else changed anywhere, which
+	// made the one interaction that could demonstrate "instant by construction" look like
+	// nothing had happened.
+	//
+	// The short viewport is the point: at 600px the list is taller than the screen, and the list
+	// is NOT the scrolling element — `<main>` is. The first implementation called virtua's
+	// scrollToIndex alone, which moved virtua's own scroller and therefore moved nothing.
+	await page.setViewportSize({ width: 1440, height: 600 });
+	await page.goto('/issues');
+	await page.getByRole('button', { name: 'Load example issues' }).click();
+	await expect(page.locator('[data-issue-link]').first()).toBeVisible();
+
+	const field = page.getByRole('textbox', { name: 'New issue title' });
+	await field.fill('Quick-added at the end of the list');
+	await field.press('Enter');
+
+	const row = page.getByRole('link', { name: 'Quick-added at the end of the list' });
+	await expect(row).toHaveAttribute('aria-current', 'true');
+
+	// Actually on screen, not merely in the DOM: `keepMounted` keeps the cursor's row mounted
+	// regardless, so presence proves nothing about whether the visitor can see it.
+	await expect
+		.poll(() =>
+			row.evaluate((el) => {
+				const r = el.getBoundingClientRect();
+				return r.top >= 0 && r.bottom <= window.innerHeight;
+			})
+		)
+		.toBe(true);
+
+	await expect(field).toHaveValue('');
+});

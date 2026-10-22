@@ -17,10 +17,21 @@
 	--secondary: oklch(0.97 0 0);
 	--secondary-foreground: oklch(0.205 0 0);
 	--muted: oklch(0.97 0 0);
-	--muted-foreground: oklch(0.556 0 0);
+	/* Darker than shadcn's stock oklch(0.556), for the same reason --ring is. Secondary text
+	   is not only used on --background: the ⌘K hint sits on --muted and the command palette's
+	   placeholder sits on a translucent input fill, and measured there the stock value is
+	   4.35:1 and 4.43:1 against WCAG 1.4.3's 4.5:1 for body text. It passed on white (4.74:1)
+	   and failed everywhere it was tinted. 0.53 measures 4.82:1 on --muted and 5.25:1 on
+	   --background, so it clears with margin on both rather than scraping past one. */
+	--muted-foreground: oklch(0.53 0 0);
 	--accent: oklch(0.97 0 0);
 	--accent-foreground: oklch(0.205 0 0);
-	--destructive: oklch(0.577 0.245 27.325);
+	/* Destructive is drawn as text over a 10% tint of itself, never as a solid fill (see the
+	   button's own note), so the ratio that matters is against that tint rather than against
+	   the page. Stock oklch(0.577) measures 3.97:1 there — under 4.5:1 — while looking fine on
+	   white at 4.77:1. 0.52 is 4.68:1 on the tint and 5.61:1 on white. The dark theme needed no
+	   change: it already measured 4.64:1 on its own tint. */
+	--destructive: oklch(0.52 0.245 27.325);
 	--border: oklch(0.922 0 0);
 	--input: oklch(0.922 0 0);
 	/* Darker than shadcn's stock oklch(0.708). Measured against this theme that value is 2.59:1
@@ -184,6 +195,28 @@
 		width: 1.125rem;
 		height: 1.125rem;
 		font-size: 0.5rem;
+	}
+	/*
+		The confirmation for a quick-added issue, which lands at the end of a virtualized list
+		and so is usually off-screen when it is created. The list scrolls to it; this says which
+		row is the new one once it arrives.
+
+		A keyframe rather than a transition because it is a one-shot announcement, not a state:
+		there is no "un-created" to transition back from. 500ms is longer than this system's
+		100-200ms interface motion on purpose — it has to survive the scroll that precedes it —
+		and it needs no reduced-motion branch of its own, because the unlayered `!important`
+		block at the end of this file already cuts every CSS animation to 0.01ms.
+	*/
+	.row-flash {
+		animation: row-flash 500ms ease-out;
+	}
+	@keyframes row-flash {
+		from {
+			background-color: var(--muted);
+		}
+		to {
+			background-color: transparent;
+		}
 	}
 	.peer-avatar-more {
 		background-color: var(--muted);
