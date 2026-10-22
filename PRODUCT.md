@@ -99,11 +99,16 @@ testimonials, no pricing, no licensing, no usage metrics, no uptime claims.
 - **Name: "SyncTicket" is a working title**, confirmed open to change. It currently appears in
   the document title, the sidebar and the docs. Future work may propose a stronger name without
   treating it as a breaking change.
-- **There is no identity of its own yet, and this is a gap to fix.** The favicon is the stock
-  **Svelte logo** shipped by the SvelteKit scaffold (`src/lib/assets/favicon.svg`, titled
-  `svelte-logo`) — placeholder, not a nod to the stack. The wordmark is plain text in two
-  places. Future work is licensed to design a real mark; shipping a framework's logo as the
-  product's identity undercuts the three audiences above.
+- **The product has its own mark as of 2026-10-22.** It replaced the stock Svelte logo in the
+  browser tab and a generic Lucide `zap` glyph beside the sidebar wordmark. The mark is
+  achromatic by decision, not by omission: DESIGN.md's Colour Means State Rule reserves every
+  hue for status, and identity was deliberately not made the exception. It is a soft rectangle
+  split into two halves closing on one shared point — one document, two copies, the value they
+  agree on — drawn in the app's own stroke grammar but outside its circle family, because those
+  five circles are the issue statuses and carry meaning. See
+  `src/lib/components/shell/brand-mark.svelte`.
+- **The wordmark is still plain type, on purpose.** The name is a working title (above), so the
+  mark carries the identity and no lettering was commissioned that a rename would waste.
 - **Voice: rigour is binding in the docs, lighter in the UI.** The README and ADRs keep their
   precise, measured register, including the refusal to overclaim ("It guarantees nothing";
   struck-through corrections preserved with dated notes). Product copy may be warmer and

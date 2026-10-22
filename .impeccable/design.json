@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 2,
-	"generatedAt": "2026-10-22T12:44:05Z",
+	"generatedAt": "2026-10-22T15:40:00Z",
 	"title": "Design System: SyncTicket",
 	"extensions": {
 		"colorMeta": {
@@ -302,10 +302,22 @@
 			}
 		],
 		"breakpoints": [
-			{ "name": "sm", "value": "640px" },
-			{ "name": "md", "value": "768px" },
-			{ "name": "lg", "value": "1024px" },
-			{ "name": "xl", "value": "1280px" }
+			{
+				"name": "sm",
+				"value": "640px"
+			},
+			{
+				"name": "md",
+				"value": "768px"
+			},
+			{
+				"name": "lg",
+				"value": "1024px"
+			},
+			{
+				"name": "xl",
+				"value": "1280px"
+			}
 		]
 	},
 	"components": [
@@ -388,6 +400,14 @@
 			"description": "Two or three plain sentences: where the data lives, who else has it, and whether the relay can still save it. The third appears only when something is wrong, so a healthy workspace gains no reassurance badge.",
 			"html": "<div class=\"ds-popover\" role=\"dialog\" aria-label=\"Connection status\"><p class=\"ds-popover-line\">Saved on this device</p><p class=\"ds-popover-line\">Ready to share — no one else here yet</p></div>",
 			"css": ".ds-popover { display: flex; flex-direction: column; gap: 12px; width: 288px; padding: 12px; border-radius: 10px; background: var(--popover, oklch(1 0 0)); color: var(--foreground, oklch(0.145 0 0)); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1), 0 0 0 1px color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 10%, transparent); } .ds-popover-line { margin: 0; font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; line-height: 1.25rem; }"
+		},
+		{
+			"name": "Product Mark",
+			"kind": "custom",
+			"refersTo": "brand-mark",
+			"description": "The product mark and favicon: a soft rectangle split into two halves closing on one filled centre dot — two copies agreeing on one value. Deliberately not of the circle family, which five issue statuses already own. currentColor throughout, so one asset serves both themes.",
+			"html": "<span class=\"ds-brand-lockup\"><svg class=\"ds-brand-mark-glyph\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9.4 4H8.5A4.5 4.5 0 0 0 4 8.5v7a4.5 4.5 0 0 0 4.5 4.5h0.9\"/><path d=\"M14.6 4h0.9A4.5 4.5 0 0 1 20 8.5v7a4.5 4.5 0 0 1-4.5 4.5h-0.9\"/><circle cx=\"12\" cy=\"12\" r=\"2.7\" fill=\"currentColor\" stroke=\"none\"/></svg><span class=\"ds-brand-wordmark\">SyncTicket</span></span>",
+			"css": ".ds-brand-lockup { display: inline-flex; align-items: center; gap: 8px; color: var(--foreground, oklch(0.145 0 0)); } .ds-brand-mark-glyph { width: 20px; height: 20px; flex: none; } .ds-brand-wordmark { font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 600; letter-spacing: -0.01em; }"
 		}
 	],
 	"narrative": {
@@ -426,6 +446,16 @@
 				"name": "The Depth Means Floating Rule",
 				"body": "If a surface is in the document flow, it has no shadow. A shadow on a card, row, panel or column is a defect, not a style choice — border and tonal fill are how this system separates things. Known deviation: board cards currently carry shadow-xs at rest (board-column.svelte:224), which is drift to remove rather than a sanctioned exception.",
 				"section": "elevation"
+			},
+			{
+				"name": "The Circle Belongs to Status Rule",
+				"body": "The circle family is spoken for. The app ships six circle glyphs — circle, circle-dashed, circle-dot, circle-dot-dashed, circle-check, circle-x — and five of them are the issue statuses, which render icon-only so that the icon is the information. A ring, or a ring with a centre dot, is therefore not a free shape in this product: it already reads as In Progress. Identity and chrome draw from the system's other form language, the soft rectangle of its cards and panels.",
+				"section": "components"
+			},
+			{
+				"name": "The 16px Adjacency Check",
+				"body": "At 16px on a 1x display the mark narrows toward the rectangle-family chrome glyphs it now shares a family with — panel-left, square-kanban. Any new rectangular icon is rendered beside the mark at 16px before it ships, and changed if the two are not instantly separable.",
+				"section": "components"
 			}
 		],
 		"dos": [
@@ -436,6 +466,9 @@
 			"Do make focus visible with the 2px Focus Grey ring and a border change, identically on every control.",
 			"Do keep transitions at 100–200ms, and give any motion driven through element.animate() its own reduced-motion opt-out — WAAPI timings ignore the CSS block entirely.",
 			"Do design the keyboard path first: every core flow is operable without a mouse, including moving cards between board columns.",
+			"Do draw identity and chrome in the soft-rectangle form language (the 4.5-in-24 corner, the card radius), and leave the circle family to status and to peer avatars.",
+			"Do render any new rectangle-family icon beside the product mark at 16px on a 1x display before shipping it, and change it if the two do not separate instantly.",
+			"Do let the mark inherit currentColor so one asset serves both themes; size it with the class (size-5 at 20px in the sidebar, size-4 at 16px in the header).",
 			"Do state limits plainly in UI copy when the system reaches one, and never claim durability, privacy or safety the system does not deliver."
 		],
 		"donts": [
@@ -446,6 +479,9 @@
 			"Don't add a second typeface, a monospace face, or font-bold.",
 			"Don't tint the neutrals. Every grey in both themes is zero-chroma oklch(L 0 0), and a warm or cool cast would make the semantic hues read as part of a palette.",
 			"Don't interpolate a network-supplied colour string into a style attribute. Peers supply a validated hue number; anything else is a CSS injection.",
+			"Don't give the product an identity glyph from the circle family, or any other shape the status set already owns. A mark that collides with a status reading costs the status, not the mark.",
+			"Don't colour the mark, gradient it, or give it a brand hue. It is foreground grey in both themes, and a branded exception would be the first decorative colour in the product.",
+			"Don't fork the mark's geometry between the component and the favicon. Only the stroke weight may differ (2 in-app, 2.6 in the tab), and only because 2px does not survive 16px of browser chrome.",
 			"Don't soften the focus ring to a translucent blend. At this token a /50 ring measures 2.32:1 against the background versus 7.44:1 solid, so the blend cannot clear 3:1."
 		]
 	}

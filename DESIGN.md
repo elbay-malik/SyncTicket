@@ -110,6 +110,12 @@ components:
     rounded: '{rounded.lg}'
     padding: '12px'
     width: '288px'
+  brand-mark:
+    textColor: '{colors.foreground}'
+    size: '20px'
+  brand-mark-sm:
+    textColor: '{colors.foreground}'
+    size: '16px'
 ---
 
 # Design System: SyncTicket
@@ -378,6 +384,46 @@ is wrong. When the relay cannot save, the alert glyph **replaces** the connectio
 the socket is healthy, because a cloud that says "connected and fine" while data is not surviving
 is an active lie.
 
+### Product Mark
+
+The one piece of identity in the product, and the only glyph on screen that is neither Lucide nor
+a status. A 24-box drawing in the app's own stroke grammar — 2px stroke, round caps and joins,
+`fill="none"` — showing a soft rectangle split into two halves that close on a single filled
+centre dot: two copies of a document agreeing on one value. It sits immediately left of the
+"SyncTicket" wordmark at 20px in the sidebar and 16px in the app header, and ships again as the
+favicon.
+
+- **Geometry:** box inset to 4..20 with a 4.5 corner radius — the card radius, not a circle;
+  at 4.5 it reads as this product's panel, and by r=6 it rounds back toward the status family.
+  The seams open 2.6 either side of centre. The centre dot is `r=2.7` filled, sized up from the
+  Lucide `circle-dot` norm because below that it renders as a smudge at 16px on a 1x display and
+  the dot carries the whole meaning.
+- **Colour:** none. The mark is `currentColor` throughout, so it inherits `--foreground` and
+  needs no dark variant, no token, and no second asset. It obeys the Colour Means State Rule
+  rather than claiming a brand exception to it.
+- **Favicon:** the same coordinates with exactly two differences — literal ink
+  (`#0a0a0a` / `#fafafa`, the sRGB of this theme's foreground pair) behind a
+  `prefers-color-scheme` block, because browser chrome is the one surface the product cannot
+  theme; and a 2.6 stroke rather than 2, because a 2px stroke in a 24 box renders at 1.33px in a
+  tab and goes spindly. Nothing else may diverge: the tab and the sidebar are one mark, not two
+  drawings of one idea.
+- **Behaviour:** decorative (`aria-hidden`), not interactive, takes no focus. The wordmark beside
+  it is plain Geist — 14px semibold in the sidebar, 14px medium in the header — not a letterform.
+
+**The Circle Belongs to Status Rule.** The circle family is spoken for. The app ships six circle
+glyphs — `circle`, `circle-dashed`, `circle-dot`, `circle-dot-dashed`, `circle-check`, `circle-x`
+— and five of them are the issue statuses, which render icon-only so that the icon is the
+information. A ring, or a ring with a centre dot, is therefore not a free shape in this product:
+it already reads as In Progress. Identity and chrome draw from the system's other form language,
+the soft rectangle of its cards and panels. (The first build of the mark was exactly a
+ring-with-dot and sat 70px from a live `circle-dot` in the same sidebar; it was re-derived rather
+than shipped.)
+
+**The 16px Adjacency Check.** At 16px on a 1x display the mark narrows toward the
+rectangle-family chrome glyphs it now shares a family with — `panel-left`, `square-kanban`. Any
+new rectangular icon is rendered beside the mark at 16px before it ships, and changed if the two
+are not instantly separable.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -394,6 +440,12 @@ is an active lie.
   its own reduced-motion opt-out — WAAPI timings ignore the CSS block entirely.
 - **Do** design the keyboard path first: every core flow is operable without a mouse, including
   moving cards between board columns.
+- **Do** draw identity and chrome in the soft-rectangle form language (the 4.5-in-24 corner, the
+  card radius), and leave the circle family to status and to peer avatars.
+- **Do** render any new rectangle-family icon beside the product mark at 16px on a 1x display
+  before shipping it, and change it if the two do not separate instantly.
+- **Do** let the mark inherit `currentColor` so one asset serves both themes; size it with the
+  class (`size-5` at 20px in the sidebar, `size-4` at 16px in the header).
 - **Do** state limits plainly in UI copy when the system reaches one, and never claim durability,
   privacy or safety the system does not deliver.
 
@@ -411,5 +463,13 @@ is an active lie.
   warm or cool cast would make the semantic hues read as part of a palette.
 - **Don't** interpolate a network-supplied colour string into a style attribute. Peers supply a
   validated hue number; anything else is a CSS injection.
+- **Don't** give the product an identity glyph from the circle family, or any other shape the
+  status set already owns. A mark that collides with a status reading costs the status, not the
+  mark.
+- **Don't** colour the mark, gradient it, or give it a brand hue. It is foreground grey in both
+  themes, and a branded exception would be the first decorative colour in the product.
+- **Don't** fork the mark's geometry between the component and the favicon. Only the stroke
+  weight may differ (2 in-app, 2.6 in the tab), and only because 2px does not survive 16px of
+  browser chrome.
 - **Don't** soften the focus ring to a translucent blend. At this token a `/50` ring measures
   2.32:1 against the background versus 7.44:1 solid, so the blend cannot clear 3:1.

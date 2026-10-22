@@ -2,7 +2,6 @@
 	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import SquareKanbanIcon from '@lucide/svelte/icons/square-kanban';
-	import ZapIcon from '@lucide/svelte/icons/zap';
 	import { tick } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -10,6 +9,7 @@
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { Kbd } from '$lib/components/ui/kbd/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
+	import BrandMark from './brand-mark.svelte';
 
 	const sidebar = Sidebar.useSidebar();
 
@@ -37,7 +37,7 @@
 <Sidebar.Root>
 	<Sidebar.Header>
 		<div class="flex items-center gap-2 px-2 py-1.5">
-			<ZapIcon class="size-4" />
+			<BrandMark class="size-5" />
 			<span class="text-sm font-semibold tracking-tight">SyncTicket</span>
 		</div>
 	</Sidebar.Header>

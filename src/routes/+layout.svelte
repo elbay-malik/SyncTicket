@@ -6,6 +6,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
+	import BrandMark from '$lib/components/shell/brand-mark.svelte';
 	import CommandMenu from '$lib/components/shell/command-menu.svelte';
 	import RelayStatus from '$lib/components/shell/relay-status.svelte';
 	import ShareWorkspace from '$lib/components/shell/share-workspace.svelte';
@@ -128,6 +129,7 @@
 		<header class="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b px-4 py-1">
 			<Sidebar.Trigger />
 			<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
+			<BrandMark class="size-4 shrink-0" />
 			<span class="text-sm font-medium">SyncTicket</span>
 			<div class="ml-auto flex flex-wrap items-center justify-end gap-2">
 				<PresenceBar {presence} />
