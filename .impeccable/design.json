@@ -1,0 +1,452 @@
+{
+	"schemaVersion": 2,
+	"generatedAt": "2026-10-22T12:44:05Z",
+	"title": "Design System: SyncTicket",
+	"extensions": {
+		"colorMeta": {
+			"background": {
+				"role": "neutral",
+				"displayName": "Paper",
+				"canonical": "oklch(1 0 0)",
+				"dark": "oklch(0.145 0 0)",
+				"tonalRamp": [
+					"oklch(0.15 0 0)",
+					"oklch(0.26 0 0)",
+					"oklch(0.37 0 0)",
+					"oklch(0.49 0 0)",
+					"oklch(0.60 0 0)",
+					"oklch(0.72 0 0)",
+					"oklch(0.83 0 0)",
+					"oklch(0.95 0 0)"
+				]
+			},
+			"foreground": {
+				"role": "neutral",
+				"displayName": "Ink",
+				"canonical": "oklch(0.145 0 0)",
+				"dark": "oklch(0.985 0 0)",
+				"tonalRamp": [
+					"oklch(0.15 0 0)",
+					"oklch(0.26 0 0)",
+					"oklch(0.37 0 0)",
+					"oklch(0.49 0 0)",
+					"oklch(0.60 0 0)",
+					"oklch(0.72 0 0)",
+					"oklch(0.83 0 0)",
+					"oklch(0.95 0 0)"
+				]
+			},
+			"primary": {
+				"role": "primary",
+				"displayName": "Ink",
+				"canonical": "oklch(0.205 0 0)",
+				"dark": "oklch(0.922 0 0)",
+				"tonalRamp": [
+					"oklch(0.15 0 0)",
+					"oklch(0.26 0 0)",
+					"oklch(0.37 0 0)",
+					"oklch(0.49 0 0)",
+					"oklch(0.60 0 0)",
+					"oklch(0.72 0 0)",
+					"oklch(0.83 0 0)",
+					"oklch(0.95 0 0)"
+				]
+			},
+			"muted-foreground": {
+				"role": "neutral",
+				"displayName": "Dimmed Ink",
+				"canonical": "oklch(0.556 0 0)",
+				"dark": "oklch(0.708 0 0)",
+				"tonalRamp": [
+					"oklch(0.15 0 0)",
+					"oklch(0.26 0 0)",
+					"oklch(0.37 0 0)",
+					"oklch(0.49 0 0)",
+					"oklch(0.60 0 0)",
+					"oklch(0.72 0 0)",
+					"oklch(0.83 0 0)",
+					"oklch(0.95 0 0)"
+				]
+			},
+			"muted": {
+				"role": "neutral",
+				"displayName": "Shelf",
+				"canonical": "oklch(0.97 0 0)",
+				"dark": "oklch(0.269 0 0)",
+				"note": "Serves as muted, secondary and accent at once. The system's only tonal fill.",
+				"tonalRamp": [
+					"oklch(0.15 0 0)",
+					"oklch(0.26 0 0)",
+					"oklch(0.37 0 0)",
+					"oklch(0.49 0 0)",
+					"oklch(0.60 0 0)",
+					"oklch(0.72 0 0)",
+					"oklch(0.83 0 0)",
+					"oklch(0.95 0 0)"
+				]
+			},
+			"border": {
+				"role": "neutral",
+				"displayName": "Hairline",
+				"canonical": "oklch(0.922 0 0)",
+				"dark": "oklch(1 0 0 / 10%)",
+				"note": "Translucent white in dark mode, so it reads as an edge catching light rather than a drawn line.",
+				"tonalRamp": [
+					"oklch(0.15 0 0)",
+					"oklch(0.26 0 0)",
+					"oklch(0.37 0 0)",
+					"oklch(0.49 0 0)",
+					"oklch(0.60 0 0)",
+					"oklch(0.72 0 0)",
+					"oklch(0.83 0 0)",
+					"oklch(0.95 0 0)"
+				]
+			},
+			"ring": {
+				"role": "neutral",
+				"displayName": "Focus Grey",
+				"canonical": "oklch(0.45 0 0)",
+				"dark": "oklch(0.65 0 0)",
+				"note": "Darkened from shadcn's stock oklch(0.708), which measured 2.59:1 on background and missed WCAG 1.4.11. Measures 7.44:1 light, 4.67:1 on dark muted. Recomputed by meta.test.ts.",
+				"tonalRamp": [
+					"oklch(0.15 0 0)",
+					"oklch(0.26 0 0)",
+					"oklch(0.37 0 0)",
+					"oklch(0.49 0 0)",
+					"oklch(0.60 0 0)",
+					"oklch(0.72 0 0)",
+					"oklch(0.83 0 0)",
+					"oklch(0.95 0 0)"
+				]
+			},
+			"destructive": {
+				"role": "tertiary",
+				"displayName": "Destructive Red",
+				"canonical": "oklch(0.577 0.245 27.325)",
+				"dark": "oklch(0.704 0.191 22.216)",
+				"note": "Used as text over a 10% tint, never as a solid fill. Solid measures 4.76:1 light, 6.19:1 dark.",
+				"tonalRamp": [
+					"oklch(0.20 0.245 27.325)",
+					"oklch(0.31 0.245 27.325)",
+					"oklch(0.42 0.245 27.325)",
+					"oklch(0.53 0.245 27.325)",
+					"oklch(0.64 0.213 27.325)",
+					"oklch(0.75 0.175 27.325)",
+					"oklch(0.86 0.110 27.325)",
+					"oklch(0.95 0.045 27.325)"
+				]
+			},
+			"status-backlog": {
+				"role": "tertiary",
+				"displayName": "Backlog Zinc",
+				"canonical": "oklch(55.2% 0.016 285.938)",
+				"dark": "oklch(70.5% 0.015 286.067)",
+				"tonalRamp": [
+					"oklch(0.20 0.016 285.938)",
+					"oklch(0.31 0.016 285.938)",
+					"oklch(0.42 0.016 285.938)",
+					"oklch(0.53 0.016 285.938)",
+					"oklch(0.64 0.016 285.938)",
+					"oklch(0.75 0.015 285.938)",
+					"oklch(0.86 0.012 285.938)",
+					"oklch(0.95 0.008 285.938)"
+				]
+			},
+			"status-todo": {
+				"role": "tertiary",
+				"displayName": "Todo Blue",
+				"canonical": "oklch(54.6% 0.245 262.881)",
+				"dark": "oklch(62.3% 0.214 259.815)",
+				"tonalRamp": [
+					"oklch(0.20 0.245 262.881)",
+					"oklch(0.31 0.245 262.881)",
+					"oklch(0.42 0.245 262.881)",
+					"oklch(0.53 0.245 262.881)",
+					"oklch(0.64 0.213 262.881)",
+					"oklch(0.75 0.170 262.881)",
+					"oklch(0.86 0.110 262.881)",
+					"oklch(0.95 0.045 262.881)"
+				]
+			},
+			"status-in-progress": {
+				"role": "tertiary",
+				"displayName": "In-Progress Amber",
+				"canonical": "oklch(55.5% 0.163 48.998)",
+				"dark": "oklch(76.9% 0.188 70.08)",
+				"tonalRamp": [
+					"oklch(0.20 0.163 48.998)",
+					"oklch(0.31 0.163 48.998)",
+					"oklch(0.42 0.163 48.998)",
+					"oklch(0.53 0.163 48.998)",
+					"oklch(0.64 0.163 48.998)",
+					"oklch(0.75 0.150 48.998)",
+					"oklch(0.86 0.105 48.998)",
+					"oklch(0.95 0.045 48.998)"
+				]
+			},
+			"status-done": {
+				"role": "tertiary",
+				"displayName": "Done Emerald",
+				"canonical": "oklch(50.8% 0.118 165.612)",
+				"dark": "oklch(69.6% 0.17 162.48)",
+				"tonalRamp": [
+					"oklch(0.20 0.118 165.612)",
+					"oklch(0.31 0.118 165.612)",
+					"oklch(0.42 0.118 165.612)",
+					"oklch(0.53 0.118 165.612)",
+					"oklch(0.64 0.118 165.612)",
+					"oklch(0.75 0.115 165.612)",
+					"oklch(0.86 0.085 165.612)",
+					"oklch(0.95 0.040 165.612)"
+				]
+			},
+			"status-canceled": {
+				"role": "tertiary",
+				"displayName": "Canceled Red",
+				"canonical": "oklch(57.7% 0.245 27.325)",
+				"dark": "oklch(63.7% 0.237 25.331)",
+				"tonalRamp": [
+					"oklch(0.20 0.245 27.325)",
+					"oklch(0.31 0.245 27.325)",
+					"oklch(0.42 0.245 27.325)",
+					"oklch(0.53 0.245 27.325)",
+					"oklch(0.64 0.213 27.325)",
+					"oklch(0.75 0.175 27.325)",
+					"oklch(0.86 0.110 27.325)",
+					"oklch(0.95 0.045 27.325)"
+				]
+			},
+			"priority-urgent": {
+				"role": "tertiary",
+				"displayName": "Urgent Orange",
+				"canonical": "oklch(55.3% 0.195 38.402)",
+				"dark": "oklch(70.5% 0.213 47.604)",
+				"note": "The only priority with a colour of its own; medium and high escalate by glyph and weight instead.",
+				"tonalRamp": [
+					"oklch(0.20 0.195 38.402)",
+					"oklch(0.31 0.195 38.402)",
+					"oklch(0.42 0.195 38.402)",
+					"oklch(0.53 0.195 38.402)",
+					"oklch(0.64 0.195 38.402)",
+					"oklch(0.75 0.180 38.402)",
+					"oklch(0.86 0.115 38.402)",
+					"oklch(0.95 0.048 38.402)"
+				]
+			}
+		},
+		"typographyMeta": {
+			"title": {
+				"displayName": "Title",
+				"purpose": "Dialog, sheet and alert titles only. The largest type in the product, used at most twice per screen."
+			},
+			"body": {
+				"displayName": "Body",
+				"purpose": "The working size, and by a wide margin the most common (52 of 93 type utilities): row titles, popover sentences, form values, menu items."
+			},
+			"label": {
+				"displayName": "Label",
+				"purpose": "Buttons, column headings, nav items, field labels. Same size as body, separated only by weight."
+			},
+			"caption": {
+				"displayName": "Caption",
+				"purpose": "Metadata, counts, timestamps, empty-state hints, badge text."
+			}
+		},
+		"shadows": [
+			{
+				"name": "floating-layer",
+				"value": "var(--tw-shadow-md), 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent)",
+				"purpose": "Popovers and dropdown menus: shadow-md paired with ring-1. The ring defines the edge; the shadow only separates from what is beneath."
+			},
+			{
+				"name": "overlay-panel",
+				"value": "var(--tw-shadow-lg)",
+				"purpose": "Sheets and sub-menus, which cover more of the page and need more separation."
+			},
+			{
+				"name": "ghost-border",
+				"value": "0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent)",
+				"purpose": "Dialogs. A ring where a shadow would conventionally go, so the dialog reads as a plate laid on the surface rather than hovering over it, and the overlay does not muddy in dark mode."
+			},
+			{
+				"name": "avatar-separator",
+				"value": "0 0 0 2px var(--background)",
+				"purpose": "Peer avatars only, so overlapping discs read as separate people. Not elevation."
+			}
+		],
+		"motion": [
+			{
+				"name": "duration-ui",
+				"value": "100ms",
+				"purpose": "Default for dialogs, popovers, dropdowns and colour transitions. The ceiling for interface motion."
+			},
+			{
+				"name": "duration-panel",
+				"value": "200ms",
+				"purpose": "Sheet slide-in, the one surface large enough to justify longer."
+			},
+			{
+				"name": "duration-flip",
+				"value": "150ms",
+				"purpose": "FLIP_DURATION_MS: board card reordering via animate:flip. Set to 0 under prefers-reduced-motion, because WAAPI timings ignore the CSS reduce block entirely."
+			},
+			{
+				"name": "touch-drag-delay",
+				"value": "400ms",
+				"purpose": "TOUCH_DRAG_DELAY_MS: long-press before a touch drag begins, so a tap to open a card is never read as a drag."
+			},
+			{
+				"name": "reduce",
+				"value": "0.01ms",
+				"purpose": "Every animation and transition under prefers-reduced-motion, via an unlayered !important block. Asserted in e2e/reduced-motion.e2e.ts."
+			}
+		],
+		"breakpoints": [
+			{ "name": "sm", "value": "640px" },
+			{ "name": "md", "value": "768px" },
+			{ "name": "lg", "value": "1024px" },
+			{ "name": "xl", "value": "1280px" }
+		]
+	},
+	"components": [
+		{
+			"name": "Primary Button",
+			"kind": "button",
+			"refersTo": "button-default",
+			"description": "The one solid-fill action per surface. 32px tall, and it nudges down a pixel when pressed.",
+			"html": "<button class=\"ds-btn-primary\">Create issue</button>",
+			"css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 10px; background: var(--primary, oklch(0.205 0 0)); color: var(--primary-foreground, oklch(0.985 0 0)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 500; white-space: nowrap; cursor: pointer; transition: all 100ms; outline: none; } .ds-btn-primary:hover { background: color-mix(in oklab, var(--primary, oklch(0.205 0 0)) 80%, transparent); } .ds-btn-primary:focus-visible { border-color: var(--ring, oklch(0.45 0 0)); box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-btn-primary:active { transform: translateY(1px); }"
+		},
+		{
+			"name": "Outline Button",
+			"kind": "button",
+			"refersTo": "button-outline",
+			"description": "The default secondary action: hairline border on paper, resolving its hover to the Shelf step.",
+			"html": "<button class=\"ds-btn-outline\">Share</button>",
+			"css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid var(--border, oklch(0.922 0 0)); border-radius: 10px; background: var(--background, oklch(1 0 0)); color: var(--foreground, oklch(0.145 0 0)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 100ms; outline: none; } .ds-btn-outline:hover { background: var(--muted, oklch(0.97 0 0)); } .ds-btn-outline:focus-visible { border-color: var(--ring, oklch(0.45 0 0)); box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-btn-outline:active { transform: translateY(1px); }"
+		},
+		{
+			"name": "Ghost Button",
+			"kind": "button",
+			"refersTo": "button-ghost",
+			"description": "Icon actions and toolbar controls: nothing at rest, Shelf on hover.",
+			"html": "<button class=\"ds-btn-ghost\" aria-label=\"Toggle theme\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41\"/></svg></button>",
+			"css": ".ds-btn-ghost { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--foreground, oklch(0.145 0 0)); cursor: pointer; transition: all 100ms; outline: none; } .ds-btn-ghost:hover { background: var(--muted, oklch(0.97 0 0)); } .ds-btn-ghost:focus-visible { border-color: var(--ring, oklch(0.45 0 0)); box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); }"
+		},
+		{
+			"name": "Destructive Button",
+			"kind": "button",
+			"refersTo": "button-destructive",
+			"description": "Text and icon in Destructive Red over a 10% tint. Never a solid red fill, which would be the loudest object in an otherwise grey product.",
+			"html": "<button class=\"ds-btn-destructive\">Delete issue</button>",
+			"css": ".ds-btn-destructive { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 10px; background: color-mix(in oklab, var(--destructive, oklch(0.577 0.245 27.325)) 10%, transparent); color: var(--destructive, oklch(0.577 0.245 27.325)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 100ms; outline: none; } .ds-btn-destructive:hover { background: color-mix(in oklab, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); } .ds-btn-destructive:focus-visible { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 2px var(--destructive, oklch(0.577 0.245 27.325)); }"
+		},
+		{
+			"name": "Text Input",
+			"kind": "input",
+			"refersTo": "input-default",
+			"description": "36px tall, 8px radius. Focus recolours the border and adds the same 2px ring the buttons use, so focus looks identical wherever it lands.",
+			"html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Issue title\" />",
+			"css": ".ds-input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--border, oklch(0.922 0 0)); border-radius: 8px; background: var(--background, oklch(1 0 0)); color: var(--foreground, oklch(0.145 0 0)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; transition: all 100ms; outline: none; } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.556 0 0)); } .ds-input:focus-visible { border-color: var(--ring, oklch(0.45 0 0)); box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-input[aria-invalid='true'] { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); }"
+		},
+		{
+			"name": "Sidebar Nav Item",
+			"kind": "nav",
+			"refersTo": null,
+			"description": "The app's primary navigation. Active state fills with Shelf; its focus ring was tuned separately for the two surfaces it sits on.",
+			"html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><button class=\"ds-nav-item\" data-active=\"true\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"8\" y1=\"6\" x2=\"21\" y2=\"6\"/><line x1=\"8\" y1=\"12\" x2=\"21\" y2=\"12\"/><line x1=\"8\" y1=\"18\" x2=\"21\" y2=\"18\"/><line x1=\"3\" y1=\"6\" x2=\"3.01\" y2=\"6\"/><line x1=\"3\" y1=\"12\" x2=\"3.01\" y2=\"12\"/><line x1=\"3\" y1=\"18\" x2=\"3.01\" y2=\"18\"/></svg>Issues</button><button class=\"ds-nav-item\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"6\" height=\"18\" rx=\"1\"/><rect x=\"15\" y=\"3\" width=\"6\" height=\"12\" rx=\"1\"/></svg>Board</button></nav>",
+			"css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--sidebar, oklch(0.985 0 0)); border-radius: 10px; min-width: 200px; } .ds-nav-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--sidebar-foreground, oklch(0.145 0 0)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 100ms; outline: none; } .ds-nav-item:hover { background: var(--sidebar-accent, oklch(0.97 0 0)); } .ds-nav-item[data-active='true'] { background: var(--sidebar-accent, oklch(0.97 0 0)); } .ds-nav-item:focus-visible { box-shadow: 0 0 0 2px var(--sidebar-ring, oklch(0.45 0 0)); }"
+		},
+		{
+			"name": "Status Badge",
+			"kind": "chip",
+			"refersTo": null,
+			"description": "The signature component, and the reason the palette is grey. In rows and board cards it renders icon-only, which makes the glyph the information and is why each hue is a per-theme pair clearing 3:1.",
+			"html": "<span class=\"ds-badge-status\" data-status=\"in-progress\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10.1 2.18a9.93 9.93 0 0 1 3.8 0M17.6 3.71a9.95 9.95 0 0 1 2.69 2.7M21.82 10.1a9.93 9.93 0 0 1 0 3.8M20.29 17.6a9.95 9.95 0 0 1-2.7 2.69M13.9 21.82a9.93 9.93 0 0 1-3.8 0M6.4 20.29a9.95 9.95 0 0 1-2.69-2.7M2.18 13.9a9.93 9.93 0 0 1 0-3.8M3.71 6.4a9.95 9.95 0 0 1 2.7-2.69\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/></svg><span>In Progress</span></span>",
+			"css": ".ds-badge-status { display: inline-flex; align-items: center; gap: 6px; font-family: 'Geist Variable', sans-serif; font-size: 0.75rem; font-weight: 500; } .ds-badge-status[data-status='backlog'] { color: oklch(55.2% 0.016 285.938); } .ds-badge-status[data-status='todo'] { color: oklch(54.6% 0.245 262.881); } .ds-badge-status[data-status='in-progress'] { color: oklch(55.5% 0.163 48.998); } .ds-badge-status[data-status='done'] { color: oklch(50.8% 0.118 165.612); } .ds-badge-status[data-status='canceled'] { color: oklch(57.7% 0.245 27.325); }"
+		},
+		{
+			"name": "Board Card",
+			"kind": "card",
+			"refersTo": "board-card",
+			"description": "An issue resting in a column recess. Rendered here per the Depth Means Floating rule, without the resting shadow-xs the implementation still carries.",
+			"html": "<article class=\"ds-board-card\" tabindex=\"0\" aria-label=\"Sync drops updates from the board\"><span class=\"ds-board-card-title\">Sync drops updates from the board</span><span class=\"ds-board-card-meta\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"oklch(55.3% 0.195 38.402)\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z\"/><line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"13\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/></svg>SYN-42</span></article>",
+			"css": ".ds-board-card { display: flex; flex-direction: column; gap: 8px; width: 264px; padding: 10px; border: 1px solid var(--border, oklch(0.922 0 0)); border-radius: 10px; background: var(--card, oklch(1 0 0)); cursor: pointer; transition: border-color 100ms; outline: none; } .ds-board-card:hover { border-color: color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 20%, transparent); } .ds-board-card:focus-visible { box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-board-card-title { font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 400; line-height: 1.25rem; color: var(--foreground, oklch(0.145 0 0)); } .ds-board-card-meta { display: inline-flex; align-items: center; gap: 6px; font-family: 'Geist Variable', sans-serif; font-size: 0.75rem; color: var(--muted-foreground, oklch(0.556 0 0)); }"
+		},
+		{
+			"name": "Peer Avatar Stack",
+			"kind": "custom",
+			"refersTo": null,
+			"description": "The one place a colour arrives at runtime, and only a hue number does: the theme owns lightness and chroma so an arbitrary hue stays legible in both modes. Decoration with a text equivalent beside it.",
+			"html": "<div class=\"ds-peers\"><span class=\"ds-peer\" style=\"--peer-h: 30\">AD</span><span class=\"ds-peer\" style=\"--peer-h: 160\">BO</span><span class=\"ds-peer ds-peer-more\">+2</span><span class=\"ds-peers-label\">Ada, Bob and 2 others</span></div>",
+			"css": ".ds-peers { display: inline-flex; align-items: center; gap: 8px; } .ds-peer { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 9999px; font-family: 'Geist Variable', sans-serif; font-size: 0.625rem; font-weight: 600; line-height: 1; user-select: none; background-color: oklch(var(--peer-l, 0.52) var(--peer-c, 0.14) var(--peer-h, 0)); color: var(--peer-fg, oklch(0.985 0 0)); box-shadow: 0 0 0 2px var(--background, oklch(1 0 0)); margin-right: -6px; } .ds-peer-more { background-color: var(--muted, oklch(0.97 0 0)); color: var(--muted-foreground, oklch(0.556 0 0)); } .ds-peers-label { margin-left: 8px; font-family: 'Geist Variable', sans-serif; font-size: 0.75rem; color: var(--muted-foreground, oklch(0.556 0 0)); }"
+		},
+		{
+			"name": "Connection Popover",
+			"kind": "custom",
+			"refersTo": "popover-content",
+			"description": "Two or three plain sentences: where the data lives, who else has it, and whether the relay can still save it. The third appears only when something is wrong, so a healthy workspace gains no reassurance badge.",
+			"html": "<div class=\"ds-popover\" role=\"dialog\" aria-label=\"Connection status\"><p class=\"ds-popover-line\">Saved on this device</p><p class=\"ds-popover-line\">Ready to share — no one else here yet</p></div>",
+			"css": ".ds-popover { display: flex; flex-direction: column; gap: 12px; width: 288px; padding: 12px; border-radius: 10px; background: var(--popover, oklch(1 0 0)); color: var(--foreground, oklch(0.145 0 0)); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1), 0 0 0 1px color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 10%, transparent); } .ds-popover-line { margin: 0; font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; line-height: 1.25rem; }"
+		}
+	],
+	"narrative": {
+		"northStar": "The Instrument Panel",
+		"overview": "SyncTicket is a reading surface for a live system. The palette is achromatic by construction — every neutral in both themes is oklch(L 0 0), zero chroma, no exceptions — so that the handful of coloured signals in the interface are the only coloured things in it. A blue dot means Todo. An amber ring means In Progress. A triangle in orange means Urgent. Nothing else in the product is allowed to compete with those readings, and that is what makes them legible at a glance across a list of four thousand rows.\n\nThe character is refined and restrained: precision in place of expression. Hairline borders rather than shadows, a four-step type scale that tops out at 18px, one weight doing almost all the work, and focus rings whose contrast was measured rather than assumed. Density is operator density — 32px default buttons, 28px and 24px variants, 10px of padding inside a board card — because the person reading this surface is scanning a system's state, not browsing a page.\n\nWhat makes the restraint credible is that it is checked. The focus ring was darkened from shadcn's stock oklch(0.708) to oklch(0.45) because the stock value measured 2.59:1 against the background and missed WCAG 1.4.11's 3:1 on every surface the app has; at 0.45 it measures 7.44:1. Status colours are per-theme (a light step with a dark: -500 override) rather than one shared step, because the stock -500 family reaches only 2.15–2.89:1 on white and the badges render icon-only, which makes the icon the information. meta.test.ts recomputes every one of those ratios from the installed Tailwind source on each run, so none of these numbers is a claim — they are assertions that fail the suite when broken.",
+		"keyCharacteristics": [
+			"Achromatic by default; hue reserved entirely for state",
+			"Flat in flow, elevated only when genuinely floating",
+			"Four-step type scale, no display tier, font-medium as the working weight",
+			"Operator density: 32px controls, 10–12px interior padding",
+			"Focus as a first-class visual element, with measured contrast",
+			"Motion that is brief (100–200ms) and fully removable"
+		],
+		"rules": [
+			{
+				"name": "The Colour Means State Rule",
+				"body": "Hue is reserved for issue status, urgent priority, destructive intent, and peer identity. There is no decorative, brand, or emphasis colour anywhere in the product, and adding one is a defect rather than a liberty: the status signals are readable at a glance because nothing else is coloured.",
+				"section": "colors"
+			},
+			{
+				"name": "The Per-Theme Step Rule",
+				"body": "A semantic colour is never one value with a theme-independent meaning. Every status and priority hue is a light step plus a brighter dark: override, because the badges render icon-only and the icon must clear 3:1 on the surface it actually sits on. Collapsing a pair back to a single shared step fails meta.test.ts.",
+				"section": "colors"
+			},
+			{
+				"name": "The One Weight Rule",
+				"body": "font-medium (500) carries the interface; font-semibold (600) appears only on the few titles, and font-bold appears nowhere at all. Hierarchy comes from size, weight and colour in that order — never from a heavier face.",
+				"section": "typography"
+			},
+			{
+				"name": "The Four-Step Rule",
+				"body": "12 / 14 / 16 / 18px is the entire scale. A new size is a decision about the whole system, not about one component; an instrument panel with six type sizes stops reading as one instrument.",
+				"section": "typography"
+			},
+			{
+				"name": "The Depth Means Floating Rule",
+				"body": "If a surface is in the document flow, it has no shadow. A shadow on a card, row, panel or column is a defect, not a style choice — border and tonal fill are how this system separates things. Known deviation: board cards currently carry shadow-xs at rest (board-column.svelte:224), which is drift to remove rather than a sanctioned exception.",
+				"section": "elevation"
+			}
+		],
+		"dos": [
+			"Do reserve hue for state. Status, urgent priority, destructive intent and peer identity are the complete list.",
+			"Do separate in-flow surfaces with a 1px Hairline border and the Shelf fill, not a shadow.",
+			"Do give every semantic colour a per-theme pair (light step + dark: override) and let meta.test.ts recompute its contrast rather than quoting a number.",
+			"Do keep type within 12 / 14 / 16 / 18px, and build hierarchy from weight and colour first.",
+			"Do make focus visible with the 2px Focus Grey ring and a border change, identically on every control.",
+			"Do keep transitions at 100–200ms, and give any motion driven through element.animate() its own reduced-motion opt-out — WAAPI timings ignore the CSS block entirely.",
+			"Do design the keyboard path first: every core flow is operable without a mouse, including moving cards between board columns.",
+			"Do state limits plainly in UI copy when the system reaches one, and never claim durability, privacy or safety the system does not deliver."
+		],
+		"donts": [
+			"Don't introduce decorative gradients, glows or coloured washes. There are none in the product and they would undercut an instrument reading.",
+			"Don't add spot illustration, 3D renders or mascot imagery. Icons are functional Lucide glyphs that carry information.",
+			"Don't put a shadow on a card, row, column or panel. (The board card's resting shadow-xs is existing drift, not a precedent.)",
+			"Don't use a solid Destructive fill. Destructive actions are text plus a 10% tint.",
+			"Don't add a second typeface, a monospace face, or font-bold.",
+			"Don't tint the neutrals. Every grey in both themes is zero-chroma oklch(L 0 0), and a warm or cool cast would make the semantic hues read as part of a palette.",
+			"Don't interpolate a network-supplied colour string into a style attribute. Peers supply a validated hue number; anything else is a CSS injection.",
+			"Don't soften the focus ring to a translucent blend. At this token a /50 ring measures 2.32:1 against the background versus 7.44:1 solid, so the blend cannot clear 3:1."
+		]
+	}
+}
