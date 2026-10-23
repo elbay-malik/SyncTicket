@@ -483,3 +483,29 @@ test("undo takes back my own change across a merge, and never the other browser'
 	await alice.context().close();
 	await bob.context().close();
 });
+
+test('the invitation to open a second window appears alone and leaves when answered', async ({
+	browser
+}) => {
+	// The surface demonstrating its claim rather than asserting it in a caption. The condition
+	// is three pieces of relay state at once, which is precisely the kind of thing that stops
+	// rendering without anyone noticing — the ADR 0004 disclosure already did exactly that by
+	// living in a branch only the empty state reached.
+	const workspaceId = room();
+	const alice = await openPeer(browser, workspaceId);
+
+	const invitation = alice.getByText('Open this link in a second window');
+	await expect(invitation).toBeVisible();
+
+	// A second peer arriving is the proof, so it is also the dismissal: nobody has to be told
+	// twice, and there is no dismiss control to leave lying around.
+	const bob = await openPeer(browser, workspaceId);
+	await expect(invitation).toBeHidden({ timeout: 15_000 });
+	await expect(bob.getByText('Open this link in a second window')).toBeHidden();
+
+	// And it comes back when they leave, because the invitation is true again.
+	await bob.context().close();
+	await expect(invitation).toBeVisible({ timeout: 20_000 });
+
+	await alice.context().close();
+});

@@ -6,6 +6,8 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
+	import Undo2Icon from '@lucide/svelte/icons/undo-2';
+	import { Button } from '$lib/components/ui/button/index.js';
 	import BrandMark from '$lib/components/shell/brand-mark.svelte';
 	import CommandMenu from '$lib/components/shell/command-menu.svelte';
 	import RelayStatus from '$lib/components/shell/relay-status.svelte';
@@ -164,8 +166,32 @@
 				<PresenceBar {presence} />
 				<Separator orientation="vertical" class="data-[orientation=vertical]:h-4" />
 				<RelayStatus {store} {presence} />
+				<!-- Undo needs a pixel. ⌘Z is registered and listed in the shortcuts sheet, but in a
+				     workspace with no accounts, where anyone holding the link can change anything,
+				     a mouse-only visitor who mis-sets a status had no way back at all. Disabled
+				     rather than hidden when the stack is empty, so the affordance is discoverable
+				     before it is needed rather than appearing only once something has gone wrong. -->
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					aria-label="Undo my last change"
+					title="Undo my last change"
+					disabled={!store.canUndo}
+					onclick={() => store.undo()}
+				>
+					<Undo2Icon />
+				</Button>
 				<ShareWorkspace {store} />
-				<ThemeToggle />
+				<!-- Steps aside below `sm`, where the trailing group would otherwise wrap to a third
+				     line carrying this control alone — 36px of a 320px-wide screen for one icon.
+				     The capability is not lost: the command palette offers Light, Dark and System,
+				     and the palette is reachable on a phone through the sidebar's Search item
+				     (`a11y-shell.e2e.ts` covers that path). Durability state and undo keep their
+				     place here instead, which is the right way round: one is this product's
+				     highest-stakes fact and the other is the only way back from a mis-click. -->
+				<span class="hidden sm:inline-flex">
+					<ThemeToggle />
+				</span>
 			</div>
 		</header>
 		<main id="main-content" tabindex="-1" class="min-h-0 flex-1 overflow-auto p-6">

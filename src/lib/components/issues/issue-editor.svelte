@@ -130,7 +130,10 @@
 	     to be allowed to shrink. -->
 	<div class="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
 		<span class="text-muted-foreground text-sm">Status</span>
-		<div>
+		<!-- `min-w-0` for the same reason the track is `minmax(0,1fr)`: without it the picker's
+		     intrinsic width wins and the button overshoots the sheet's right edge by ~1px at
+		     320px. Measured, not theoretical. -->
+		<div class="min-w-0">
 			<StatusPicker
 				value={issue.status}
 				showLabel
@@ -139,7 +142,7 @@
 		</div>
 
 		<span class="text-muted-foreground text-sm">Priority</span>
-		<div>
+		<div class="min-w-0">
 			<PriorityPicker
 				value={issue.priority}
 				showLabel

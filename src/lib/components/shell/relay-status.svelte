@@ -104,14 +104,16 @@
 		     no evidence that this product stores anything locally or shares anything at all —
 		     on a surface whose entire claim is exactly that.
 
-		     Two breakpoints rather than one. Below `sm` the glyph stands alone, which is what
-		     keeps the 320px header from gaining a line (it already wraps there; see the note in
-		     the root layout). From `sm` the state shows, and from `lg` the storage fact joins it.
+		     The state shows at EVERY width, including 320px. It used to hide below `sm` to protect
+		     the header's line count, and that was the wrong trade: the smallest screens are where
+		     evaluators most often arrive, and a wordless cloud there reads as "it's in the cloud",
+		     which is the precise opposite of what this product claims. The header already wraps at
+		     320px, so the line was already spent. Only the storage half still waits for `lg`.
 		     `aria-hidden` because the full three sentences are already on the trigger's
 		     `aria-label`; without it a screen reader would hear the summary and then the
 		     sentence it summarises. -->
 		<span
-			class="hidden truncate sm:inline"
+			class="truncate"
 			class:text-destructive={store.relayPersistence !== 'ok'}
 			aria-hidden="true"
 		>

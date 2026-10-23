@@ -77,7 +77,7 @@
 		data-issue-link={issue.id}
 		tabindex={tabbable ? 0 : -1}
 		aria-current={selected ? 'true' : undefined}
-		class="focus-visible:ring-ring flex-1 truncate rounded-sm px-1 py-1 text-sm outline-none focus-visible:ring-2"
+		class="focus-visible:ring-ring flex-1 truncate rounded-sm px-1 py-1 text-sm underline-offset-4 outline-none group-hover:underline focus-visible:ring-2"
 	>
 		{issue.title}
 		{#if viewerSentence}<span class="sr-only">, {viewerSentence}</span>{/if}

@@ -11,7 +11,7 @@
 	const byGroup = $derived(
 		GROUPS.map((group) => ({
 			group,
-			items: shortcuts.all.filter((shortcut) => shortcut.group === group)
+			items: shortcuts.listed.filter((shortcut) => shortcut.group === group)
 		})).filter((section) => section.items.length > 0)
 	);
 

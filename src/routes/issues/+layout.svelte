@@ -21,6 +21,7 @@
 	import type { PersistenceState } from '$lib/sync/relay-notice.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
+	import { getPresence } from '$lib/state/presence.svelte.js';
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { STATUS_UI } from '$lib/components/issues/meta.js';
@@ -36,6 +37,20 @@
 	let { children } = $props();
 
 	const store = getIssueStore();
+	// A browser singleton keyed to the same store the root layout uses, so this is the same
+	// Presence instance rather than a second subscription.
+	const presence = getPresence(store);
+	/**
+	 * Whether to invite the second window.
+	 *
+	 * Only when the relay is genuinely ready and nobody else is here: a visitor who is offline,
+	 * still connecting, or has no relay configured cannot be promised that edits merge, and one
+	 * who already has a peer has seen the proof and does not need the sentence. The arrival of
+	 * that peer is what dismisses it, which is why it needs no dismiss control of its own.
+	 */
+	const inviteSecondWindow = $derived(
+		store.connection === 'connected' && store.relaySynced && presence.peers.length === 0
+	);
 	const query = new IssueQuery(store);
 
 	let draft = $state('');
@@ -103,7 +118,6 @@
 				chord: 'j',
 				label: 'Next issue',
 				group: 'Issues',
-				hidden: true,
 				run: () => list?.moveCursor(1)
 			}),
 			shortcuts.register({
@@ -111,7 +125,6 @@
 				chord: 'k',
 				label: 'Previous issue',
 				group: 'Issues',
-				hidden: true,
 				run: () => list?.moveCursor(-1)
 			})
 		];
@@ -277,7 +290,10 @@
 				}}
 			/>
 		</div>
-		<Button type="submit" variant="outline" disabled={!draft.trim()}>Add</Button>
+		<!-- `lg` is 36px, matching the field beside it. DESIGN.md documents inputs at 36px and
+		     the default button at 32px, so the two are not interchangeable in a row: paired at
+		     their defaults the button floats, visibly shorter than the control it submits. -->
+		<Button type="submit" size="lg" variant="outline" disabled={!draft.trim()}>Add</Button>
 	</form>
 
 	<!-- Required by ADR 0004: the workspace id in the URL is the only thing protecting this
@@ -293,6 +309,16 @@
 		Anyone with this link can read and edit this workspace — please don't put anything real or
 		sensitive in it.
 	</p>
+
+	<!-- The product demonstrating its own claim instead of asserting it in a 12px corner.
+	     Shown only while the relay is ready and nobody else is here; a second peer arriving is
+	     what removes it, which is the proof arriving. Caption register and no card, because the
+	     surrounding restraint is the reason the status colours read at all. -->
+	{#if inviteSecondWindow}
+		<p class="text-muted-foreground -mt-2 text-xs">
+			Open this link in a second window — edits merge both ways, even offline.
+		</p>
+	{/if}
 
 	<div class="flex items-center justify-between">
 		<DropdownMenu.Root>
