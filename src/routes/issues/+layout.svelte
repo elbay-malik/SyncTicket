@@ -64,6 +64,8 @@
 		// only on /board, and nothing here writes the `order` key. The old label advertised a
 		// capability at the top of the surface that the surface does not have, which is a
 		// promise a user discovers is false by looking for a drag handle that was never there.
+		// Sectioned by status, it is now literally the board: each section lists in the order
+		// its column stacks, so the label names something the visitor can check.
 		manual: 'Board order',
 		priority: 'Priority',
 		recent: 'Recently updated'
@@ -194,7 +196,8 @@
 		draft = '';
 		// Take the cursor to it and flash it. Without this the field just empties: the new issue
 		// is appended after the maximum order key, so under the default sort it lands at the end
-		// of a virtualized list, off-screen, with nothing to say it arrived.
+		// of its status section — mid-list, and in a virtualized list usually off-screen, with
+		// nothing to say it arrived.
 		list?.reveal(id);
 	}
 </script>
@@ -407,7 +410,15 @@
 		</div>
 	{:else}
 		<div class="min-h-0 flex-1">
-			<IssueList bind:this={list} issues={query.results} {store} bind:selectedId />
+			<!-- Sectioned only across every status: filtered to one, the filter button above already
+			     names the only section there would be. -->
+			<IssueList
+				bind:this={list}
+				issues={query.results}
+				{store}
+				sectioned={query.status === 'all'}
+				bind:selectedId
+			/>
 		</div>
 	{/if}
 </div>

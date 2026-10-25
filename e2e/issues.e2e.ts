@@ -239,6 +239,26 @@ test('the empty state can seed itself with example issues, on request only', asy
 	await expect(page.getByRole('listitem')).toHaveCount(rowCount);
 });
 
+test('the list is sectioned by status across all issues, and not under a one-status filter', async ({
+	page
+}) => {
+	await page.goto('/issues');
+	await expect(page.getByText('No issues yet')).toBeVisible();
+	await page.getByRole('button', { name: 'Load example issues' }).click();
+
+	// Backlog comes first because the board's columns do, and the seed has issues in it.
+	const list = page.getByTestId('issue-list');
+	await expect(list.getByRole('heading', { level: 2 }).first()).toHaveText('Backlog');
+	await expect(list.getByRole('heading', { name: 'Todo', level: 2 })).toBeVisible();
+
+	// Filtered to one status the filter button already names the section, so a heading would
+	// only repeat it.
+	await page.getByRole('button', { name: 'All issues' }).click();
+	await page.getByRole('menuitem', { name: 'Todo' }).click();
+	await expect(list.getByRole('link').first()).toBeVisible();
+	await expect(list.getByRole('heading')).toHaveCount(0);
+});
+
 test('a quick-added issue is scrolled to and marked, not filed silently off-screen', async ({
 	page
 }) => {

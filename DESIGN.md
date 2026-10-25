@@ -263,7 +263,11 @@ Spacing is a tight 4/8/10/12px rhythm. Interior padding is 10px (`p-2.5`) in boa
 generous-spacing tier, because the surface is read densely on purpose.
 
 Two list surfaces, two strategies. The issue list is **virtualized** (virtua) inside a single
-scroll container with a `rounded-lg border` frame, and holds 10,000 rows without degrading. Board
+scroll container with a `rounded-lg border` frame, and holds 10,000 rows without degrading. Across
+all statuses it is sectioned in board column order, each section headed by the board column's own
+header grammar (status glyph, `text-sm font-medium` label, secondary count badge) on the Shelf
+fill at 32px against the row's 41, so a heading never reads as the cursor row. Filtered to one
+status it has no headings; the filter button already names the section. Board
 columns are **capped rather than virtualized**, each a fixed 288px (`w-72`) wide and horizontally
 scrolled as a set — a virtualized drop target and a drag library do not compose.
 

@@ -9,6 +9,7 @@ import { flushSync } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
+import { sectionByStatus } from '$lib/model/query.js';
 import { IssueStore } from '$lib/state/issues.svelte.js';
 import { IssueQuery } from '$lib/state/queries.svelte.js';
 import IssueList from './issue-list.svelte';
@@ -404,5 +405,99 @@ describe('issue-list.svelte roving tabindex', () => {
 		// Focus is moved once for the whole burst, on the row the cursor actually ended on.
 		expect(active()?.tagName).toBe('A');
 		expect(tabStops(host)).toEqual([active()]);
+	}, 60_000);
+});
+
+describe('issue-list.svelte, sectioned by status', () => {
+	/** The issues in the order a sectioned list shows them, which is what the cursor walks. */
+	const onScreen = (issues: Parameters<typeof sectionByStatus>[0]) =>
+		sectionByStatus(issues).flatMap((entry) => (entry.kind === 'issue' ? [entry.issue] : []));
+
+	const headingFor = (host: HTMLElement, status: string) =>
+		host.querySelector<HTMLElement>(`[data-list-section="${status}"]`);
+
+	it('heads the list with real headings and still renders only a window at 10k', async () => {
+		const store = makeStore();
+		store.seed(N, { seed: 21 });
+		flushSync();
+		const query = new IssueQuery(store);
+		const first = sectionByStatus(query.results)[0];
+
+		const host = makeHost();
+		await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store, sectioned: true }
+		});
+		flushSync();
+		await settle();
+
+		expect(first?.kind).toBe('section');
+		const heading = headingFor(host, first!.kind === 'section' ? first!.status : '');
+		expect(heading?.querySelector('h2')).not.toBeNull();
+		expect(host.querySelectorAll('li').length).toBeLessThan(MAX_RENDERED);
+		// A heading is neither a tab stop nor somewhere the cursor can rest.
+		expect(heading?.querySelector('a, button, [tabindex]')).toBeNull();
+	}, 60_000);
+
+	it('walks across a section boundary in screen order without stopping on the heading', async () => {
+		const store = makeStore();
+		store.seed(40, { seed: 22 });
+		flushSync();
+		const query = new IssueQuery(store);
+		const shown = onScreen(query.results);
+		// The first issue whose status differs from the one before it: the move onto it is
+		// the one that crosses a heading.
+		const boundary = shown.findIndex((issue, i) => i > 0 && issue.status !== shown[i - 1]!.status);
+		expect(boundary).toBeGreaterThan(0);
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store, sectioned: true }
+		});
+		flushSync();
+		await settle();
+
+		for (let i = 0; i <= boundary; i += 1) result.component.moveCursor(1);
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(shown[boundary]!.id));
+		expect(tabStops(host)).toEqual([active()]);
+	}, 60_000);
+
+	it('brings a section heading into view when k arrives at its first issue', async () => {
+		const store = makeStore();
+		store.seed(N, { seed: 23 });
+		flushSync();
+		const query = new IssueQuery(store);
+		const shown = onScreen(query.results);
+		const boundary = shown.findIndex((issue, i) => i > 0 && issue.status !== shown[i - 1]!.status);
+		const status = shown[boundary]!.status;
+
+		const host = makeHost();
+		const result = await render(IssueList, {
+			target: host,
+			props: { issues: query.results, store, sectioned: true }
+		});
+		flushSync();
+		await settle();
+
+		// Start well below the boundary, then walk up to it one row at a time. Each upward
+		// move pins its row to the top edge, so without the heading rule the last one parks
+		// the section's first issue at the very top with its heading one row out of sight.
+		const below = boundary + 40;
+		for (let i = 0; i <= below; i += 1) result.component.moveCursor(1);
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(shown[below]!.id));
+		for (let i = 0; i < below - boundary; i += 1) {
+			result.component.moveCursor(-1);
+			await settle();
+		}
+		await vi.waitFor(() => expect(active()?.dataset.issueLink).toBe(shown[boundary]!.id));
+		await settle();
+
+		const scroller = host.querySelector<HTMLElement>('[data-testid="issue-list"]')!;
+		const heading = headingFor(host, status);
+		expect(heading).not.toBeNull();
+		expect(heading!.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+			scroller.getBoundingClientRect().top
+		);
 	}, 60_000);
 });

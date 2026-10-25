@@ -49,6 +49,33 @@ export function sortIssues(issues: Issue[], sort: IssueSort): Issue[] {
 	return sorted;
 }
 
+/** One line of the issue list: a status heading, or an issue under one. */
+export type ListEntry =
+	{ kind: 'section'; status: IssueStatus; count: number } | { kind: 'issue'; issue: Issue };
+
+/**
+ * Sections an already-sorted list by status, in board column order, keeping the caller's
+ * order inside each section — so under "Board order" every section lists exactly as its
+ * column stacks on /board, and the list and the board answer "what is in flight" the same
+ * way. A status with nothing in it gets no heading. Linear in the input: this re-runs on
+ * every change, at 10,000 issues.
+ */
+export function sectionByStatus(sorted: Issue[]): ListEntry[] {
+	const buckets = Object.fromEntries(ISSUE_STATUSES.map((s) => [s, [] as Issue[]])) as Record<
+		IssueStatus,
+		Issue[]
+	>;
+	for (const issue of sorted) buckets[issue.status].push(issue);
+	const entries: ListEntry[] = [];
+	for (const status of ISSUE_STATUSES) {
+		const issues = buckets[status];
+		if (issues.length === 0) continue;
+		entries.push({ kind: 'section', status, count: issues.length });
+		for (const issue of issues) entries.push({ kind: 'issue', issue });
+	}
+	return entries;
+}
+
 /** Groups issues by status (every status present, ordered manually within each). */
 export function groupByStatus(issues: Issue[]): Record<IssueStatus, Issue[]> {
 	const groups = Object.fromEntries(ISSUE_STATUSES.map((s) => [s, [] as Issue[]])) as Record<

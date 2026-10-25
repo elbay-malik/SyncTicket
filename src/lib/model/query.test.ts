@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Issue } from './issue.js';
-import { countByStatus, filterIssues, groupByStatus, sortIssues } from './query.js';
+import {
+	countByStatus,
+	filterIssues,
+	groupByStatus,
+	sectionByStatus,
+	sortIssues
+} from './query.js';
 
 function mk(over: Partial<Issue>): Issue {
 	return {
@@ -96,5 +102,49 @@ describe('groupByStatus / countByStatus', () => {
 		expect(counts.todo).toBe(2);
 		expect(counts.canceled).toBe(1);
 		expect(counts.backlog).toBe(0);
+	});
+});
+
+describe('sectionByStatus', () => {
+	const shape = (entries: ReturnType<typeof sectionByStatus>) =>
+		entries.map((entry) =>
+			entry.kind === 'section' ? `# ${entry.status} ${entry.count}` : entry.issue.title
+		);
+
+	it('heads each status in board column order and skips the empty ones', () => {
+		const issues = [
+			mk({ title: 'shipped', status: 'done' }),
+			mk({ title: 'idea', status: 'backlog' }),
+			mk({ title: 'doing', status: 'in_progress' })
+		];
+		expect(shape(sectionByStatus(issues))).toEqual([
+			'# backlog 1',
+			'idea',
+			'# in_progress 1',
+			'doing',
+			'# done 1',
+			'shipped'
+		]);
+	});
+
+	it("keeps the caller's sort inside each section rather than re-sorting", () => {
+		// Deliberately not in order-key order: the sections must not quietly undo a priority
+		// or recency sort by falling back to the board's own ordering.
+		const issues = [
+			mk({ title: 'b-later', status: 'todo', order: 'a0' }),
+			mk({ title: 'a-other', status: 'backlog' }),
+			mk({ title: 'b-first', status: 'todo', order: 'a5' })
+		];
+		expect(shape(sectionByStatus(issues))).toEqual([
+			'# backlog 1',
+			'a-other',
+			'# todo 2',
+			'b-later',
+			'b-first'
+		]);
+	});
+
+	it('returns nothing for nothing', () => {
+		expect(sectionByStatus([])).toEqual([]);
 	});
 });

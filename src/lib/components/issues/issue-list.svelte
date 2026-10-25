@@ -30,16 +30,43 @@
 	// first Tab into the list landed on row 1's status button rather than at the cursor.
 
 	import { Virtualizer } from 'virtua/svelte';
-	import type { Issue } from '$lib/model/issue.js';
+	import { STATUS_META, type Issue } from '$lib/model/issue.js';
+	import { sectionByStatus, type ListEntry } from '$lib/model/query.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
 	import { getPresence } from '$lib/state/presence.svelte.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import IssueRow from './issue-row.svelte';
+	import { STATUS_UI } from './meta.js';
 
 	let {
 		issues,
 		store,
-		selectedId = $bindable(null)
-	}: { issues: Issue[]; store: IssueStore; selectedId?: string | null } = $props();
+		selectedId = $bindable(null),
+		sectioned = false
+	}: {
+		issues: Issue[];
+		store: IssueStore;
+		selectedId?: string | null;
+		/**
+		 * Head the list with one section per status, as the board's columns do. Off when the
+		 * list is already filtered to one status, where a single heading would only repeat
+		 * the filter button above it.
+		 */
+		sectioned?: boolean;
+	} = $props();
+
+	// What virtua renders: the issues, with a status heading ahead of each section when
+	// sectioned. The headings are rows to the virtualizer and nothing to the cursor, so the
+	// two orders are kept apart — `shown` is what j/k walk, `entries` is what gets indexed.
+	const entries: ListEntry[] = $derived(
+		sectioned ? sectionByStatus(issues) : issues.map((issue) => ({ kind: 'issue', issue }))
+	);
+	/** The issues in the order they appear on screen, which is not `issues` when sectioned. */
+	const shown = $derived(entries.flatMap((entry) => (entry.kind === 'issue' ? [entry.issue] : [])));
+	/** Where each issue sits among `entries` — every virtua index is an entry index. */
+	const entryIndex = $derived(
+		new Map(entries.flatMap((entry, i) => (entry.kind === 'issue' ? [[entry.issue.id, i]] : [])))
+	);
 
 	// One shared index for the whole list: `viewersOf` is a map lookup, so adding presence
 	// costs each row a hash probe rather than a scan over everyone in the workspace.
@@ -52,12 +79,12 @@
 	/** An id waiting to be scrolled to, held until the row actually exists. */
 	let pendingReveal = $state<string | null>(null);
 
-	const selectedIndex = $derived(issues.findIndex((issue) => issue.id === selectedId));
+	const selectedIndex = $derived(shown.findIndex((issue) => issue.id === selectedId));
 
 	// Roving tabindex needs exactly one tabbable row. Before the cursor has been placed that
 	// is the first row, so a single Tab always enters the list somewhere sensible.
 	const tabbableIndex = $derived(
-		selectedIndex === -1 ? (issues.length > 0 ? 0 : -1) : selectedIndex
+		selectedIndex === -1 ? (shown.length > 0 ? 0 : -1) : selectedIndex
 	);
 
 	// Both of the next two are read off `tabbableIndex` rather than off `selectedId`, and
@@ -66,8 +93,11 @@
 	// the pinned index from the tabbable one makes them incapable of disagreeing — when they
 	// were computed separately, the no-cursor fallback was tabbable but not pinned, and
 	// scrolling away from the top left the list with zero tab stops.
-	const tabbableId = $derived(issues[tabbableIndex]?.id ?? null);
-	const keepMounted = $derived(tabbableIndex === -1 ? [] : [tabbableIndex]);
+	const tabbableId = $derived(shown[tabbableIndex]?.id ?? null);
+	const keepMounted = $derived.by(() => {
+		const at = tabbableId === null ? undefined : entryIndex.get(tabbableId);
+		return at === undefined ? [] : [at];
+	});
 
 	/**
 	 * The row focus is sitting in, or null when focus is outside this list entirely.
@@ -136,8 +166,8 @@
 	$effect(() => {
 		const id = pendingReveal;
 		if (id === null) return;
-		const index = issues.findIndex((issue) => issue.id === id);
-		if (index === -1) return;
+		const index = entryIndex.get(id);
+		if (index === undefined) return;
 		pendingReveal = null;
 		// Two scrolls, because two different things can be out of view. `scrollToIndex` moves
 		// virtua's own scroller so the row enters the rendered window. That is not enough on its
@@ -155,7 +185,7 @@
 	});
 
 	export function moveCursor(delta: number) {
-		if (issues.length === 0) return;
+		if (shown.length === 0) return;
 		// Start from where focus actually is, so a move after a click (or after bits-ui hands
 		// focus back to a picker) continues from the row the user was last in — but only when
 		// no move is still in flight. A queued move has already advanced `selectedId` while
@@ -165,13 +195,19 @@
 		// 16.7 ms frame, and far faster than that while virtua re-renders a long list.
 		const focusedId = pendingFocusId === null ? focusedRowId() : null;
 		const at =
-			focusedId === null ? selectedIndex : issues.findIndex((issue) => issue.id === focusedId);
+			focusedId === null ? selectedIndex : shown.findIndex((issue) => issue.id === focusedId);
 		const from = at === -1 ? (delta > 0 ? -1 : 0) : at;
-		const next = Math.min(issues.length - 1, Math.max(0, from + delta));
-		const issue = issues[next];
+		const next = Math.min(shown.length - 1, Math.max(0, from + delta));
+		const issue = shown[next];
 		if (!issue) return;
 		selectedId = issue.id;
-		virtualizer?.scrollToIndex(next, { align: 'nearest' });
+		const index = entryIndex.get(issue.id) ?? next;
+		// Moving up onto the first issue of a section brings its heading into view with it.
+		// Aligned 'nearest' to the row alone, k would park the row at the top edge with the
+		// heading that names its section just out of sight. Only upward: going down, the
+		// heading is above a row aligned to the bottom edge and is already on screen.
+		const headed = delta < 0 && entries[index - 1]?.kind === 'section';
+		virtualizer?.scrollToIndex(headed ? index - 1 : index, { align: 'nearest' });
 		// One frame's worth of focus, not one callback per keypress: every move within a frame
 		// would otherwise focus a row the cursor has already left behind.
 		const scheduled = pendingFocusId !== null;
@@ -245,22 +281,49 @@
 >
 	<Virtualizer
 		bind:this={virtualizer}
-		data={issues}
-		getKey={(issue: Issue) => issue.id}
+		data={entries}
+		getKey={(entry: ListEntry) =>
+			entry.kind === 'section' ? `section:${entry.status}` : entry.issue.id}
 		as="ul"
 		item="li"
-		itemProps={() => ({ class: 'border-b last:border-b-0' })}
+		itemProps={({ item }) => ({
+			class: item.kind === 'section' ? 'bg-muted/40 border-b' : 'border-b last:border-b-0'
+		})}
 		{keepMounted}
 	>
-		{#snippet children(issue: Issue)}
-			<IssueRow
-				{issue}
-				{store}
-				selected={issue.id === selectedId}
-				tabbable={issue.id === tabbableId}
-				flash={issue.id === flashId}
-				viewers={presence.viewersOf(issue.id)}
-			/>
+		{#snippet children(entry: ListEntry)}
+			{#if entry.kind === 'section'}
+				{@const ui = STATUS_UI[entry.status]}
+				<!-- The board column's header, in the list. Same glyph, weight and count badge, on
+				     the same Shelf fill, so the two views read as one system rather than two.
+
+				     A real heading inside an ordinary <li>: the <ul> is virtua's, so a section cannot
+				     be its own list, but an <h2> gives a screen reader the same thing — jump by
+				     heading to the next status — without stepping outside list semantics. Not a tab
+				     stop and not a cursor stop; it labels the rows, it is not one.
+
+				     32px against a row's 41: at row height the Shelf fill was all that told a heading
+				     from the cursor row's own grey, and in light mode the two read as one band. -->
+				<div class="flex items-center gap-2 px-2 py-0.5" data-list-section={entry.status}>
+					<span class="flex size-7 shrink-0 items-center justify-center">
+						<ui.icon class="size-4 {ui.class}" aria-hidden="true" />
+					</span>
+					<h2 class="px-1 text-sm font-medium">{STATUS_META[entry.status].label}</h2>
+					<Badge variant="secondary">
+						{entry.count}<span class="sr-only">{entry.count === 1 ? ' issue' : ' issues'}</span>
+					</Badge>
+				</div>
+			{:else}
+				{@const issue = entry.issue}
+				<IssueRow
+					{issue}
+					{store}
+					selected={issue.id === selectedId}
+					tabbable={issue.id === tabbableId}
+					flash={issue.id === flashId}
+					viewers={presence.viewersOf(issue.id)}
+				/>
+			{/if}
 		{/snippet}
 	</Virtualizer>
 </div>
