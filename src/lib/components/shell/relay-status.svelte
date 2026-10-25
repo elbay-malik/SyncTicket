@@ -28,7 +28,8 @@
 			persisted: store.persisted,
 			connection: store.connection,
 			relaySynced: store.relaySynced,
-			peerCount: presence.peers.length,
+			// People, not tabs — `connectionCopy` promises a count that never includes this browser.
+			peerCount: presence.others.length,
 			relayPersistence: store.relayPersistence,
 			relayPersistenceReason: store.relayPersistenceReason
 		})

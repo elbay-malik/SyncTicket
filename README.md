@@ -97,7 +97,7 @@ pnpm ci:local                 # every CI step, in CI's order, locally (--no-e2e 
 pnpm demo
 ```
 
-Open <http://localhost:5173/issues>. You land in a workspace of your own — the id is random and unguessable, because in demo mode knowing the link _is_ the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)). It starts empty; click **Load example issues** for a curated backlog to try search, filters and the board against immediately, rather than typing your own. Press **Share** in the header to copy an invite link, open it in a different browser, and the two stay in step. A browser that was never given the link sees nothing.
+Open <http://localhost:5173/issues>. You land in a workspace of your own — the id is random and unguessable, because in demo mode knowing the link _is_ the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)). It starts empty; click **Load example issues** for a curated backlog to try search, filters and the board against immediately, rather than typing your own. Press **Share** in the header to copy an invite link (the address bar always shows the same link), open it in a different browser, and the two stay in step. A browser that was never given the link sees nothing.
 
 Without a relay (`pnpm dev`) everything still works; it is simply local to that browser.
 

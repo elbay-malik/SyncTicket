@@ -84,7 +84,7 @@ test('quick-add creates an issue that persists across a reload', async ({ page, 
 	await expect(page.getByText('No issues yet')).toBeVisible();
 	const baseline = await committedUpdates(page, workspaceDb);
 
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Persisted issue');
 	await input.press('Enter');
 	await expect(page.getByRole('listitem').filter({ hasText: 'Persisted issue' })).toBeVisible();
@@ -103,7 +103,7 @@ test('status filter narrows the list via the derived query index', async ({ page
 	// Svelte's binding exists, so the draft stays empty and Enter submits nothing.
 	await expect(page.getByText('No issues yet')).toBeVisible();
 
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Backlog task');
 	await input.press('Enter');
 	await expect(page.getByRole('listitem').filter({ hasText: 'Backlog task' })).toBeVisible();
@@ -180,7 +180,7 @@ test('full CRUD works offline and the result survives a reload', async ({
 
 	// One more issue, so the reload has something to prove.
 	const baseline = await committedUpdates(page, workspaceDb);
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Survivor');
 	await input.press('Enter');
 	await expect(page.getByRole('link', { name: 'Survivor' })).toBeVisible();
@@ -199,7 +199,7 @@ test('a detail sheet URL can be shared and reloaded', async ({ page, workspaceDb
 	await expect(page.getByText('No issues yet')).toBeVisible();
 	const baseline = await committedUpdates(page, workspaceDb);
 
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Deep linked');
 	await input.press('Enter');
 	await page.getByRole('link', { name: 'Deep linked' }).click();

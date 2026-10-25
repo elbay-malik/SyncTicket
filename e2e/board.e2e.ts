@@ -77,7 +77,7 @@ async function seed(page: Page, titles: string[]) {
 	await page.goto('/issues');
 	await expect(page.getByText('No issues yet')).toBeVisible();
 	for (const title of titles) {
-		const input = page.getByPlaceholder('Add an issue and press Enter…');
+		const input = page.getByPlaceholder('Add an issue…');
 		await input.fill(title);
 		await input.press('Enter');
 		await expect(page.getByRole('link', { name: title })).toBeVisible();
@@ -196,6 +196,10 @@ for (const width of [1280, 390]) {
 		await page.getByRole('link', { name: 'Board', exact: true }).click();
 		await expect(page).toHaveURL(onRoute('/board'));
 		await expect(column(page, 'Backlog').getByRole('listitem').first()).toBeVisible();
+		// The sheet closes once the page underneath has changed; left open, tapping Board looked
+		// like it did nothing on a phone.
+		if (width < 768)
+			await expect(page.locator('[data-sidebar="sidebar"][data-mobile="true"]')).toBeHidden();
 
 		const measured = await page.evaluate(() => {
 			const strip = document.querySelector<HTMLElement>('[data-testid="board-columns"]')!;

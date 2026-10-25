@@ -21,6 +21,7 @@
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import BoardColumn from '$lib/components/issues/board-column.svelte';
+	import RemoteNotice from '$lib/components/presence/remote-notice.svelte';
 	import {
 		columnView,
 		reduceConsider,
@@ -90,12 +91,15 @@
 </svelte:head>
 
 <div class="flex h-full flex-col gap-4">
-	<div class="flex items-center gap-2">
+	<!-- flex-wrap, not a fixed row: the hint is laid out at its full length first, and where it
+	     does not fit beside the title it takes a line of its own at the full width, instead of
+	     being squeezed into a narrow ragged column right of "Board" (768px, sidebar docked). -->
+	<div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
 		<h1 class="text-lg font-semibold tracking-tight">Board</h1>
 		<!-- The hold is not decoration: a touch only becomes a drag after
 		     board-column.svelte's TOUCH_DRAG_DELAY_MS, so that a swipe which starts on a card
 		     scrolls the board instead of dragging the card. -->
-		<p class="text-muted-foreground ml-auto text-xs">
+		<p class="text-muted-foreground ml-auto text-xs text-pretty">
 			Drag a card — on a touch screen, hold it first — or focus one and press Space, then arrow keys
 			or Tab.
 		</p>
@@ -123,5 +127,12 @@
 				/>
 			{/each}
 		</div>
+		<!-- Every issue has a column here, so only a deletion lacks a place; a card past its
+		     column's cap is never rendered and counts as off-screen. -->
+		<RemoteNotice
+			activity={store.remote}
+			listed={(id) => store.get(id) !== undefined}
+			find={(id) => document.querySelector<HTMLElement>(`[data-issue-id="${CSS.escape(id)}"]`)}
+		/>
 	{/if}
 </div>

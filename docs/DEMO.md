@@ -33,7 +33,8 @@ script uses `pnpm demo`. The two sentences are never both reachable in one run, 
 
 ## 2. Share it
 
-Click **Share** in the header to copy the link. Open that link in a second browser — a
+Click **Share** in the header to copy the link — or copy the address bar, which always carries
+the same `?ws=` link. Open that link in a second browser — a
 different browser entirely, or a private window, so it doesn't inherit the first one's
 `localStorage`. Presence propagates over the same already-open connection document sync
 does, so by the time the second window has loaded, both sides already show:

@@ -36,7 +36,7 @@ test('an issue created in one browser appears in the other', async ({ browser })
 	await expect(alice.getByText('No issues yet')).toBeVisible();
 	await expect(bob.getByText('No issues yet')).toBeVisible();
 
-	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	const input = alice.getByPlaceholder('Add an issue…');
 	await input.fill('Written by Alice');
 	await input.press('Enter');
 
@@ -45,7 +45,7 @@ test('an issue created in one browser appears in the other', async ({ browser })
 	});
 
 	// And the other direction, on the same pair.
-	const bobInput = bob.getByPlaceholder('Add an issue and press Enter…');
+	const bobInput = bob.getByPlaceholder('Add an issue…');
 	await bobInput.fill('Written by Bob');
 	await bobInput.press('Enter');
 	await expect(alice.getByRole('link', { name: 'Written by Bob' })).toBeVisible({
@@ -69,7 +69,7 @@ test('a round trip completes well inside a second', async ({ browser }, testInfo
 	const samples: number[] = [];
 	for (let i = 0; i < 5; i += 1) {
 		const title = `Round trip ${i}`;
-		const input = alice.getByPlaceholder('Add an issue and press Enter…');
+		const input = alice.getByPlaceholder('Add an issue…');
 		await input.fill(title);
 		const started = Date.now();
 		await input.press('Enter');
@@ -110,7 +110,7 @@ test('edits made while cut off from the relay converge once it is reachable', as
 	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'false');
 
 	// Local-first: the write lands immediately even with nowhere to send it.
-	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	const input = alice.getByPlaceholder('Add an issue…');
 	await input.fill('Written while cut off');
 	await input.press('Enter');
 	await expect(alice.getByRole('link', { name: 'Written while cut off' })).toBeVisible();
@@ -172,10 +172,10 @@ test('a socket cut mid-session recovers on its own, and both sides converge with
 	});
 
 	// Both sides write while apart — this is the case the AC actually names, not just one.
-	const aliceInput = alice.getByPlaceholder('Add an issue and press Enter…');
+	const aliceInput = alice.getByPlaceholder('Add an issue…');
 	await aliceInput.fill("Written while Alice couldn't reach anyone");
 	await aliceInput.press('Enter');
-	const bobInput = bob.getByPlaceholder('Add an issue and press Enter…');
+	const bobInput = bob.getByPlaceholder('Add an issue…');
 	await bobInput.fill("Written while Bob couldn't reach Alice");
 	await bobInput.press('Enter');
 	await expect(
@@ -231,7 +231,7 @@ test('editing the same field on both sides while apart converges to one value, n
 	});
 
 	// One issue, agreed on before the split, so both sides are editing the very same key.
-	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	const input = alice.getByPlaceholder('Add an issue…');
 	await input.fill('Original title');
 	await input.press('Enter');
 	const link = bob.getByRole('link', { name: 'Original title' });
@@ -296,7 +296,7 @@ test('the browser reporting itself offline updates the status at once, and recov
 	await expect(status).toHaveAttribute('data-connection', 'offline', { timeout: 800 });
 
 	// Local-first regardless: the edit lands even while the badge says offline.
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Written the instant offline was reported');
 	await input.press('Enter');
 	await expect(
@@ -334,7 +334,7 @@ test('two tabs of the same browser converge over BroadcastChannel even with the 
 	await tabTwo.goto('/issues');
 	await expect(tabTwo.getByText('No issues yet')).toBeVisible();
 
-	const input = tabOne.getByPlaceholder('Add an issue and press Enter…');
+	const input = tabOne.getByPlaceholder('Add an issue…');
 	await input.fill('Seen in the other tab with no relay in reach');
 	await input.press('Enter');
 
@@ -351,7 +351,7 @@ test('the relay keeps a workspace after every client has gone', async ({ browser
 	// itself cannot be forced under `wrangler dev`, so this asserts the recoverable part.
 	const workspaceId = room();
 	const alice = await openPeer(browser, workspaceId);
-	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	const input = alice.getByPlaceholder('Add an issue…');
 	await input.fill('Survives every client leaving');
 	await input.press('Enter');
 	await expect(alice.getByRole('link', { name: 'Survives every client leaving' })).toBeVisible();
@@ -392,7 +392,7 @@ test('the share link is the whole demo: mint, invite, sync, and stay private', a
 	const shareUrl = await alice.getByTestId('share-workspace').getAttribute('data-share-url');
 	expect(shareUrl).toContain(`ws=${workspaceId}`);
 
-	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	const input = alice.getByPlaceholder('Add an issue…');
 	await input.fill('Ship the demo');
 	await input.press('Enter');
 	await expect(alice.getByRole('link', { name: 'Ship the demo' })).toBeVisible();
@@ -410,7 +410,7 @@ test('the share link is the whole demo: mint, invite, sync, and stay private', a
 	);
 	expect(bobWorkspace).toBe(workspaceId);
 
-	const bobInput = bob.getByPlaceholder('Add an issue and press Enter…');
+	const bobInput = bob.getByPlaceholder('Add an issue…');
 	await bobInput.fill('Reply from Bob');
 	await bobInput.press('Enter');
 	await expect(alice.getByRole('link', { name: 'Reply from Bob' })).toBeVisible({

@@ -10,7 +10,7 @@ async function seeded(page: Page, titles: string[]) {
 	await page.goto('/issues');
 	await expect(page.getByText('No issues yet')).toBeVisible();
 	for (const title of titles) {
-		const input = page.getByPlaceholder('Add an issue and press Enter…');
+		const input = page.getByPlaceholder('Add an issue…');
 		await input.fill(title);
 		await input.press('Enter');
 		await expect(page.getByRole('link', { name: title })).toBeVisible();
@@ -146,7 +146,7 @@ test('shortcuts stay out of the way while typing', async ({ page }) => {
 	await expect(page.getByText('No issues yet')).toBeVisible();
 
 	// Typing a title containing every shortcut letter must not trigger any of them.
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('cijkb?');
 	await expect(page).toHaveURL(onRoute('/issues'));
 	await expect(page.getByRole('dialog')).toHaveCount(0);

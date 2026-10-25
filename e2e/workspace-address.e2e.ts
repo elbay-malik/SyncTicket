@@ -47,7 +47,7 @@ test('the workspace stays in the address bar across /issues, /board and an issue
 }) => {
 	await page.goto('/issues');
 	await expect(page).toHaveURL(exactly('/issues', workspaceId));
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Follow me around');
 	await input.press('Enter');
 	await expect(page.getByRole('link', { name: 'Follow me around' })).toBeVisible();
@@ -78,7 +78,7 @@ test('a reload stays in the same workspace', async ({ page, workspaceId }) => {
 	// HTML holds the text, but its Add button is still the disabled one the server drew, so
 	// Enter submits nothing and the issue is never made.
 	await expect(page.getByText('No issues yet')).toBeVisible();
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Still here');
 	await input.press('Enter');
 	await expect(page.getByRole('link', { name: 'Still here' })).toBeVisible();
@@ -100,7 +100,7 @@ test('copying the address bar into another browser joins the same workspace', as
 	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
 		timeout: 30_000
 	});
-	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	const input = alice.getByPlaceholder('Add an issue…');
 	await input.fill('Seen on the phone');
 	await input.press('Enter');
 	await alice.getByRole('link', { name: 'Board', exact: true }).click();
@@ -123,7 +123,7 @@ test('a bad workspace link is replaced by the real one, says so once, and keeps 
 }) => {
 	await page.goto('/issues');
 	await expect(page.getByText('No issues yet')).toBeVisible();
-	const input = page.getByPlaceholder('Add an issue and press Enter…');
+	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Deep link target');
 	await input.press('Enter');
 	await page.getByRole('link', { name: 'Deep link target' }).click();

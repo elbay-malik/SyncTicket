@@ -279,7 +279,7 @@
 			/>
 			<Input
 				bind:value={draft}
-				placeholder="Add an issue and press Enter…"
+				placeholder="Add an issue…"
 				aria-label="New issue title"
 				class="pl-9"
 				onkeydown={(event) => {

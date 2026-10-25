@@ -18,7 +18,7 @@ colors:
   sidebar: 'oklch(0.985 0 0)'
   sidebar-accent: 'oklch(0.97 0 0)'
   sidebar-ring: 'oklch(0.45 0 0)'
-  destructive: 'oklch(0.577 0.245 27.325)'
+  destructive: 'oklch(0.52 0.245 27.325)'
   status-backlog: 'oklch(55.2% 0.016 285.938)'
   status-todo: 'oklch(54.6% 0.245 262.881)'
   status-in-progress: 'oklch(55.5% 0.163 48.998)'
@@ -199,9 +199,12 @@ shared value:
 - **Urgent Orange** (`oklch(55.3% 0.195 38.402)` / dark `orange-500`): the only priority with a
   colour of its own. `medium` and `high` escalate by weight and glyph instead, so urgency reads as
   a step change rather than a gradient.
-- **Destructive Red** (`oklch(0.577 0.245 27.325)` light / `oklch(0.704 0.191 22.216)` dark): used
+- **Destructive Red** (`oklch(0.52 0.245 27.325)` light / `oklch(0.704 0.191 22.216)` dark): used
   as text and as a 10% tint behind it, never as a solid fill. A solid red button would be the
   loudest object in an otherwise grey product, which overstates a delete in a demo workspace.
+  Darker than shadcn's stock 0.577 because the ratio that matters is against the tint, not the
+  page: 0.577 measured 3.97:1 there, 0.52 measures 4.68:1 (5.61:1 on white). Dark needed no
+  change at 4.64:1.
 
 ### Peer Identity
 
@@ -419,13 +422,26 @@ separate discs. The stack is decoration with a text equivalent beside it: a ring
 initials tells a screen reader nothing, so the readable sentence ("Ada, Bob and 2 others") carries
 the information.
 
+People, not tabs. This browser's other tabs share its identity, so they fold into the visitor's
+own disc as extra sessions and are said as "You also have it open in another tab", never named
+back to the visitor as company ("Ada is also here" of Ada's own second tab).
+
 ### Connection Status
 
 A cloud glyph that opens a 288px popover of two or three plain sentences — where the data lives,
 who else has it, and whether the relay can still save it. The third appears only when something
-is wrong. When the relay cannot save, the alert glyph **replaces** the connection icon even though
+is wrong. "Who else has it" counts other people, never this browser's own other tabs: "Shared
+with 1 other" of a second tab was a claim about someone who is not there. When the relay cannot save, the alert glyph **replaces** the connection icon even though
 the socket is healthy, because a cloud that says "connected and fine" while data is not surviving
 is an active lie.
+
+### Share
+
+A header button that copies the workspace link. When the clipboard refuses, the link itself
+appears in a popover with a selected read-only field to copy by hand. The popover is not a
+dialog and does not trap focus: one read-only field asks for no protected focus, so Tab leaves it
+and a click elsewhere keeps focus where the click put it. Focus returns to Share only when it
+would otherwise be lost (Escape, or a close that leaves it on the page body).
 
 ### Remote Change Trace
 
@@ -457,12 +473,14 @@ mark at all.
 
 ### Remote Notice
 
-When the changed row is not on screen (moved to another section, filtered out, deleted), one
-line at the foot of the viewport says it instead: the author's avatar and "Ada Lovelace moved
+When the changed row or card is not on screen (moved to another section or to a board column
+scrolled out of view, filtered out, past a column's cap, deleted), one line at the foot of the viewport says it instead: the author's avatar and "Ada Lovelace moved
 'Fix login' to Done". 12px, up to two lines (the destination is the end of the sentence, and one
 truncated line at phone width cut exactly that), floating-layer shadow and ring, 4s, no controls
-and `pointer-events-none`. Fixed to the viewport rather than the list, because at short heights
-the list's own foot is off-screen too. It never scrolls the list. It fades in at 150ms for news
+and `pointer-events-none`. Fixed to the viewport rather than the view, because at short heights
+the list's own foot is off-screen too. It never scrolls the list or the board. One component on
+both routes; "on screen" means at least half the element survives the viewport and every
+clipping ancestor, which is what covers a card inside its column's scroller inside the board's. It fades in at 150ms for news
 and only rewrites its sentence for a peer still typing on the same issue. It is shown only when
 the trace cannot be seen, judged once the row has had the frames it needs to render, so the two
 never say the same thing twice. `aria-hidden`, because the live region already said it.

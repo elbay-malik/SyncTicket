@@ -48,7 +48,7 @@ function fakeStore(overrides: {
 	} as unknown as IssueStore;
 }
 
-const noPeers = { peers: [] } as unknown as Presence;
+const noPeers = { peers: [], others: [] } as unknown as Presence;
 
 /** The trigger, which carries the composed aria-label and the icon. */
 function trigger() {

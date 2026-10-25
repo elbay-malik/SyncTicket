@@ -31,11 +31,18 @@
 		mounted = true;
 	});
 
-	const others = $derived(presence.peers.map((peer) => peer.name));
+	// People, not tabs: your own other tabs are you, and are said as such rather than named
+	// back to you as company.
+	const others = $derived(presence.others.map((peer) => peer.name));
+	const tabs = $derived(
+		presence.myOtherTabs === 0
+			? ''
+			: ` You also have it open in ${presence.myOtherTabs === 1 ? 'another tab' : `${presence.myOtherTabs} other tabs`}.`
+	);
 	const label = $derived(
 		others.length === 0
-			? `You are ${presence.me.name}. Nobody else is here. Change your display name.`
-			: `You are ${presence.me.name}. ${listNames(others)} ${
+			? `You are ${presence.me.name}.${tabs} Nobody else is here. Change your display name.`
+			: `You are ${presence.me.name}.${tabs} ${listNames(others)} ${
 					others.length === 1 ? 'is' : 'are'
 				} also here. Change your display name.`
 	);

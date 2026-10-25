@@ -219,6 +219,20 @@ describe('Presence', () => {
 		expect(twin.presence.everyone[0]?.sessions).toBe(2);
 	});
 
+	it('counts other people, not my own other tabs', () => {
+		// What the header label and "Shared with N" read: a second tab of mine is not company.
+		const alice = makeNode('Ada Lovelace');
+		makeNode('Ada Lovelace', alice.identity);
+		connect();
+		expect(alice.presence.others).toEqual([]);
+		expect(alice.presence.myOtherTabs).toBe(1);
+
+		makeNode('Grace Hopper');
+		connect();
+		expect(alice.presence.others.map((p) => p.name)).toEqual(['Grace Hopper']);
+		expect(alice.presence.myOtherTabs).toBe(1);
+	});
+
 	it('indexes who is viewing which issue', () => {
 		const alice = makeNode('Ada Lovelace');
 		const bob = makeNode('Grace Hopper');

@@ -50,7 +50,7 @@ test('a peer’s status change is traced in their hue and announced in the other
 		timeout: 10_000
 	});
 
-	const input = ada.getByPlaceholder('Add an issue and press Enter…');
+	const input = ada.getByPlaceholder('Add an issue…');
 	await input.fill('Fix login redirect');
 	await input.press('Enter');
 	await expect(grace.getByRole('link', { name: 'Fix login redirect' })).toBeVisible({
@@ -97,7 +97,7 @@ test('opening a share link to an existing workspace marks nothing', async ({ bro
 	const workspaceId = room();
 	const ada = await openPeer(browser, workspaceId, ADA);
 	for (const title of ['First', 'Second', 'Third']) {
-		const input = ada.getByPlaceholder('Add an issue and press Enter…');
+		const input = ada.getByPlaceholder('Add an issue…');
 		await input.fill(title);
 		await input.press('Enter');
 	}
@@ -108,6 +108,49 @@ test('opening a share link to an existing workspace marks nothing', async ({ bro
 	await expect(grace.locator('[data-remote-trace]')).toHaveCount(0);
 	await expect(grace.getByTestId('remote-notice')).toHaveCount(0);
 	await expect(grace.getByTestId('remote-announcer')).toHaveText('');
+
+	await Promise.all([ada.context().close(), grace.context().close()]);
+});
+
+test('on the board, a change that lands in a column scrolled out of view is noticed', async ({
+	browser
+}) => {
+	const workspaceId = room();
+	const [ada, grace] = await Promise.all([
+		openPeer(browser, workspaceId, ADA),
+		openPeer(browser, workspaceId, GRACE)
+	]);
+	await expect(grace.getByTestId('presence-bar')).toHaveAttribute('data-peer-count', '2', {
+		timeout: 10_000
+	});
+	// At 1280 with the sidebar docked the board shows four columns and a sliver; Canceled,
+	// the fifth, starts past the right edge of its scroller.
+	await grace.setViewportSize({ width: 1280, height: 800 });
+	await grace.getByRole('link', { name: 'Board', exact: true }).click();
+	await expect(grace.getByTestId('board-columns')).toBeVisible();
+
+	const input = ada.getByPlaceholder('Add an issue…');
+	await input.fill('Fix login redirect');
+	await input.press('Enter');
+	// Landing in Backlog, in plain view: the card's own trace says it, so the notice does not.
+	await expect(
+		grace.getByTestId('board-columns').locator('[data-issue-id]', { hasText: 'Fix login redirect' })
+	).toBeInViewport({ timeout: 10_000 });
+	await expect(grace.getByTestId('remote-announcer')).toHaveText(
+		'Ada Lovelace added “Fix login redirect”',
+		{ timeout: 5_000 }
+	);
+	await expect(grace.getByTestId('remote-notice')).toHaveCount(0);
+
+	const adaRow = ada.getByRole('listitem').filter({ hasText: 'Fix login redirect' });
+	await adaRow.getByRole('button', { name: 'Status: Backlog' }).click();
+	await ada.getByRole('menuitemradio', { name: 'Canceled' }).click();
+
+	// The sentence, not the whole notice, which also carries the author's initials.
+	await expect(grace.getByTestId('remote-notice').locator('[data-remote-notice-text]')).toHaveText(
+		'Ada Lovelace moved “Fix login redirect” to Canceled',
+		{ timeout: 5_000 }
+	);
 
 	await Promise.all([ada.context().close(), grace.context().close()]);
 });

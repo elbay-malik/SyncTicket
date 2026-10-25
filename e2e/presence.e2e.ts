@@ -84,7 +84,7 @@ test('opening an issue shows you on it to everyone else', async ({ browser }) =>
 		openPeer(browser, workspaceId, GRACE)
 	]);
 
-	const input = ada.page.getByPlaceholder('Add an issue and press Enter…');
+	const input = ada.page.getByPlaceholder('Add an issue…');
 	await input.fill('Who is looking at this');
 	await input.press('Enter');
 	const link = grace.page.getByRole('link', { name: 'Who is looking at this' });

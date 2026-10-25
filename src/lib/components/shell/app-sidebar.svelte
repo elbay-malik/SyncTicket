@@ -3,6 +3,7 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import SquareKanbanIcon from '@lucide/svelte/icons/square-kanban';
 	import { tick } from 'svelte';
+	import { afterNavigate } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
@@ -32,6 +33,14 @@
 		}
 		issueUi.paletteOpen = true;
 	}
+
+	// On a phone the sidebar is a Sheet over the page, and a link inside it navigated underneath
+	// while the sheet stayed open — tapping Board appeared to do nothing. Closed on navigation
+	// rather than on the links' clicks, so every way of getting somewhere (the palette, `g b`,
+	// Back) leaves the page visible, not just the two links in here.
+	afterNavigate(() => {
+		if (sidebar.isMobile) sidebar.setOpenMobile(false);
+	});
 
 	// The same sheet `?` opens, by the same route out of the mobile sidebar as the palette:
 	// close the sidebar's own sheet first, so its focus restore does not land inside this one.

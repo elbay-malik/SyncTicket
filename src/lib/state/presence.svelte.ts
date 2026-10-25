@@ -195,10 +195,22 @@ export class Presence {
 		// into me as extra sessions instead: one person, several tabs, exactly as for anyone
 		// else. `peers` keeps them, because another window of this workspace is still the
 		// second view the invitation asked for.
-		const mine = this.peers.find((peer) => peer.userId === this.me.userId);
-		const others = this.peers.filter((peer) => peer.userId !== this.me.userId);
-		const sessions = 1 + (mine?.sessions ?? 0);
-		return [{ ...this.me, activeIssueId: this.#activeIssueId, sessions }, ...others];
+		const sessions = 1 + this.myOtherTabs;
+		return [{ ...this.me, activeIssueId: this.#activeIssueId, sessions }, ...this.others];
+	}
+
+	/**
+	 * Other *people*: `peers` without this browser's own other tabs. What anything that counts
+	 * or names company reads — "Ada is also here" and "Shared with 1 other" said of your own
+	 * second tab was a claim about a person who is not there.
+	 */
+	get others(): Peer[] {
+		return this.peers.filter((peer) => peer.userId !== this.me.userId);
+	}
+
+	/** How many other tabs of this browser have the workspace open. */
+	get myOtherTabs(): number {
+		return this.peers.find((peer) => peer.userId === this.me.userId)?.sessions ?? 0;
 	}
 
 	/** The other people currently looking at `issueId`. */

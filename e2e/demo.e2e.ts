@@ -70,7 +70,7 @@ test('the demo script: share, converge, edit the same field, go offline, come ba
 		.poll(async () => (await readStatus(bob)).shared, { timeout: 10_000 })
 		.toBe('Shared with 1 other');
 
-	const input = alice.getByPlaceholder('Add an issue and press Enter…');
+	const input = alice.getByPlaceholder('Add an issue…');
 	await input.fill('Seen by both');
 	await input.press('Enter');
 	await expect(bob.getByRole('link', { name: 'Seen by both' })).toBeVisible({ timeout: 10_000 });
@@ -120,7 +120,7 @@ test('the demo script: share, converge, edit the same field, go offline, come ba
 	const step4 = await readStatus(alice);
 	expect(step4.shared).toBe("Not shared — you're offline");
 
-	const offlineInput = alice.getByPlaceholder('Add an issue and press Enter…');
+	const offlineInput = alice.getByPlaceholder('Add an issue…');
 	await offlineInput.fill('Written offline');
 	await offlineInput.press('Enter');
 	await expect(alice.getByRole('link', { name: 'Written offline' })).toBeVisible();

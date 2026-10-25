@@ -123,9 +123,9 @@
 			"destructive": {
 				"role": "tertiary",
 				"displayName": "Destructive Red",
-				"canonical": "oklch(0.577 0.245 27.325)",
+				"canonical": "oklch(0.52 0.245 27.325)",
 				"dark": "oklch(0.704 0.191 22.216)",
-				"note": "Used as text over a 10% tint, never as a solid fill. Solid measures 4.76:1 light, 6.19:1 dark.",
+				"note": "Used as text over a 10% tint, never as a solid fill. Darkened from stock 0.577, which measured 3.97:1 on its own tint; 0.52 measures 4.68:1 there and 5.61:1 on white. Dark measures 4.64:1 on its tint.",
 				"tonalRamp": [
 					"oklch(0.20 0.245 27.325)",
 					"oklch(0.31 0.245 27.325)",
