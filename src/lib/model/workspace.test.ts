@@ -4,6 +4,7 @@ import {
 	chooseWorkspace,
 	createWorkspaceId,
 	isWorkspaceId,
+	workspaceAddress,
 	workspaceDbName,
 	workspaceShareUrl
 } from './workspace.js';
@@ -93,6 +94,68 @@ describe('chooseWorkspace', () => {
 		expect(chooseWorkspace('', null).invalidParam).toBeNull();
 		expect(chooseWorkspace('?other=1', REMEMBERED).invalidParam).toBeNull();
 		expect(chooseWorkspace(`?ws=${REMEMBERED}`, null).invalidParam).toBeNull();
+	});
+});
+
+describe('workspaceAddress', () => {
+	const at = (href: string) => workspaceAddress(new URL(href, 'https://example.test'), REMEMBERED);
+	/** The href a `replace` asks for, so a wrong kind fails as loudly as a wrong URL. */
+	const replacedWith = (href: string) => {
+		const address = at(href);
+		expect(address.kind).toBe('replace');
+		return address.kind === 'replace' ? address.url.href : null;
+	};
+
+	it('leaves an address that already names this workspace alone', () => {
+		// The steady state, and the only one that must not navigate: every other answer costs a
+		// history rewrite, and answering `replace` here would loop on every navigation.
+		expect(at(`/issues?ws=${REMEMBERED}`)).toEqual({ kind: 'keep' });
+		expect(at(`/board?ws=${REMEMBERED}#main-content`)).toEqual({ kind: 'keep' });
+	});
+
+	it('puts the workspace back on a bare path, which is where every internal link lands', () => {
+		// The regression: an evaluator copying this address bar to a phone got a fresh, empty
+		// workspace, because the id lived only in this browser's storage.
+		expect(replacedWith('/issues')).toBe(`https://example.test/issues?ws=${REMEMBERED}`);
+		expect(replacedWith('/board')).toBe(`https://example.test/board?ws=${REMEMBERED}`);
+	});
+
+	it('keeps the path, other parameters and the hash, so an open sheet stays open', () => {
+		const issue = '/issues/0b7f3c1e-8d2a-4f6b-9c3e-5a1d2e3f4a5b';
+		expect(replacedWith(`${issue}?view=compact#main-content`)).toBe(
+			`https://example.test${issue}?view=compact&ws=${REMEMBERED}#main-content`
+		);
+	});
+
+	it('replaces an unusable id with the real one rather than leaving it to be copied on', () => {
+		expect(replacedWith('/issues?ws=not%20a%20valid%20id!')).toBe(
+			`https://example.test/issues?ws=${REMEMBERED}`
+		);
+		expect(replacedWith('/issues?ws=')).toBe(`https://example.test/issues?ws=${REMEMBERED}`);
+		// The sentinel is unusable by design, so it is corrected like any other bad id.
+		expect(replacedWith(`/issues?ws=${DEFAULT_WORKSPACE_ID}`)).toBe(
+			`https://example.test/issues?ws=${REMEMBERED}`
+		);
+	});
+
+	it('collapses a repeated parameter to one, even when the first copy is right', () => {
+		expect(replacedWith(`/issues?ws=${REMEMBERED}&ws=w${'f'.repeat(32)}`)).toBe(
+			`https://example.test/issues?ws=${REMEMBERED}`
+		);
+	});
+
+	it('reloads rather than overwrite a different usable workspace someone was sent to', () => {
+		const other = createWorkspaceId();
+		expect(at(`/issues?ws=${other}`)).toEqual({ kind: 'reload' });
+		// And the reload lands there: the URL's id beats the remembered one.
+		expect(chooseWorkspace(`?ws=${other}`, REMEMBERED).id).toBe(other);
+	});
+
+	it('produces an address that resolves back to the same workspace on any device', () => {
+		const address = at('/board');
+		expect(address.kind === 'replace' && chooseWorkspace(address.url.search, null).id).toBe(
+			REMEMBERED
+		);
 	});
 });
 

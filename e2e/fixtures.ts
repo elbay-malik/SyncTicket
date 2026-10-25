@@ -40,5 +40,16 @@ export const test = base.extend<WorkspaceFixtures>({
 	}
 });
 
+/**
+ * Matches the address bar at `path` (a RegExp source, anchored at the end) as the app always
+ * leaves it: carrying the workspace's `?ws=`. The address bar is the workspace link — the root
+ * layout writes the id back after every navigation — so a bare `/issues` is now the bug, not
+ * the expectation. `toHaveURL` retries, which also covers the moment between a client-side
+ * navigation landing and the parameter being put back.
+ */
+export function onRoute(path: string): RegExp {
+	return new RegExp(`${path}\\?ws=[A-Za-z0-9_-]+$`);
+}
+
 export { expect };
 export type { Browser, Page } from '@playwright/test';

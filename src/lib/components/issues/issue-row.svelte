@@ -6,6 +6,8 @@
 	import { listNames } from '$lib/format.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import PeerAvatars from '$lib/components/presence/peer-avatars.svelte';
+	import RemoteTrace from '$lib/components/presence/remote-trace.svelte';
+	import RemoteTraceAuthor from '$lib/components/presence/remote-trace-author.svelte';
 	import PriorityPicker from './priority-picker.svelte';
 	import StatusPicker from './status-picker.svelte';
 
@@ -36,6 +38,18 @@
 			? ''
 			: `${listNames(viewers.map((peer) => peer.name))} ${viewers.length === 1 ? 'is' : 'are'} viewing`
 	);
+
+	// Read here rather than passed down: it is a map lookup on the store the row already has,
+	// and every row reading its own entry keeps the list from re-rendering all of them when
+	// one changes.
+	const remote = $derived(store.remote.get(issue.id));
+	// The author's disc, unless they are already in the viewer stack beside it — someone typing
+	// into this issue's sheet is shown there, and two of the same face in one row is noise.
+	const traceAuthor = $derived(
+		remote?.author && !viewers.some((peer) => peer.userId === remote.author?.userId)
+			? remote
+			: undefined
+	);
 </script>
 
 <!--
@@ -48,10 +62,15 @@
 -->
 <div
 	data-issue-row={issue.id}
-	class="group hover:bg-muted/50 flex items-center gap-2 px-2 py-1.5 transition-colors"
+	class="group hover:bg-muted/50 relative isolate flex items-center gap-2 px-2 py-1.5 transition-colors"
 	class:bg-muted={selected}
 	class:row-flash={flash}
 >
+	<!-- `relative isolate` on the row is what puts this under the row's controls and over its
+	     own fill — a trace that tinted the focus ring would weaken the one indicator whose
+	     contrast was measured. -->
+	<RemoteTrace change={remote} />
+
 	<!-- The pickers are siblings of the link, not descendants, so their clicks never reach
 	     it — no propagation guard is needed (and adding onclick after the trigger's spread
 	     props would clobber bits-ui's own handler).
@@ -82,6 +101,8 @@
 		{issue.title}
 		{#if viewerSentence}<span class="sr-only">, {viewerSentence}</span>{/if}
 	</a>
+
+	<RemoteTraceAuthor change={traceAuthor} />
 
 	<!-- Decoration only; the sentence above is what carries this to a screen reader. -->
 	<PeerAvatars peers={viewers} max={2} size="sm" summary="" testId="row-viewers" />

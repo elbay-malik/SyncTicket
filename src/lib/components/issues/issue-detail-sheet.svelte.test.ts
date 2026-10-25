@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { IssueStore } from '$lib/state/issues.svelte.js';
 import IssueDetailSheet from './issue-detail-sheet.svelte';
+import { IDLE_COMMIT_MS } from './issue-editor.svelte';
 
 const stores: IssueStore[] = [];
 
@@ -152,5 +153,105 @@ describe('issue-detail-sheet.svelte', () => {
 		// The dialog names itself for assistive tech in this state, not just in the body.
 		await expect.element(page.getByRole('dialog', { name: 'Issue not found' })).toBeVisible();
 		await expect.element(page.getByRole('button', { name: 'Back to issues' })).toBeVisible();
+	});
+});
+
+// Title and description commit while you type, so a peer sees the words arrive. Each test
+// waits past `IDLE_COMMIT_MS` for real, because the property is the timing.
+describe('issue-editor.svelte idle commits', () => {
+	const idle = () => new Promise((resolve) => setTimeout(resolve, IDLE_COMMIT_MS + 150));
+
+	it('commits the title after a pause in typing, without leaving the field', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		const { title } = await open(store, id);
+
+		await title.fill('Typed live');
+		// Not on the keystroke itself: a peer would otherwise get a write per character.
+		expect(store.get(id)?.title).toBe('Original');
+		await idle();
+		expect(store.get(id)?.title).toBe('Typed live');
+		expect(document.activeElement).toBe(title.element());
+	});
+
+	it('commits the description after a pause in typing too', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Has a body' });
+		await open(store, id);
+		const description = page.getByRole('dialog').getByLabelText('Description');
+
+		await description.fill('Line one');
+		await idle();
+		expect(store.get(id)?.description).toBe('Line one');
+	});
+
+	it('keeps the field as typed while the trimmed value is committed under it', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		const { title } = await open(store, id);
+
+		// Paused mid-sentence: the stored title is trimmed, the space being typed is not lost.
+		await title.fill('Two words ');
+		await idle();
+		expect(store.get(id)?.title).toBe('Two words');
+		expect((title.element() as HTMLInputElement).value).toBe('Two words ');
+	});
+
+	it('makes one burst of typing one undo step, however many pauses it had', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		const { title } = await open(store, id);
+
+		await title.fill('One');
+		await idle();
+		await title.fill('One two');
+		await idle();
+		await title.fill('One two three');
+		await userEvent.keyboard('{Tab}');
+		expect(store.get(id)?.title).toBe('One two three');
+
+		store.undo();
+		expect(store.get(id)?.title).toBe('Original');
+	});
+
+	it('snaps an emptied title back to where the run began, not to a fragment it stored', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		const { title } = await open(store, id);
+
+		// The pause stores "Fi" (and sends it to peers); clearing the field afterwards must not
+		// leave that fragment behind as the issue's title.
+		await title.fill('Fi');
+		await idle();
+		expect(store.get(id)?.title).toBe('Fi');
+		await title.fill('');
+		await userEvent.keyboard('{Tab}');
+		expect(store.get(id)?.title).toBe('Original');
+		await expect.element(title).toHaveValue('Original');
+	});
+
+	it('reverts on Escape to the value the field had when typing began, even once committed', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Keep me' });
+		const { title, onOpenChange } = await open(store, id);
+
+		await title.fill('Seen by');
+		await idle();
+		await title.fill('Seen by peers');
+		await idle();
+		// Already in the document, so already on a peer's screen: Escape has to write it back.
+		expect(store.get(id)?.title).toBe('Seen by peers');
+
+		await userEvent.keyboard('{Escape}');
+		expect(store.get(id)?.title).toBe('Keep me');
+		await expect.element(title).toHaveValue('Keep me');
+		expect(onOpenChange).not.toHaveBeenCalled();
+
+		// The revert is an undo of the run, so what Escape threw away can be had back.
+		store.redo();
+		expect(store.get(id)?.title).toBe('Seen by peers');
+
+		await userEvent.keyboard('{Escape}');
+		expect(onOpenChange).toHaveBeenCalledWith(false);
 	});
 });

@@ -15,6 +15,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
 	import PeerAvatars from './peer-avatars.svelte';
+	import RemoteAnnouncer from './remote-announcer.svelte';
 
 	let { presence }: { presence: Presence } = $props();
 
@@ -50,6 +51,10 @@
 		open = false;
 	}
 </script>
+
+<!-- Outside the `mounted` gate: the region has to exist, empty, before its first message.
+     The header is on every route, so peers' changes are announced wherever this user is. -->
+{#if presence.activity}<RemoteAnnouncer activity={presence.activity} />{/if}
 
 {#if mounted}
 	<button

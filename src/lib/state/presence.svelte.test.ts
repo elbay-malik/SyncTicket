@@ -198,6 +198,27 @@ describe('Presence', () => {
 		expect(seen[0]?.activeIssueId).toBe('issue-2');
 	});
 
+	it("lists this browser's own other tab as more of me, never as a second me", () => {
+		// The regression: a same-browser second window put this user's id into `everyone`
+		// twice, the keyed avatar list threw each_key_duplicate, and the first tab stopped
+		// updating altogether.
+		const alice = makeNode('Ada Lovelace');
+		const twin = makeNode('Ada Lovelace', alice.identity);
+		makeNode('Grace Hopper');
+		connect();
+
+		const everyone = alice.presence.everyone;
+		const ids = everyone.map((p) => p.userId);
+		expect(new Set(ids).size).toBe(ids.length);
+		expect(everyone.map((p) => [p.name, p.sessions])).toEqual([
+			['Ada Lovelace', 2],
+			['Grace Hopper', 1]
+		]);
+		// Still another window of the workspace, which is what the invitation waits for.
+		expect(alice.presence.peers.map((p) => p.userId)).toContain(alice.identity.userId);
+		expect(twin.presence.everyone[0]?.sessions).toBe(2);
+	});
+
 	it('indexes who is viewing which issue', () => {
 		const alice = makeNode('Ada Lovelace');
 		const bob = makeNode('Grace Hopper');

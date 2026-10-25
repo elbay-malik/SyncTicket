@@ -21,13 +21,49 @@ import { describe, expect, it } from 'vitest';
 
 const UI = 'src/lib/components/ui';
 
-/** Every .svelte file under the owned shadcn directory. */
+/** Every .svelte file under `dir`, recursively — by default the owned shadcn directory. */
 function primitives(dir = UI): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
 		const path = join(dir, entry.name);
 		if (entry.isDirectory()) return primitives(path);
 		return entry.isFile() && entry.name.endsWith('.svelte') ? [path] : [];
 	});
+}
+
+/** App components and routes: everything that is not a primitive. */
+function appFiles(): string[] {
+	return [...primitives('src/lib/components'), ...primitives('src/routes')].filter(
+		(path) => !path.startsWith(UI + '/')
+	);
+}
+
+/**
+ * Opening tags of the elements that are focusable and styled in place: a raw `<button>`, or a
+ * bits-ui `<X.Trigger>` carrying its own `class`. A Trigger that delegates through `child` to
+ * Button inherits Button's ring and has no `class` of its own, so it is not collected.
+ *
+ * Walked rather than regex-matched, because an attribute like `onclick={() => x}` holds a `>`
+ * that would end a naive `[^>]*` early and hide the class that follows it.
+ */
+function styledFocusables(source: string): string[] {
+	const tags: string[] = [];
+	for (const match of source.matchAll(/<(?:button|[A-Z]\w*\.Trigger)\b/g)) {
+		let depth = 0;
+		let quote = '';
+		let end = match.index;
+		for (; end < source.length; end++) {
+			const char = source[end];
+			if (quote) {
+				if (char === quote) quote = '';
+			} else if (char === '"' || char === "'") quote = char;
+			else if (char === '{') depth++;
+			else if (char === '}') depth--;
+			else if (char === '>' && depth === 0) break;
+		}
+		const tag = source.slice(match.index, end + 1);
+		if (/\sclass=/.test(tag)) tags.push(tag);
+	}
+	return tags;
 }
 
 /** Source with `//` comment lines removed, so the button's own prose cannot match. */
@@ -59,6 +95,29 @@ describe('focus rings', () => {
 		const offenders = primitives().filter((path) =>
 			/focus-visible\]?:ring-(?:3|\[3px\])\b/.test(code(path))
 		);
+		expect(offenders).toEqual([]);
+	});
+
+	it('rings every hand-styled button and trigger outside the primitives too', () => {
+		// The scans above only see `ui/`. The relay-status trigger is a bits-ui Popover.Trigger
+		// styled in place in the header — not through Button — and it shipped on the browser's
+		// default 1px auto outline, the one control in the app without the 2px ring. Anything
+		// that opts out of Button's classes has to restate the ring, so this collects exactly
+		// those elements and checks each one draws it.
+		const tags = appFiles().flatMap((path) =>
+			styledFocusables(code(path)).map((tag) => ({ path, tag }))
+		);
+		// Non-vacuity: the trigger this was written for must be among what the scan collects.
+		expect(tags.some(({ path }) => path.endsWith('shell/relay-status.svelte'))).toBe(true);
+
+		const offenders = tags
+			.filter(
+				({ tag }) =>
+					!/focus-visible:ring-2\b/.test(tag) ||
+					!/focus-visible:ring-ring\b/.test(tag) ||
+					!/\boutline-none\b/.test(tag)
+			)
+			.map(({ path }) => path);
 		expect(offenders).toEqual([]);
 	});
 });

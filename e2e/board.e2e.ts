@@ -7,7 +7,7 @@
 // it doubles as the accessibility proof — the assertions on the live region below are the
 // same text a screen-reader user hears.
 
-import { expect, test, type Page } from './fixtures.js';
+import { expect, onRoute, test, type Page } from './fixtures.js';
 
 function committedUpdates(page: Page, DB_NAME: string): Promise<number> {
 	return page.evaluate(
@@ -83,7 +83,7 @@ async function seed(page: Page, titles: string[]) {
 		await expect(page.getByRole('link', { name: title })).toBeVisible();
 	}
 	await page.getByRole('link', { name: 'Board' }).click();
-	await expect(page).toHaveURL(/\/board$/);
+	await expect(page).toHaveURL(onRoute('/board'));
 	await expect(page.getByRole('list', { name: 'Backlog' })).toBeVisible();
 }
 
@@ -172,6 +172,44 @@ test('a card can be moved with the network off and still persists', async ({
 test('a board card opens the detail sheet', async ({ page }) => {
 	await seed(page, ['Openable']);
 	await column(page, 'Backlog').getByRole('listitem').first().click();
-	await expect(page).toHaveURL(/\/issues\/[0-9a-f-]{36}$/);
+	await expect(page).toHaveURL(onRoute('/issues/[0-9a-f-]{36}'));
 	await expect(page.getByRole('dialog').getByLabel('Title')).toHaveValue('Openable');
 });
+
+// The board is the one route wider than any viewport: five fixed 288px columns. They are meant
+// to scroll as a set inside <main>, never the page. The inset beside the docked sidebar could
+// not shrink below a full viewport (sidebar-inset.svelte's min-w-0 says why), so at 1280 the
+// document was 1536 wide and the shared header's Share, Undo and theme toggle sat off-screen —
+// one click from /issues, on the most common laptop width. Only the docked case reproduces
+// it; 390px, where the sidebar is a sheet, is here because evaluators arrive on phones and a
+// fix to the shell must not cost them the board's own scroller.
+for (const width of [1280, 390]) {
+	test(`the seeded board scrolls its columns, not the page, at ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 900 });
+		await page.goto('/issues');
+		await expect(page.getByTestId('presence-bar')).toBeVisible();
+		await page.getByRole('button', { name: 'Load example issues' }).click();
+		await expect(page.getByText('No issues yet')).toBeHidden();
+
+		// Client-side, for the same reason as `seed` above. Below md the sidebar is a sheet.
+		if (width < 768) await page.getByRole('button', { name: 'Toggle Sidebar' }).click();
+		await page.getByRole('link', { name: 'Board', exact: true }).click();
+		await expect(page).toHaveURL(onRoute('/board'));
+		await expect(column(page, 'Backlog').getByRole('listitem').first()).toBeVisible();
+
+		const measured = await page.evaluate(() => {
+			const strip = document.querySelector<HTMLElement>('[data-testid="board-columns"]')!;
+			return {
+				document: document.documentElement.scrollWidth,
+				viewport: document.documentElement.clientWidth,
+				stripOverflows: strip.scrollWidth > strip.clientWidth
+			};
+		});
+		expect(measured.document).toBe(measured.viewport);
+		// Not vacuous: the columns still overflow — they just do it in their own scroller.
+		expect(measured.stripOverflows).toBe(true);
+		// The header control that carries the product's whole claim (share the link, watch it
+		// sync) is the first thing a too-wide page pushes off the right edge.
+		await expect(page.getByTestId('share-workspace')).toBeInViewport({ ratio: 1 });
+	});
+}

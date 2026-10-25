@@ -29,11 +29,14 @@
 	// tabbable in their own right, so Tab walked each rendered row three times over and the
 	// first Tab into the list landed on row 1's status button rather than at the cursor.
 
+	import { tick } from 'svelte';
 	import { Virtualizer } from 'virtua/svelte';
 	import { STATUS_META, type Issue } from '$lib/model/issue.js';
 	import { sectionByStatus, type ListEntry } from '$lib/model/query.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
 	import { getPresence } from '$lib/state/presence.svelte.js';
+	import { describeChange, type RemoteChange } from '$lib/state/remote-change.js';
+	import PeerAvatars from '$lib/components/presence/peer-avatars.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import IssueRow from './issue-row.svelte';
 	import { STATUS_UI } from './meta.js';
@@ -78,6 +81,93 @@
 	let flashId = $state<string | null>(null);
 	/** An id waiting to be scrolled to, held until the row actually exists. */
 	let pendingReveal = $state<string | null>(null);
+
+	/**
+	 * A peer's change the viewer cannot see, said in one line at the foot of the screen.
+	 *
+	 * The trace marks a remote change where it lands, but a status change moves the row to
+	 * another section — usually out of view in a long list — and a filtered list drops it
+	 * altogether. Scrolling the viewer there would take their place away from them for an
+	 * edit they did not make, and marking the destination section's heading fails the same
+	 * way the trace does whenever the heading is off-screen too. A line pinned to the
+	 * viewport is the one cue that is always where the viewer is looking, so it is the only
+	 * one: shown just for changes whose row is *not* on screen, so the two never say the same
+	 * thing twice. Visual only — the presence bar's live region already says it to a screen
+	 * reader, and a second voice here would read every off-screen change twice.
+	 */
+	let notice = $state<RemoteChange | null>(null);
+	/**
+	 * What the notice is keyed on, so it replays its fade-in for news and only for news. A
+	 * peer typing into an off-screen issue commits every 400ms of idle, and keying on each
+	 * change's arrival remounted the line at the rhythm of their typing — the blink
+	 * `TRACE_HOLD_FROM_MS` exists to stop on the row. A change that continues the issue
+	 * already on show, by the same person, updates the sentence in place instead.
+	 */
+	let noticeRun = $state(0);
+	let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+	/** Long enough to read a sentence that appeared while looking elsewhere; then it goes. */
+	const NOTICE_MS = 4000;
+	/**
+	 * How many frames to wait for virtua to render a row that is in the list but not yet in
+	 * the DOM. One frame is not always enough: back-to-back arrivals each change `entries`,
+	 * and virtua places a new row only once it has re-rendered for the new data — a row
+	 * looked for before then was counted as off-screen while it sat in plain view. A row
+	 * still missing after this many frames is outside virtua's rendered window, which is
+	 * the one case where its absence does mean "not on screen".
+	 */
+	const PLACEMENT_FRAMES = 6;
+
+	function rowOf(id: string): HTMLElement | null {
+		return scroller?.querySelector<HTMLElement>(`[data-issue-row="${CSS.escape(id)}"]`) ?? null;
+	}
+
+	/** Whether at least half of a row is inside both the list's box and the viewport. */
+	function onScreen(row: HTMLElement): boolean {
+		if (!scroller) return false;
+		const rect = row.getBoundingClientRect();
+		const box = scroller.getBoundingClientRect();
+		// Both bounds, because either can be the scroller: the list scrolls itself at desktop
+		// heights and leaves it to <main> at short ones (see the comment on `reveal`).
+		const top = Math.max(rect.top, box.top, 0);
+		const bottom = Math.min(rect.bottom, box.bottom, window.innerHeight);
+		return bottom - top >= rect.height / 2;
+	}
+
+	function show(change: RemoteChange) {
+		const continues =
+			notice !== null &&
+			notice.issueId === change.issueId &&
+			notice.author?.userId === change.author?.userId;
+		if (!continues) noticeRun += 1;
+		notice = change;
+		clearTimeout(noticeTimer);
+		noticeTimer = setTimeout(() => (notice = null), NOTICE_MS);
+	}
+
+	/** Shows the notice unless the change's row is, or is about to be, in plain view. */
+	function judge(change: RemoteChange, framesLeft: number) {
+		// Deleted, or filtered out of this list: there is no row to wait for.
+		if (change.kind === 'deleted' || !entryIndex.has(change.issueId)) return show(change);
+		const row = rowOf(change.issueId);
+		if (row === null && framesLeft > 0) {
+			requestAnimationFrame(() => judge(change, framesLeft - 1));
+			return;
+		}
+		if (row === null || !onScreen(row)) show(change);
+	}
+
+	$effect(() => {
+		const unsubscribe = store.remote.subscribe((change) => {
+			// The record lands inside the Yjs observer, before Svelte has rendered the change and
+			// before virtua has placed the row in its new section; judge where it ended up, not
+			// where it was.
+			void tick().then(() => requestAnimationFrame(() => judge(change, PLACEMENT_FRAMES)));
+		});
+		return () => {
+			unsubscribe();
+			clearTimeout(noticeTimer);
+		};
+	});
 
 	const selectedIndex = $derived(shown.findIndex((issue) => issue.id === selectedId));
 
@@ -271,30 +361,33 @@
 	The handler is a delegation point for keys pressed on the rows inside, not a control of
 	its own: the list semantics live on the <ul> that virtua renders within.
 -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-	bind:this={scroller}
-	onkeydown={onKeydown}
-	tabindex="-1"
-	class="h-full overflow-y-auto rounded-lg border outline-none"
-	data-testid="issue-list"
->
-	<Virtualizer
-		bind:this={virtualizer}
-		data={entries}
-		getKey={(entry: ListEntry) =>
-			entry.kind === 'section' ? `section:${entry.status}` : entry.issue.id}
-		as="ul"
-		item="li"
-		itemProps={({ item }) => ({
-			class: item.kind === 'section' ? 'bg-muted/40 border-b' : 'border-b last:border-b-0'
-		})}
-		{keepMounted}
+<!-- The wrapper exists only so the notice can sit beside the scroller rather than inside it,
+     where it would scroll away with the rows. It passes the height straight through. -->
+<div class="h-full">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		bind:this={scroller}
+		onkeydown={onKeydown}
+		tabindex="-1"
+		class="h-full overflow-y-auto rounded-lg border outline-none"
+		data-testid="issue-list"
 	>
-		{#snippet children(entry: ListEntry)}
-			{#if entry.kind === 'section'}
-				{@const ui = STATUS_UI[entry.status]}
-				<!-- The board column's header, in the list. Same glyph, weight and count badge, on
+		<Virtualizer
+			bind:this={virtualizer}
+			data={entries}
+			getKey={(entry: ListEntry) =>
+				entry.kind === 'section' ? `section:${entry.status}` : entry.issue.id}
+			as="ul"
+			item="li"
+			itemProps={({ item }) => ({
+				class: item.kind === 'section' ? 'bg-muted/40 border-b' : 'border-b last:border-b-0'
+			})}
+			{keepMounted}
+		>
+			{#snippet children(entry: ListEntry)}
+				{#if entry.kind === 'section'}
+					{@const ui = STATUS_UI[entry.status]}
+					<!-- The board column's header, in the list. Same glyph, weight and count badge, on
 				     the same Shelf fill, so the two views read as one system rather than two.
 
 				     A real heading inside an ordinary <li>: the <ul> is virtua's, so a section cannot
@@ -304,26 +397,56 @@
 
 				     32px against a row's 41: at row height the Shelf fill was all that told a heading
 				     from the cursor row's own grey, and in light mode the two read as one band. -->
-				<div class="flex items-center gap-2 px-2 py-0.5" data-list-section={entry.status}>
-					<span class="flex size-7 shrink-0 items-center justify-center">
-						<ui.icon class="size-4 {ui.class}" aria-hidden="true" />
-					</span>
-					<h2 class="px-1 text-sm font-medium">{STATUS_META[entry.status].label}</h2>
-					<Badge variant="secondary">
-						{entry.count}<span class="sr-only">{entry.count === 1 ? ' issue' : ' issues'}</span>
-					</Badge>
-				</div>
-			{:else}
-				{@const issue = entry.issue}
-				<IssueRow
-					{issue}
-					{store}
-					selected={issue.id === selectedId}
-					tabbable={issue.id === tabbableId}
-					flash={issue.id === flashId}
-					viewers={presence.viewersOf(issue.id)}
-				/>
-			{/if}
-		{/snippet}
-	</Virtualizer>
+					<div class="flex items-center gap-2 px-2 py-0.5" data-list-section={entry.status}>
+						<span class="flex size-7 shrink-0 items-center justify-center">
+							<ui.icon class="size-4 {ui.class}" aria-hidden="true" />
+						</span>
+						<h2 class="px-1 text-sm font-medium">{STATUS_META[entry.status].label}</h2>
+						<Badge variant="secondary">
+							{entry.count}<span class="sr-only">{entry.count === 1 ? ' issue' : ' issues'}</span>
+						</Badge>
+					</div>
+				{:else}
+					{@const issue = entry.issue}
+					<IssueRow
+						{issue}
+						{store}
+						selected={issue.id === selectedId}
+						tabbable={issue.id === tabbableId}
+						flash={issue.id === flashId}
+						viewers={presence.viewersOf(issue.id)}
+					/>
+				{/if}
+			{/snippet}
+		</Virtualizer>
+	</div>
+
+	{#if notice}
+		{@const author = notice.author}
+		<!-- Fixed to the viewport, not to the list: at short heights the list is taller than the
+		     screen and <main> scrolls it, so the list's own foot can be off-screen too. Floating,
+		     so it takes the floating-layer vocabulary (shadow-md, ring-1). pointer-events-none and
+		     no controls: it asks nothing of the viewer and can never sit on top of a click.
+		     Keyed by run (`noticeRun`), so news replays the short fade-in and a peer's continued
+		     typing on the same issue only rewrites the sentence.
+
+		     Two lines rather than one: the sentence ends with where the issue went, and a single
+		     truncated line at phone width cut exactly that ("…moved “Support pasting a mul…"). -->
+		{#key noticeRun}
+			<div
+				class="remote-notice bg-popover text-popover-foreground ring-foreground/10 pointer-events-none fixed inset-x-4 bottom-4 z-40 mx-auto flex w-fit max-w-[min(32rem,calc(100vw-2rem))] items-center gap-2 rounded-lg px-3 py-2 text-xs shadow-md ring-1"
+				aria-hidden="true"
+				data-testid="remote-notice"
+			>
+				{#if author}
+					<PeerAvatars
+						peers={[{ ...author, activeIssueId: null, sessions: 1 }]}
+						size="sm"
+						summary=""
+					/>
+				{/if}
+				<span class="line-clamp-2" data-remote-notice-text>{describeChange(notice)}</span>
+			</div>
+		{/key}
+	{/if}
 </div>

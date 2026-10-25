@@ -494,14 +494,14 @@ test('the invitation to open a second window appears alone and leaves when answe
 	const workspaceId = room();
 	const alice = await openPeer(browser, workspaceId);
 
-	const invitation = alice.getByText('Open this link in a second window');
+	const invitation = alice.getByTestId('second-window-invite');
 	await expect(invitation).toBeVisible();
 
 	// A second peer arriving is the proof, so it is also the dismissal: nobody has to be told
 	// twice, and there is no dismiss control to leave lying around.
 	const bob = await openPeer(browser, workspaceId);
 	await expect(invitation).toBeHidden({ timeout: 15_000 });
-	await expect(bob.getByText('Open this link in a second window')).toBeHidden();
+	await expect(bob.getByTestId('second-window-invite')).toBeHidden();
 
 	// And it comes back when they leave, because the invitation is true again.
 	await bob.context().close();

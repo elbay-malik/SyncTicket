@@ -64,11 +64,12 @@ export function createWorkspaceId(): string {
  * Decides which workspace a session belongs to, from the URL and whatever this browser
  * remembered — minting one when neither offers a usable id.
  *
- * An id in the URL wins over a remembered one, and keeping it out of every internal link is
- * deliberate: once a visitor arrives with `?ws=…` the id is remembered, so ordinary
- * navigation and reloads stay in that workspace without every `resolve()` call in the app
- * having to thread a query parameter through. That is the shareable capability URL ADR 0004
- * describes.
+ * An id in the URL wins over a remembered one. Internal links still do not carry it — every
+ * `resolve()` call in the app would otherwise have to thread a query parameter through — so
+ * the id is also remembered, and that memory is what keeps a navigation or a reload in the
+ * same workspace. The address bar is then put back in step after every navigation (see
+ * {@link workspaceAddress}), so the URL a visitor sees is always the shareable capability URL
+ * ADR 0004 describes, never a bare path that would open someone else a fresh workspace.
  *
  * Both halves of the decision live here, and the minting is not optional. Split across two
  * modules it once read "mint, unless this browser remembered something", which quietly made
@@ -82,6 +83,43 @@ export function chooseWorkspace(search: string, remembered: string | null): Work
 	// is exactly what `invalidParam` reports — so both fallbacks can carry it as it stands.
 	if (isWorkspaceId(remembered)) return { id: remembered, invalidParam: fromUrl };
 	return { id: createWorkspaceId(), invalidParam: fromUrl };
+}
+
+/** What the address bar has to do to show the workspace this session belongs to. */
+export type WorkspaceAddress =
+	{ kind: 'keep' } | { kind: 'replace'; url: URL } | { kind: 'reload' };
+
+/**
+ * Decides whether `url` — where the address bar is now — already names `workspaceId`, and if
+ * not, what it should say instead.
+ *
+ * The address bar is the workspace link: an evaluator who copies it to a phone has to land in
+ * this workspace, not in a fresh, empty one that makes sync look broken. Internal links carry
+ * no `?ws=` (see {@link chooseWorkspace}), so after every navigation the parameter is missing
+ * and comes back here as a `replace`. So does an unusable one — the session already fell back
+ * to another workspace, and left in the address bar a bad id goes on looking like it worked,
+ * survives a reload and is passed along by anyone who copies it.
+ *
+ * Only `?ws=` changes. The path, every other parameter and the hash are kept, so an issue
+ * sheet that was deep-linked to stays open and nothing else in the link is lost.
+ *
+ * `reload` is the one case a rewrite would be wrong: the URL names a *different*, usable
+ * workspace. The session is bound to one document for its lifetime, so rewriting the address
+ * to match it would quietly drop the workspace someone was sent to; loading the page again
+ * lets `chooseWorkspace` take the URL's id, as it does for any arriving link.
+ */
+export function workspaceAddress(url: URL, workspaceId: string): WorkspaceAddress {
+	const values = url.searchParams.getAll(WORKSPACE_PARAM);
+	// Exactly one, and the right one. A repeated parameter is rewritten even when the first copy
+	// is correct, so a pasted link cannot carry a second id that some other reader picks.
+	if (values.length === 1 && values[0] === workspaceId) return { kind: 'keep' };
+	const named = values[0] ?? null;
+	if (values.length === 1 && isWorkspaceId(named) && named !== workspaceId) {
+		return { kind: 'reload' };
+	}
+	const next = new URL(url);
+	next.searchParams.set(WORKSPACE_PARAM, workspaceId);
+	return { kind: 'replace', url: next };
 }
 
 /** The link that invites someone into `workspaceId`. */

@@ -10,7 +10,7 @@ colors:
   primary-foreground: 'oklch(0.985 0 0)'
   secondary: 'oklch(0.97 0 0)'
   muted: 'oklch(0.97 0 0)'
-  muted-foreground: 'oklch(0.556 0 0)'
+  muted-foreground: 'oklch(0.53 0 0)'
   accent: 'oklch(0.97 0 0)'
   border: 'oklch(0.922 0 0)'
   input: 'oklch(0.922 0 0)'
@@ -153,7 +153,8 @@ are assertions that fail the suite when broken.
 - Four-step type scale, no display tier, `font-medium` as the working weight
 - Operator density: 32px controls, 10–12px interior padding
 - Focus as a first-class visual element, with measured contrast
-- Motion that is brief (100–200ms) and fully removable
+- Motion that is brief (100–200ms) and fully removable — the one long beat is news from a peer,
+  and it moves nothing but opacity
 
 ## Colors
 
@@ -170,9 +171,11 @@ A pure greyscale system with a small, strictly semantic colour vocabulary layere
 - **Paper** (`oklch(1 0 0)` light / `oklch(0.145 0 0)` dark): page and card background. Pure white
   and near-black; the system does not tint its ground.
 - **Ink** (`oklch(0.145 0 0)` light / `oklch(0.985 0 0)` dark): body text.
-- **Dimmed Ink** (`oklch(0.556 0 0)` light / `oklch(0.708 0 0)` dark): secondary text, timestamps,
+- **Dimmed Ink** (`oklch(0.53 0 0)` light / `oklch(0.708 0 0)` dark): secondary text, timestamps,
   placeholder, and the `none`/`low` priority glyphs — the deliberate "this is present but not the
-  point" register.
+  point" register. Darker than shadcn's stock `oklch(0.556)` on purpose: secondary text also sits on
+  Shelf and on translucent input fills, where the stock step measured 4.35:1 and missed 4.5:1; 0.53
+  measures 4.82:1 on Shelf and 5.25:1 on Paper (reasoning beside the token in `layout.css`).
 - **Shelf** (`oklch(0.97 0 0)` light / `oklch(0.269 0 0)` dark): the single tonal fill, serving as
   `muted`, `secondary` and `accent` at once. Hover states, board-column grounds and badge fills all
   come from this one step, which is why surfaces separate without needing shadows.
@@ -206,6 +209,20 @@ Peer avatars are the one place a colour arrives at runtime, and only a **hue num
 theme supplies lightness and chroma (`--peer-l`, `--peer-c`) and swaps both between modes, so an
 arbitrary hue stays legible in either theme and a peer can never inject a colour value — a
 peer-supplied colour _string_ interpolated into a style attribute would be a CSS injection.
+
+The same number, with the same `--peer-l`/`--peer-c`, colours everything that says "a person did
+this": the avatar disc, the remote-change trace on a row or card, and the off-screen notice's
+avatar. A peer the browser cannot name gets Dimmed Ink, never an invented hue — a colour would
+claim an identity.
+
+**The trade-off it carries.** Peer hues and the status hues share a lightness band, so some land
+within a just-noticeable step of a signal colour: light h≈140–180 beside Done Emerald, h≈45 beside
+In-Progress Amber, dark h≈12 beside Destructive. On an avatar that is harmless, because the disc
+holds initials and a circle of initials is a person. On a row, a frame in one of those hues sat a
+few pixels from the status glyph and read as status — a green box round a Todo row looked like
+"done". So **peer hue never appears on a row or card without the peer's initials beside it**:
+the trace always brings the author's disc (see Remote Change Trace). The hue says _which_
+person at a glance; the initials are what make it a person at all.
 
 ### Named Rules
 
@@ -262,6 +279,15 @@ Spacing is a tight 4/8/10/12px rhythm. Interior padding is 10px (`p-2.5`) in boa
 12px (`p-3`) in columns and popovers; gaps between related controls are 4–8px. There is no
 generous-spacing tier, because the surface is read densely on purpose.
 
+**The address bar is the workspace link.** Internal links carry no `?ws=` (the session
+remembers its workspace, so `resolve()` calls stay clean), and the root layout writes the
+session's id back as `?ws=` after every navigation, the first included, with `replaceState` and
+focus and scroll kept. So the URL a visitor copies to their phone is the one Share copies, and
+"anyone with this link" in the route's caption is literally true. It reloads instead of rewriting
+only when the URL names a _different_ valid workspace, because rewriting that would silently drop
+the workspace someone was sent to; the root redirect `/` → `/issues` keeps the query for the
+same reason.
+
 Two list surfaces, two strategies. The issue list is **virtualized** (virtua) inside a single
 scroll container with a `rounded-lg border` frame, and holds 10,000 rows without degrading. Across
 all statuses it is sectioned in board column order, each section headed by the board column's own
@@ -294,6 +320,8 @@ it, and it keeps the overlay from muddying in dark mode.
   edge definition; the shadow only separates from whatever is beneath.
 - **Overlay panel** (`shadow-lg`): sheets and sub-menus, which cover more and need more.
 - **Ghost border** (`ring-1 ring-foreground/10`, no shadow): dialogs.
+- **Floating notice** (`shadow-md` + `ring-1`, the floating-layer pair): the remote-change notice,
+  which is pinned to the viewport above the list rather than placed in it.
 
 `shadow-none` appears six times in the codebase as a deliberate removal of an inherited default,
 which is part of the same doctrine.
@@ -304,10 +332,10 @@ which is part of the same doctrine.
 shadow on a card, row, panel or column is a defect, not a style choice — border and tonal fill are
 how this system separates things.
 
-**Known deviation.** Board cards currently carry `shadow-xs` at rest
-(`board-column.svelte:224`), which this rule forbids. It is drift to remove, not a sanctioned
-exception: the card should separate from its column by border and fill like every other in-flow
-surface.
+Board cards carried a resting `shadow-xs` for long enough to be recorded here as known drift —
+the one in-flow shadow in the product. It is gone: a card separates from its column by border and
+the column's recess, like every other in-flow surface, and `issues/depth.test.ts` reads the class
+strings of the board card and the list row so the utility cannot quietly come back.
 
 ## Shapes
 
@@ -363,6 +391,17 @@ Sidebar menu buttons at 14px `font-medium`, active state filled with Shelf, each
 tuned separately for the two surfaces it sits on (7.13:1 on the sidebar, 6.82:1 on the active
 fill). The whole sidebar is one `<nav aria-label="Workspace">`; the app has exactly one.
 
+- **Glyphs:** Issues is `list-todo`, Board `square-kanban`, Search `search`. Issues was
+  `circle-dot` — a status glyph (In Progress) in chrome, against the Circle Belongs to Status
+  Rule — and its replacement was chosen by the 16px Adjacency Check: rendered on a 1x display
+  beside the mark, `panel-left`, `square-kanban` and the five status circles in both themes.
+  `ticket`'s side notches echo the mark's split seams; `layout-list` and `rows-3` merge into
+  `panel-left` and `square-kanban`. `list-todo` is open strokes and a tick — no ring, no closed
+  panel — and is also the glyph of the /issues empty state, so the two read as one place.
+- **Footer:** "Keyboard shortcuts" is a small `MenuButton` that opens the shortcuts sheet, with
+  the `?` chip beside it. It was a caption, which on a phone (where the chip hides) pointed at
+  nothing, for a sheet only the `?` key could open.
+
 ### Status & Priority Badges
 
 The system's signature component and the reason the palette is grey. A Lucide glyph plus optional
@@ -387,6 +426,65 @@ who else has it, and whether the relay can still save it. The third appears only
 is wrong. When the relay cannot save, the alert glyph **replaces** the connection icon even though
 the socket is healthy, because a cloud that says "connected and fine" while data is not surviving
 is an active lie.
+
+### Remote Change Trace
+
+What a peer's edit leaves where it lands: the row or board card it changed. Real-time sync is the
+one thing every visitor comes to check, and before this it arrived in milliseconds and left no
+mark at all.
+
+- **Look:** an overlay under the host's content and over its fill (the host is
+  `relative isolate`): a 2px inset edge plus a 12% wash, both in the author's peer colour, and the
+  author's 18px initials disc in flow beside the row's viewer stack (in the card's footer on the
+  board). The overlay never tints the focus ring or the selection fill it sits over. No left
+  stripe, no bounce, no layout shift beyond the disc's own 18px.
+- **Who:** the disc is not optional decoration; it is what keeps the hue from reading as status
+  (see Peer Identity). It is skipped when the author is already in that row's viewer stack, so
+  one face is never drawn twice. An unnamed author gets a Dimmed Ink trace and no disc.
+- **Timing — the one long beat:** 1200ms, opacity only: an 8% rise, a hold to 40%, then a long
+  ease out. This is a sanctioned exception to 100–200ms, and the reason is the rule's own: that
+  budget is for feedback on something the viewer did, and this is _news about something they did
+  not_, noticed from the corner of an eye. A peer typing commits every 400ms; a continuation of a
+  lit trace starts at full strength (`TRACE_HOLD_FROM_MS`) so the row holds steady rather than
+  blinking, and a row re-rendered mid-trace resumes where it was.
+- **Reduced motion:** the fade is replaced by a state — no animation, full trace, removed by the
+  same 1.2s timer. The blanket reduce block would otherwise cut it to 0.01ms and end it on the
+  invisible last keyframe, removing the information along with the motion.
+- **Assistive tech:** `aria-hidden`. A polite live region in the presence bar says it once,
+  coalesced: bursts settle for 0.5s and become one sentence, two announcements are at least 2s
+  apart, and an edit is said once its author has left that issue alone for 1s, with the title it
+  ended on — never the half-word of a peer's first pause.
+
+### Remote Notice
+
+When the changed row is not on screen (moved to another section, filtered out, deleted), one
+line at the foot of the viewport says it instead: the author's avatar and "Ada Lovelace moved
+'Fix login' to Done". 12px, up to two lines (the destination is the end of the sentence, and one
+truncated line at phone width cut exactly that), floating-layer shadow and ring, 4s, no controls
+and `pointer-events-none`. Fixed to the viewport rather than the list, because at short heights
+the list's own foot is off-screen too. It never scrolls the list. It fades in at 150ms for news
+and only rewrites its sentence for a peer still typing on the same issue. It is shown only when
+the trace cannot be seen, judged once the row has had the frames it needs to render, so the two
+never say the same thing twice. `aria-hidden`, because the live region already said it.
+
+### Second-Window Invitation
+
+The product demonstrating its own claim: an outline `xs` button, "Open a second window", followed
+by "— edits merge both ways, even offline." as one 12px Dimmed Ink sentence. It opens the share
+URL with `noopener`, so the second window arrives exactly as an invited person would. Prose, not
+a flex row (beside a fixed-width button the claim broke into four lines at 320px), at
+`leading-6` so the line holding the button is no taller than one without it, and balanced so the
+phone-width break falls at the dash. Shown only while the relay is ready and nobody else is here;
+the second peer arriving is what removes it.
+
+### Keyboard Hints (Kbd)
+
+12px `font-medium` Dimmed Ink on Shelf, 20px tall, never wrapping and never shrinking (a chip is
+one key or one chord). **Hidden on touch-only devices** — `(pointer: coarse) and (hover: none)`
+— by the component itself, so no call site can forget: on a phone the "C" on New issue advertises
+a key the visitor does not have. Coarse _and_ no hover, so an iPad with a trackpad and a touch
+laptop keep their hints. The shortcuts sheet, whose subject is the keys, opts back in with
+`showOnTouch`.
 
 ### Product Mark
 
@@ -441,7 +539,13 @@ are not instantly separable.
 - **Do** make focus visible with the 2px Focus Grey ring _and_ a border change, identically on
   every control.
 - **Do** keep transitions at 100–200ms, and give any motion driven through `element.animate()`
-  its own reduced-motion opt-out — WAAPI timings ignore the CSS block entirely.
+  its own reduced-motion opt-out — WAAPI timings ignore the CSS block entirely. The exceptions
+  are news rather than feedback and move only opacity: the 500ms quick-add flash and the 1200ms
+  remote-change trace, which under reduced motion becomes a state, not a shorter fade.
+- **Do** put a peer's initials beside any peer hue drawn on a row or card. The hue says which
+  person; the initials are what keep it from reading as a status.
+- **Do** let `Kbd` decide whether a hint shows on touch; opt in with `showOnTouch` only where the
+  keys are the subject.
 - **Do** design the keyboard path first: every core flow is operable without a mouse, including
   moving cards between board columns.
 - **Do** draw identity and chrome in the soft-rectangle form language (the 4.5-in-24 corner, the
@@ -459,8 +563,8 @@ are not instantly separable.
   product and they would undercut an instrument reading.
 - **Don't** add spot illustration, 3D renders or mascot imagery. Icons are functional Lucide
   glyphs that carry information.
-- **Don't** put a shadow on a card, row, column or panel. (The board card's resting `shadow-xs`
-  is existing drift, not a precedent.)
+- **Don't** put a shadow on a card, row, column or panel. `depth.test.ts` holds the board card and
+  the list row to it.
 - **Don't** use a solid Destructive fill. Destructive actions are text plus a 10% tint.
 - **Don't** add a second typeface, a monospace face, or `font-bold`.
 - **Don't** tint the neutrals. Every grey in both themes is zero-chroma `oklch(L 0 0)`, and a

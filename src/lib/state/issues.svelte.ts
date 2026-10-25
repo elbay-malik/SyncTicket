@@ -22,6 +22,9 @@ import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persiste
 import { attachRelay, type RelayConnection } from '$lib/sync/provider.js';
 import type { PersistFailure, PersistenceState } from '$lib/sync/relay-notice.js';
 import { ConnectionStatus, type ConnectionState } from '$lib/sync/connection.svelte.js';
+import { RemoteActivity } from './remote-activity.svelte.js';
+import { classifyChange, isLiveRemote, type RemoteAuthor } from './remote-change.js';
+import { toPeer } from './presence.svelte.js';
 
 /** What changed in one CRDT batch. Emitted to listeners such as the search index. */
 export interface IssueDelta {
@@ -32,10 +35,33 @@ export interface IssueDelta {
 }
 
 /**
+ * One run of writes that undo should take back as a single step — a burst of typing in a
+ * field that commits as it goes. Opaque to callers: open one with `beginEdit`, pass it to
+ * every `update` of the run, and hand it to `revertEdit` to cancel the run.
+ */
+export interface EditGroup {
+	/** The undo stack item this run's writes are merged into, once the first one lands. */
+	item: unknown;
+}
+
+/** Seams for tests; production passes nothing. */
+export interface IssueStoreOptions {
+	/**
+	 * Replaces the relay. A browser-mode test has no socket, and the remote-change path is
+	 * defined by the relay's origin and its `synced` signal, so the only honest way to test it
+	 * is to hand the store a relay the test drives: a fake provider object as the origin, a
+	 * real Awareness, and the handlers to report `synced` through.
+	 */
+	attachRelay?: typeof attachRelay;
+}
+
+/**
  * The workspace this session belongs to.
  *
  * Read once and remembered, so ordinary navigation and reloads stay put without every
- * internal link having to carry the id. On the server there is no URL to read and the store
+ * internal link having to carry the id. The address bar still shows it: the root layout writes
+ * this id back as `?ws=` after every navigation (`workspaceAddress`), so what the visitor can
+ * copy is always this workspace's link. On the server there is no URL to read and the store
  * is empty anyway, so the sentinel is correct there.
  */
 function sessionWorkspace(): WorkspaceResolution {
@@ -71,6 +97,11 @@ export class IssueStore {
 	#relaySynced = $state(false);
 	#relayEverSynced = $state(false);
 	#byId = new SvelteMap<string, Issue>();
+	/**
+	 * What peers have just changed, for the rows and cards to trace and the announcer to say.
+	 * Filled from the observer below, and only with changes that pass `isLiveRemote`.
+	 */
+	readonly remote = new RemoteActivity();
 	/** Which workspace this store is bound to; the relay uses it as the room name. */
 	readonly workspaceId: string;
 	/**
@@ -103,7 +134,7 @@ export class IssueStore {
 	#relayPersistenceAt = $state(0);
 	#acknowledgedPersistenceAt = $state(0);
 
-	constructor(explicitWorkspaceId?: string) {
+	constructor(explicitWorkspaceId?: string, options: IssueStoreOptions = {}) {
 		// An explicit id (tests, benchmarks) bypasses the URL and storage entirely, so there is
 		// no share link for it to have been wrong about.
 		const session: WorkspaceResolution =
@@ -140,7 +171,7 @@ export class IssueStore {
 		// Attached synchronously, like persistence: a provider that arrives late misses the
 		// updates made in the gap. A remote update arriving before IndexedDB has finished
 		// loading is safe, because the post-load rebuild re-reads the whole Y.Map.
-		this.#relay = attachRelay(this.#doc, workspaceId, {
+		this.#relay = (options.attachRelay ?? attachRelay)(this.#doc, workspaceId, {
 			onConnection: (state) => this.#status.report(state),
 			onOffline: () => this.#status.reportCertainOffline(),
 			onSynced: (synced) => {
@@ -316,8 +347,57 @@ export class IssueStore {
 		return createIssue(this.#map, input);
 	}
 
-	update(id: string, patch: IssuePatch): void {
+	/**
+	 * Writes a patch. With a `group`, the write joins that run's single undo step.
+	 *
+	 * The UndoManager groups by time — writes less than `captureTimeout` apart merge — which is
+	 * exactly wrong for a field that commits after 400ms of idle typing: every pause longer
+	 * than 300ms would become its own step, and ⌘Z after typing a sentence would take back one
+	 * word. So a grouped write merges by *identity* instead. If the run's own item is still on
+	 * top of the stack, `lastChange` is forced so Yjs appends to it whatever the clock says
+	 * (Infinity rather than a timestamp, because lib0 captured `Date.now` at module load and
+	 * a test's fake clock is not the one it reads). Otherwise the run starts a fresh item
+	 * rather than leaking into whatever unrelated change happened to come just before.
+	 *
+	 * `stopCapturing` afterwards either way, so the merge window never outlives the write:
+	 * a status change made just after a typed title stays a step of its own, and a no-op
+	 * write (patchIssue drops unchanged fields, so there may be no transaction at all) cannot
+	 * leave the forced value behind for the next unrelated change to fall into.
+	 */
+	update(id: string, patch: IssuePatch, group?: EditGroup): void {
+		if (!group) {
+			patchIssue(this.#map, id, patch);
+			return;
+		}
+		const top = this.#undo.undoStack.at(-1);
+		if (group.item !== null && top === group.item) this.#undo.lastChange = Infinity;
+		else this.#undo.stopCapturing();
 		patchIssue(this.#map, id, patch);
+		const after = this.#undo.undoStack.at(-1);
+		if (after !== undefined && after !== top) group.item = after;
+		this.#undo.stopCapturing();
+	}
+
+	/** Opens a run of writes that undo treats as one step. See {@link update}. */
+	beginEdit(): EditGroup {
+		return { item: null };
+	}
+
+	/**
+	 * Takes back everything a run wrote, restoring each field to what it was when the run
+	 * began. Returns false when that is not possible from here — the run's item is no longer
+	 * on top of the stack, because something else was done since — and the caller then has
+	 * to write the original value back itself.
+	 *
+	 * Done through the UndoManager rather than by writing the old value, so the revert is
+	 * not itself a new undo step, and ⌘⇧Z brings back what Escape discarded.
+	 */
+	revertEdit(group: EditGroup): boolean {
+		if (group.item === null) return true;
+		if (this.#undo.undoStack.at(-1) !== group.item) return false;
+		this.#undo.undo();
+		group.item = null;
+		return true;
 	}
 
 	remove(id: string): void {
@@ -367,6 +447,7 @@ export class IssueStore {
 	destroy(): void {
 		this.#map.unobserveDeep(this.#onChange);
 		this.#undo.destroy();
+		this.remote.destroy();
 		// The relay goes first: it does not detach itself on doc.destroy(), so a socket left
 		// open would apply an inbound sync message to a destroyed document.
 		this.#relay.destroy();
@@ -384,32 +465,50 @@ export class IssueStore {
 
 	// Incrementally patches only the issues each Y event touches. Top-level events carry
 	// whole-issue adds/deletes; nested events carry a field change whose path[0] is the id.
+	//
+	// It is also where a peer's change is recognised, because only here are the issue's
+	// before and after both in hand: `before` is read from the projection before it is
+	// overwritten, which is the cheapest correct "what was it" there is.
 	#onChange = (events: Array<Y.YEvent<Y.AbstractType<unknown>>>): void => {
 		const upserted: Issue[] = [];
 		const removed: string[] = [];
+		const transaction = events[0]?.transaction;
+		const live = transaction !== undefined && this.#isLiveRemote(transaction);
+		const changes: Array<{ before: Issue | undefined; after: Issue | undefined; client?: number }> =
+			[];
 		for (const event of events) {
 			if (event.path.length === 0) {
 				for (const [key, change] of event.changes.keys) {
+					const before = this.#byId.get(key);
 					if (change.action === 'delete') {
 						this.#byId.delete(key);
 						removed.push(key);
+						if (live) changes.push({ before, after: undefined });
 					} else {
 						const yIssue = this.#map.get(key);
 						if (yIssue) {
 							const issue = readIssue(key, yIssue);
 							this.#byId.set(key, issue);
 							upserted.push(issue);
+							if (live)
+								changes.push({ before, after: issue, client: authorClient(this.#map, key) });
 						}
 					}
 				}
 			} else {
 				const id = event.path[0];
 				if (typeof id !== 'string') continue;
+				const before = this.#byId.get(id);
 				const yIssue = this.#map.get(id);
 				if (yIssue) {
 					const issue = readIssue(id, yIssue);
 					this.#byId.set(id, issue);
 					upserted.push(issue);
+					if (live) {
+						const key = event.changes.keys.keys().next().value;
+						const client = key === undefined ? undefined : authorClient(yIssue, key);
+						changes.push({ before, after: issue, client });
+					}
 				} else {
 					this.#byId.delete(id);
 					removed.push(id);
@@ -418,7 +517,58 @@ export class IssueStore {
 		}
 		// One emit per observer batch, so a transaction touching many issues is one message.
 		this.#emit({ upserted, removed, reset: false });
+		// After the projection, so a row the trace is drawn on already shows the new value.
+		const at = Date.now();
+		for (const { before, after, client } of changes) {
+			const kind = classifyChange(before, after);
+			const issue = after ?? before;
+			if (!kind || !issue) continue;
+			this.remote.record({
+				issueId: issue.id,
+				kind,
+				title: issue.title,
+				status: issue.status,
+				author: client === undefined ? null : this.#authorOf(client),
+				at
+			});
+		}
 	};
+
+	#isLiveRemote(transaction: Y.Transaction): boolean {
+		const provider = this.#relay.provider;
+		return isLiveRemote({
+			local: transaction.local,
+			fromRelay: provider !== null && transaction.origin === provider,
+			relaySynced: this.#relaySynced,
+			loaded: this.#synced
+		});
+	}
+
+	/**
+	 * Names the person behind a Yjs client id.
+	 *
+	 * A Y.Doc and the Awareness built on it share one client id (`new Awareness(doc)` takes
+	 * `doc.clientID`), so the peer who wrote an item is the awareness state under that id.
+	 * Read through presence's own validation, so the hue is the checked number an avatar
+	 * would get. A writer whose awareness has not arrived yet, or has already gone, is null.
+	 */
+	#authorOf(client: number): RemoteAuthor | null {
+		const peer = toPeer(this.#relay.awareness.getStates().get(client));
+		return peer ? { userId: peer.userId, name: peer.name, hue: peer.hue } : null;
+	}
+}
+
+/**
+ * The Yjs client that wrote `key` on `map` most recently.
+ *
+ * A Y.Map set inserts a new item and deletes the old one, so the live item's id is the
+ * writer's (client, clock) — per key, which is more precise than diffing the transaction's
+ * state vectors: one relay update can carry several peers' edits, and this attributes each
+ * issue to the peer who actually touched it. `_map` is internal by name but public in
+ * Yjs's typings, and it is the only place the item is reachable from.
+ */
+function authorClient(map: { _map: Map<string, Y.Item> }, key: string): number | undefined {
+	return map._map.get(key)?.id.client;
 }
 
 let browserStore: IssueStore | null = null;

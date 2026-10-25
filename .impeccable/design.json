@@ -1,6 +1,6 @@
 {
 	"schemaVersion": 2,
-	"generatedAt": "2026-10-22T15:40:00Z",
+	"generatedAt": "2026-10-25T16:30:00Z",
 	"title": "Design System: SyncTicket",
 	"extensions": {
 		"colorMeta": {
@@ -55,8 +55,9 @@
 			"muted-foreground": {
 				"role": "neutral",
 				"displayName": "Dimmed Ink",
-				"canonical": "oklch(0.556 0 0)",
+				"canonical": "oklch(0.53 0 0)",
 				"dark": "oklch(0.708 0 0)",
+				"note": "Darkened from shadcn's stock oklch(0.556), which measured 4.35:1 on muted and missed WCAG 1.4.3's 4.5:1 for body text. Measures 4.82:1 on muted, 5.25:1 on background.",
 				"tonalRamp": [
 					"oklch(0.15 0 0)",
 					"oklch(0.26 0 0)",
@@ -296,6 +297,16 @@
 				"purpose": "TOUCH_DRAG_DELAY_MS: long-press before a touch drag begins, so a tap to open a card is never read as a drag."
 			},
 			{
+				"name": "duration-trace",
+				"value": "1200ms",
+				"purpose": "TRACE_MS: the remote-change trace on a row or card, opacity only (8% rise, hold to 40%, long ease out). The sanctioned exception to the 100-200ms budget: it is news about something the viewer did not do, not feedback on something they did. A continued run starts at full strength (TRACE_HOLD_FROM_MS) so a peer's typing never blinks it. Under prefers-reduced-motion its own block sets animation: none, so it shows as a state for 1.2s rather than being cut to an invisible 0.01ms."
+			},
+			{
+				"name": "duration-notice",
+				"value": "150ms",
+				"purpose": "The off-screen remote notice's fade-in, replayed for news only; a peer still typing on the same issue rewrites the sentence in place. Shown for 4s."
+			},
+			{
 				"name": "reduce",
 				"value": "0.01ms",
 				"purpose": "Every animation and transition under prefers-reduced-motion, via an unlayered !important block. Asserted in e2e/reduced-motion.e2e.ts."
@@ -359,14 +370,14 @@
 			"refersTo": "input-default",
 			"description": "36px tall, 8px radius. Focus recolours the border and adds the same 2px ring the buttons use, so focus looks identical wherever it lands.",
 			"html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Issue title\" />",
-			"css": ".ds-input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--border, oklch(0.922 0 0)); border-radius: 8px; background: var(--background, oklch(1 0 0)); color: var(--foreground, oklch(0.145 0 0)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; transition: all 100ms; outline: none; } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.556 0 0)); } .ds-input:focus-visible { border-color: var(--ring, oklch(0.45 0 0)); box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-input[aria-invalid='true'] { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); }"
+			"css": ".ds-input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--border, oklch(0.922 0 0)); border-radius: 8px; background: var(--background, oklch(1 0 0)); color: var(--foreground, oklch(0.145 0 0)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; transition: all 100ms; outline: none; } .ds-input::placeholder { color: var(--muted-foreground, oklch(0.53 0 0)); } .ds-input:focus-visible { border-color: var(--ring, oklch(0.45 0 0)); box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-input[aria-invalid='true'] { border-color: var(--destructive, oklch(0.577 0.245 27.325)); box-shadow: 0 0 0 3px color-mix(in oklab, var(--destructive, oklch(0.577 0.245 27.325)) 20%, transparent); }"
 		},
 		{
 			"name": "Sidebar Nav Item",
 			"kind": "nav",
 			"refersTo": null,
-			"description": "The app's primary navigation. Active state fills with Shelf; its focus ring was tuned separately for the two surfaces it sits on.",
-			"html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><button class=\"ds-nav-item\" data-active=\"true\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"8\" y1=\"6\" x2=\"21\" y2=\"6\"/><line x1=\"8\" y1=\"12\" x2=\"21\" y2=\"12\"/><line x1=\"8\" y1=\"18\" x2=\"21\" y2=\"18\"/><line x1=\"3\" y1=\"6\" x2=\"3.01\" y2=\"6\"/><line x1=\"3\" y1=\"12\" x2=\"3.01\" y2=\"12\"/><line x1=\"3\" y1=\"18\" x2=\"3.01\" y2=\"18\"/></svg>Issues</button><button class=\"ds-nav-item\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"6\" height=\"18\" rx=\"1\"/><rect x=\"15\" y=\"3\" width=\"6\" height=\"12\" rx=\"1\"/></svg>Board</button></nav>",
+			"description": "The app's primary navigation. Active state fills with Shelf; its focus ring was tuned separately for the two surfaces it sits on. Issues is list-todo (open strokes and a tick, chosen by the 16px Adjacency Check), never circle-dot, which is a status.",
+			"html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><button class=\"ds-nav-item\" data-active=\"true\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M13 5h8\"/><path d=\"M13 12h8\"/><path d=\"M13 19h8\"/><path d=\"m3 17 2 2 4-4\"/><rect x=\"3\" y=\"4\" width=\"6\" height=\"6\" rx=\"1\"/></svg>Issues</button><button class=\"ds-nav-item\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"6\" height=\"18\" rx=\"1\"/><rect x=\"15\" y=\"3\" width=\"6\" height=\"12\" rx=\"1\"/></svg>Board</button></nav>",
 			"css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; padding: 8px; background: var(--sidebar, oklch(0.985 0 0)); border-radius: 10px; min-width: 200px; } .ds-nav-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--sidebar-foreground, oklch(0.145 0 0)); font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 500; text-align: left; cursor: pointer; transition: background 100ms; outline: none; } .ds-nav-item:hover { background: var(--sidebar-accent, oklch(0.97 0 0)); } .ds-nav-item[data-active='true'] { background: var(--sidebar-accent, oklch(0.97 0 0)); } .ds-nav-item:focus-visible { box-shadow: 0 0 0 2px var(--sidebar-ring, oklch(0.45 0 0)); }"
 		},
 		{
@@ -381,17 +392,17 @@
 			"name": "Board Card",
 			"kind": "card",
 			"refersTo": "board-card",
-			"description": "An issue resting in a column recess. Rendered here per the Depth Means Floating rule, without the resting shadow-xs the implementation still carries.",
+			"description": "An issue resting in a column recess. No shadow, per the Depth Means Floating rule; the resting shadow-xs it once carried is gone, and issues/depth.test.ts keeps it out.",
 			"html": "<article class=\"ds-board-card\" tabindex=\"0\" aria-label=\"Sync drops updates from the board\"><span class=\"ds-board-card-title\">Sync drops updates from the board</span><span class=\"ds-board-card-meta\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"oklch(55.3% 0.195 38.402)\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z\"/><line x1=\"12\" y1=\"9\" x2=\"12\" y2=\"13\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/></svg>SYN-42</span></article>",
-			"css": ".ds-board-card { display: flex; flex-direction: column; gap: 8px; width: 264px; padding: 10px; border: 1px solid var(--border, oklch(0.922 0 0)); border-radius: 10px; background: var(--card, oklch(1 0 0)); cursor: pointer; transition: border-color 100ms; outline: none; } .ds-board-card:hover { border-color: color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 20%, transparent); } .ds-board-card:focus-visible { box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-board-card-title { font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 400; line-height: 1.25rem; color: var(--foreground, oklch(0.145 0 0)); } .ds-board-card-meta { display: inline-flex; align-items: center; gap: 6px; font-family: 'Geist Variable', sans-serif; font-size: 0.75rem; color: var(--muted-foreground, oklch(0.556 0 0)); }"
+			"css": ".ds-board-card { display: flex; flex-direction: column; gap: 8px; width: 264px; padding: 10px; border: 1px solid var(--border, oklch(0.922 0 0)); border-radius: 10px; background: var(--card, oklch(1 0 0)); cursor: pointer; transition: border-color 100ms; outline: none; } .ds-board-card:hover { border-color: color-mix(in oklab, var(--foreground, oklch(0.145 0 0)) 20%, transparent); } .ds-board-card:focus-visible { box-shadow: 0 0 0 2px var(--ring, oklch(0.45 0 0)); } .ds-board-card-title { font-family: 'Geist Variable', sans-serif; font-size: 0.875rem; font-weight: 400; line-height: 1.25rem; color: var(--foreground, oklch(0.145 0 0)); } .ds-board-card-meta { display: inline-flex; align-items: center; gap: 6px; font-family: 'Geist Variable', sans-serif; font-size: 0.75rem; color: var(--muted-foreground, oklch(0.53 0 0)); }"
 		},
 		{
 			"name": "Peer Avatar Stack",
 			"kind": "custom",
 			"refersTo": null,
-			"description": "The one place a colour arrives at runtime, and only a hue number does: the theme owns lightness and chroma so an arbitrary hue stays legible in both modes. Decoration with a text equivalent beside it.",
+			"description": "The one place a colour arrives at runtime, and only a hue number does: the theme owns lightness and chroma so an arbitrary hue stays legible in both modes. Decoration with a text equivalent beside it. The same 18px disc rides beside every remote-change trace, because peer hues sit close to status hues and the initials are what keep a coloured row from reading as status.",
 			"html": "<div class=\"ds-peers\"><span class=\"ds-peer\" style=\"--peer-h: 30\">AD</span><span class=\"ds-peer\" style=\"--peer-h: 160\">BO</span><span class=\"ds-peer ds-peer-more\">+2</span><span class=\"ds-peers-label\">Ada, Bob and 2 others</span></div>",
-			"css": ".ds-peers { display: inline-flex; align-items: center; gap: 8px; } .ds-peer { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 9999px; font-family: 'Geist Variable', sans-serif; font-size: 0.625rem; font-weight: 600; line-height: 1; user-select: none; background-color: oklch(var(--peer-l, 0.52) var(--peer-c, 0.14) var(--peer-h, 0)); color: var(--peer-fg, oklch(0.985 0 0)); box-shadow: 0 0 0 2px var(--background, oklch(1 0 0)); margin-right: -6px; } .ds-peer-more { background-color: var(--muted, oklch(0.97 0 0)); color: var(--muted-foreground, oklch(0.556 0 0)); } .ds-peers-label { margin-left: 8px; font-family: 'Geist Variable', sans-serif; font-size: 0.75rem; color: var(--muted-foreground, oklch(0.556 0 0)); }"
+			"css": ".ds-peers { display: inline-flex; align-items: center; gap: 8px; } .ds-peer { display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; border-radius: 9999px; font-family: 'Geist Variable', sans-serif; font-size: 0.625rem; font-weight: 600; line-height: 1; user-select: none; background-color: oklch(var(--peer-l, 0.52) var(--peer-c, 0.14) var(--peer-h, 0)); color: var(--peer-fg, oklch(0.985 0 0)); box-shadow: 0 0 0 2px var(--background, oklch(1 0 0)); margin-right: -6px; } .ds-peer-more { background-color: var(--muted, oklch(0.97 0 0)); color: var(--muted-foreground, oklch(0.53 0 0)); } .ds-peers-label { margin-left: 8px; font-family: 'Geist Variable', sans-serif; font-size: 0.75rem; color: var(--muted-foreground, oklch(0.53 0 0)); }"
 		},
 		{
 			"name": "Connection Popover",
@@ -419,7 +430,7 @@
 			"Four-step type scale, no display tier, font-medium as the working weight",
 			"Operator density: 32px controls, 10–12px interior padding",
 			"Focus as a first-class visual element, with measured contrast",
-			"Motion that is brief (100–200ms) and fully removable"
+			"Motion that is brief (100–200ms) and fully removable — the one long beat is news from a peer, and it moves nothing but opacity"
 		],
 		"rules": [
 			{
@@ -444,7 +455,7 @@
 			},
 			{
 				"name": "The Depth Means Floating Rule",
-				"body": "If a surface is in the document flow, it has no shadow. A shadow on a card, row, panel or column is a defect, not a style choice — border and tonal fill are how this system separates things. Known deviation: board cards currently carry shadow-xs at rest (board-column.svelte:224), which is drift to remove rather than a sanctioned exception.",
+				"body": "If a surface is in the document flow, it has no shadow. A shadow on a card, row, panel or column is a defect, not a style choice — border and tonal fill are how this system separates things. The board card's resting shadow-xs, long recorded as drift, is removed, and issues/depth.test.ts reads the card's and the row's class strings so it cannot return.",
 				"section": "elevation"
 			},
 			{
@@ -464,7 +475,9 @@
 			"Do give every semantic colour a per-theme pair (light step + dark: override) and let meta.test.ts recompute its contrast rather than quoting a number.",
 			"Do keep type within 12 / 14 / 16 / 18px, and build hierarchy from weight and colour first.",
 			"Do make focus visible with the 2px Focus Grey ring and a border change, identically on every control.",
-			"Do keep transitions at 100–200ms, and give any motion driven through element.animate() its own reduced-motion opt-out — WAAPI timings ignore the CSS block entirely.",
+			"Do keep transitions at 100–200ms, and give any motion driven through element.animate() its own reduced-motion opt-out — WAAPI timings ignore the CSS block entirely. The exceptions are news rather than feedback and move only opacity: the 500ms quick-add flash and the 1200ms remote-change trace, which under reduced motion becomes a state, not a shorter fade.",
+			"Do put a peer's initials beside any peer hue drawn on a row or card. The hue says which person; the initials are what keep it from reading as a status.",
+			"Do let Kbd decide whether a hint shows on touch; opt in with showOnTouch only where the keys are the subject.",
 			"Do design the keyboard path first: every core flow is operable without a mouse, including moving cards between board columns.",
 			"Do draw identity and chrome in the soft-rectangle form language (the 4.5-in-24 corner, the card radius), and leave the circle family to status and to peer avatars.",
 			"Do render any new rectangle-family icon beside the product mark at 16px on a 1x display before shipping it, and change it if the two do not separate instantly.",
@@ -474,7 +487,7 @@
 		"donts": [
 			"Don't introduce decorative gradients, glows or coloured washes. There are none in the product and they would undercut an instrument reading.",
 			"Don't add spot illustration, 3D renders or mascot imagery. Icons are functional Lucide glyphs that carry information.",
-			"Don't put a shadow on a card, row, column or panel. (The board card's resting shadow-xs is existing drift, not a precedent.)",
+			"Don't put a shadow on a card, row, column or panel. depth.test.ts holds the board card and the list row to it.",
 			"Don't use a solid Destructive fill. Destructive actions are text plus a 10% tint.",
 			"Don't add a second typeface, a monospace face, or font-bold.",
 			"Don't tint the neutrals. Every grey in both themes is zero-chroma oklch(L 0 0), and a warm or cool cast would make the semantic hues read as part of a palette.",

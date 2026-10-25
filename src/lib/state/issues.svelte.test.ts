@@ -234,3 +234,69 @@ describe('IssueStore.settled', () => {
 		expect(store.settled).toBe(true);
 	});
 });
+
+describe('IssueStore edit groups', () => {
+	/** Longer than the UndoManager's 300ms captureTimeout, so time alone would split steps. */
+	const pause = () => new Promise((resolve) => setTimeout(resolve, 350));
+
+	it('takes back a run of writes as one undo step, however far apart they landed', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		await pause();
+		const group = store.beginEdit();
+		store.update(id, { title: 'One' }, group);
+		await pause();
+		store.update(id, { title: 'One two' }, group);
+		await pause();
+		store.update(id, { title: 'One two three' }, group);
+
+		store.undo();
+		expect(store.get(id)?.title).toBe('Original');
+		// And the creation is still a separate step behind it.
+		store.undo();
+		expect(store.get(id)).toBeUndefined();
+	});
+
+	it('does not swallow a change made just before the run, nor one made just after', () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		// All inside one captureTimeout, where ungrouped writes would merge into one step.
+		store.update(id, { status: 'done' });
+		const group = store.beginEdit();
+		store.update(id, { title: 'Typed' }, group);
+		store.update(id, { priority: 'high' });
+
+		store.undo();
+		expect(store.get(id)).toMatchObject({ title: 'Typed', priority: 'none' });
+		store.undo();
+		expect(store.get(id)).toMatchObject({ title: 'Original', status: 'done' });
+	});
+
+	it('reverts a run to where it began, and redo brings it back', async () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		await pause();
+		const group = store.beginEdit();
+		store.update(id, { title: 'Half' }, group);
+		await pause();
+		store.update(id, { title: 'Half typed' }, group);
+
+		expect(store.revertEdit(group)).toBe(true);
+		expect(store.get(id)?.title).toBe('Original');
+		store.redo();
+		expect(store.get(id)?.title).toBe('Half typed');
+	});
+
+	it('cannot revert a run something else has been done on top of', () => {
+		const store = makeStore();
+		const id = store.create({ title: 'Original' });
+		const group = store.beginEdit();
+		store.update(id, { title: 'Typed' }, group);
+		store.update(id, { status: 'done' });
+
+		expect(store.revertEdit(group)).toBe(false);
+		expect(store.get(id)).toMatchObject({ title: 'Typed', status: 'done' });
+		// A run that never wrote anything has nothing to revert, which is success.
+		expect(store.revertEdit(store.beginEdit())).toBe(true);
+	});
+});

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './fixtures.js';
+import { expect, onRoute, test, type Page } from './fixtures.js';
 
 /** Any well-formed id that cannot exist, used to warm the detail route. */
 const ABSENT_ID = '00000000-0000-4000-8000-000000000000';
@@ -74,7 +74,7 @@ async function warmDetailRoute(page: Page) {
 	await page.goto(`/issues/${ABSENT_ID}`);
 	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.getByRole('button', { name: 'Back to issues' }).click();
-	await expect(page).toHaveURL(/\/issues$/);
+	await expect(page).toHaveURL(onRoute('/issues'));
 }
 
 test('quick-add creates an issue that persists across a reload', async ({ page, workspaceDb }) => {
@@ -154,7 +154,7 @@ test('full CRUD works offline and the result survives a reload', async ({
 
 	// READ — open the detail sheet at its own URL.
 	await page.getByRole('link', { name: 'Offline issue' }).click();
-	await expect(page).toHaveURL(/\/issues\/[0-9a-f-]{36}$/);
+	await expect(page).toHaveURL(onRoute('/issues/[0-9a-f-]{36}'));
 	const sheet = page.getByRole('dialog');
 	await expect(sheet.getByLabel('Title')).toHaveValue('Offline issue');
 
@@ -175,7 +175,7 @@ test('full CRUD works offline and the result survives a reload', async ({
 	// DELETE — behind a confirmation.
 	await sheet.getByRole('button', { name: 'Delete' }).click();
 	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete issue' }).click();
-	await expect(page).toHaveURL(/\/issues$/);
+	await expect(page).toHaveURL(onRoute('/issues'));
 	await expect(page.getByRole('link', { name: 'Offline issue, renamed' })).toHaveCount(0);
 
 	// One more issue, so the reload has something to prove.
@@ -205,8 +205,10 @@ test('a detail sheet URL can be shared and reloaded', async ({ page, workspaceDb
 	await page.getByRole('link', { name: 'Deep linked' }).click();
 	await expect(page.getByRole('dialog').getByLabel('Title')).toHaveValue('Deep linked');
 
+	// Waited for rather than read straight off: the workspace's `?ws=` is put back just after the
+	// navigation lands, and it is that address — the one a visitor would copy — being reloaded.
+	await expect(page).toHaveURL(onRoute('/issues/[0-9a-f-]{36}'));
 	const url = page.url();
-	expect(url).toMatch(/\/issues\/[0-9a-f-]{36}$/);
 	await waitForCommitAbove(page, workspaceDb, baseline);
 
 	// Loading the URL cold must rebuild the same view from IndexedDB alone.
@@ -215,7 +217,7 @@ test('a detail sheet URL can be shared and reloaded', async ({ page, workspaceDb
 
 	// Escape closes it and returns to the list.
 	await page.keyboard.press('Escape');
-	await expect(page).toHaveURL(/\/issues$/);
+	await expect(page).toHaveURL(onRoute('/issues'));
 	await expect(page.getByRole('link', { name: 'Deep linked' })).toBeVisible();
 });
 

@@ -92,6 +92,9 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { Badge } from '$lib/components/ui/badge/index.js';
+	import RemoteTrace from '$lib/components/presence/remote-trace.svelte';
+	import RemoteTraceAuthor from '$lib/components/presence/remote-trace-author.svelte';
+	import type { RemoteActivity } from '$lib/state/remote-activity.svelte.js';
 	import PriorityBadge from './priority-badge.svelte';
 	import StatusBadge from './status-badge.svelte';
 	import { STATUS_UI } from './meta.js';
@@ -101,7 +104,8 @@
 		items,
 		total = items.length,
 		onconsider,
-		onfinalize
+		onfinalize,
+		remote
 	}: {
 		status: IssueStatus;
 		/** Already resolved by the board: the drag preview when one is in flight, else live. */
@@ -110,6 +114,8 @@
 		total?: number;
 		onconsider: (event: CustomEvent<DndEvent<Issue>>) => void;
 		onfinalize: (event: CustomEvent<DndEvent<Issue>>) => void;
+		/** Peers' just-arrived changes, traced on the card they touched. */
+		remote?: RemoteActivity;
 	} = $props();
 
 	const ui = $derived(STATUS_UI[status]);
@@ -215,13 +221,17 @@
 				<!--
 					The dnd action assigns role="listitem" and the tabindex at runtime, and Space is
 					reserved as the drag trigger (set on the board page), leaving Enter free to open.
+
+					No resting shadow: the card is in flow, so border and the column's recess are what
+					separate it (DESIGN.md, the Depth Means Floating Rule). The `shadow-xs` it once
+					carried was the one in-flow shadow in the product, recorded there as drift.
 				-->
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					animate:flip={{ duration: options.flipDurationMs }}
 					data-issue-id={issue.id}
 					aria-label={issue.title}
-					class="bg-card focus-visible:ring-ring hover:border-foreground/20 flex cursor-pointer flex-col gap-2 rounded-lg border p-2.5 shadow-xs transition-colors outline-none focus-visible:ring-2"
+					class="bg-card focus-visible:ring-ring hover:border-foreground/20 relative isolate flex cursor-pointer flex-col gap-2 rounded-lg border p-2.5 transition-colors outline-none focus-visible:ring-2"
 					onclick={() => open(issue.id)}
 					onkeydown={(event) => {
 						if (event.key !== 'Enter') return;
@@ -229,10 +239,16 @@
 						open(issue.id);
 					}}
 				>
+					<!-- A non-focusable span, so the card still contains nothing a drag could strand
+					     focus on; `relative isolate` above layers it between the card's fill and its
+					     text, the same as on a list row. -->
+					<RemoteTrace change={remote?.get(issue.id)} />
 					<span class="line-clamp-3 text-sm">{issue.title}</span>
 					<div class="flex items-center gap-2">
 						<StatusBadge value={issue.status} showLabel={false} />
 						<PriorityBadge value={issue.priority} showLabel={false} />
+						<!-- Who left the trace, in the footer's free space so the card does not reflow. -->
+						<RemoteTraceAuthor change={remote?.get(issue.id)} />
 						{#if issue.labels.length > 0}
 							<div class="ml-auto flex gap-1 overflow-hidden">
 								{#each issue.labels.slice(0, 2) as label (label)}

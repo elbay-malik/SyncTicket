@@ -9,6 +9,8 @@
 	import { workspaceShareUrl } from '$lib/model/workspace.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import { Input } from '$lib/components/ui/input/index.js';
+	import * as Popover from '$lib/components/ui/popover/index.js';
 
 	let { store }: { store: IssueStore } = $props();
 
@@ -20,21 +22,30 @@
 		typeof location === 'undefined' ? '' : workspaceShareUrl(location.origin, store.workspaceId)
 	);
 
+	/**
+	 * True while the copy-it-yourself popover is open, and only then. The button's "Copy
+	 * failed" label is tied to it rather than to a timer, so the label cannot clear while the
+	 * fallback it refers to is still on screen, nor linger after it has gone.
+	 */
 	let failed = $state(false);
+	let button = $state<HTMLButtonElement | null>(null);
+	let field = $state<HTMLInputElement | null>(null);
+	let content = $state<HTMLElement | null>(null);
 
 	async function copy() {
 		if (!url) return;
 		try {
 			await navigator.clipboard.writeText(url);
 		} catch {
-			// Clipboard access can be refused (insecure context, denied permission). It used to
-			// return silently here, which meant pressing the button did nothing at all and said
-			// nothing about why — the worst available outcome, and indistinguishable from a dead
-			// control. The link is still on the button's own `title`, so the message says where
-			// to find it rather than only that something failed.
-			failed = true;
+			// Clipboard access can be refused (insecure context, denied permission, an embedded
+			// frame). This once returned silently — a dead control — and then announced "the
+			// link is on the Share button as a tooltip" while the button's title was a fixed
+			// sentence with no link in it: a recovery hint pointing at nothing. Recovery is now
+			// the link itself, in a field, already selected, so the next keystroke is the copy
+			// the browser refused to do.
 			clearTimeout(timer);
-			timer = setTimeout(() => (failed = false), 4000);
+			copied = false;
+			failed = true;
 			return;
 		}
 		failed = false;
@@ -44,27 +55,75 @@
 	}
 </script>
 
-<Button
-	variant="ghost"
-	size="sm"
-	onclick={copy}
-	title="Copy an invite link to this workspace"
-	data-testid="share-workspace"
-	data-share-url={url}
->
-	{#if copied}
-		<CheckIcon />
-		Copied
-	{:else if failed}
-		<TriangleAlertIcon />
-		Copy failed
-	{:else}
-		<LinkIcon />
-		Share
-	{/if}
-</Button>
+<!-- Controlled and trigger-less: the Share button is anchored to, not wired as a toggle,
+     because on the ordinary path a click copies and must open nothing. -->
+<Popover.Root bind:open={failed}>
+	<Button
+		bind:ref={button}
+		variant="ghost"
+		size="sm"
+		onclick={copy}
+		title={failed ? url : 'Copy an invite link to this workspace'}
+		data-testid="share-workspace"
+		data-share-url={url}
+	>
+		{#if copied}
+			<CheckIcon />
+			Copied
+		{:else if failed}
+			<TriangleAlertIcon />
+			Copy failed
+		{:else}
+			<LinkIcon />
+			Share
+		{/if}
+	</Button>
+	<!-- Not a focus trap. It is one read-only field, not a dialog, and bits-ui's trap pulled
+	     focus back into the field on a click elsewhere — then the field unmounted under it, so
+	     the click that dismissed the popover left focus on <body> instead of where it was aimed. -->
+	<Popover.Content
+		bind:ref={content}
+		trapFocus={false}
+		customAnchor={button}
+		align="end"
+		aria-label="Invite link"
+		data-testid="share-fallback"
+		onOpenAutoFocus={(event) => {
+			// Into the field, with the whole link selected: on a keyboard that is one ⌘C/Ctrl+C
+			// away from done, and on a phone the selection handles are already up.
+			event.preventDefault();
+			field?.focus();
+			field?.select();
+		}}
+		onCloseAutoFocus={(event) => {
+			// There is no Popover.Trigger for bits-ui to return focus to, so it would land on
+			// <body>. Back to the button that started this — but only when focus would otherwise
+			// be lost: still in the closing popover, or already dropped to <body>. A click outside
+			// both dismisses the popover and puts focus on what was clicked, and taking it back
+			// sent the next keystrokes to Share, where global shortcuts fire ("b" for Board)
+			// instead of the field the person had just chosen to type in.
+			event.preventDefault();
+			const active = document.activeElement;
+			const lost = active === null || active === document.body || !!content?.contains(active);
+			if (lost) button?.focus();
+		}}
+	>
+		<p class="text-muted-foreground text-xs">
+			This browser blocked copying. The link is selected below — copy it from here.
+		</p>
+		<Input
+			bind:ref={field}
+			value={url}
+			readonly
+			aria-label="Invite link"
+			data-testid="share-fallback-url"
+			onfocus={(event) => event.currentTarget.select()}
+		/>
+	</Popover.Content>
+</Popover.Root>
 <!-- Announced rather than only drawn: the button's label changes, but a screen-reader user who
-     pressed it and heard nothing would be in exactly the position this fixes. -->
+     pressed it and heard nothing would be in exactly the position this fixes. It says what is
+     actually there — focus is already in the field, so this is the why, not a pointer. -->
 <span class="sr-only" role="status" aria-live="polite">
-	{failed ? 'Copy failed. The invite link is on the Share button as a tooltip.' : ''}
+	{failed ? 'Copy failed. The invite link is selected in a text field, ready to copy.' : ''}
 </span>

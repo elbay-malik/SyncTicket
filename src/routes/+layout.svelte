@@ -3,8 +3,9 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { ModeWatcher } from 'mode-watcher';
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
 	import Undo2Icon from '@lucide/svelte/icons/undo-2';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -19,6 +20,7 @@
 	import { isApple } from '$lib/keyboard/keys.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getSearchClient } from '$lib/search/client.svelte.js';
+	import { workspaceAddress } from '$lib/model/workspace.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { getPresence } from '$lib/state/presence.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
@@ -39,7 +41,35 @@
 	// configured — so with no relay this simply shows one person: you.
 	const presence = getPresence(store);
 
-	let helpOpen = $state(false);
+	// The address bar is the workspace link. Internal links carry no `?ws=` (threading it through
+	// every `resolve()` is what the remembered id saves), so without this the bar showed a bare
+	// `/issues` — and an evaluator who copied it to a phone opened a fresh, empty workspace and
+	// concluded that sync was broken. After every navigation, including the first, the current
+	// address is put back in step with the workspace this session is actually in. That also
+	// covers a visitor who arrived with no parameter and was minted one, and one whose `?ws=`
+	// was unusable: the bad value is replaced by the real id rather than left to be reloaded or
+	// copied on (the notice saying so is the issues route's, and reads the store, not the URL).
+	//
+	// `replaceState` rewrites the entry rather than adding one, so Back never walks through a
+	// bare twin of every page; `keepFocus` and `noScroll` because nothing the visitor can see
+	// has changed, and the list's own afterNavigate decides where focus goes.
+	//
+	// Deferred by a microtask because SvelteKit marks the router started *after* running these
+	// callbacks for the initial load, so navigating from inside this call races hydration. Read
+	// from `page.url` inside the microtask rather than the callback's `to`: by then it is the
+	// router's settled answer for this page, path and all, which is what keeps a deep-linked
+	// sheet open — `to.params` is the empty pre-initialisation object on a cold load.
+	afterNavigate(() => {
+		void Promise.resolve().then(() => {
+			const address = workspaceAddress(page.url, store.workspaceId);
+			if (address.kind === 'replace') {
+				// eslint-disable-next-line svelte/no-navigation-without-resolve -- The router's own current URL with one query parameter changed: the path is the one SvelteKit just resolved, and `resolve()` takes a route id, not a URL.
+				void goto(address.url, { replaceState: true, keepFocus: true, noScroll: true });
+			} else if (address.kind === 'reload') {
+				location.reload();
+			}
+		});
+	});
 
 	onMount(() => {
 		// Started here rather than on first search: the worker and its index chunk are fetched
@@ -114,7 +144,7 @@
 				chord: '?',
 				label: 'Keyboard shortcuts',
 				group: 'View',
-				run: () => (helpOpen = true)
+				run: () => (issueUi.helpOpen = true)
 			})
 		];
 		return () => off.forEach((unregister) => unregister());
@@ -135,7 +165,7 @@
 <ModeWatcher />
 <CommandMenu />
 <IssueCreateDialog {store} bind:open={issueUi.createOpen} />
-<ShortcutsHelp bind:open={helpOpen} />
+<ShortcutsHelp bind:open={issueUi.helpOpen} />
 
 <Sidebar.Provider>
 	<!--

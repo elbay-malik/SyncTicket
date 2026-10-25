@@ -8,5 +8,10 @@ export const issueUi = $state({
 	/** The "New issue" dialog, mounted once in the root layout. */
 	createOpen: false,
 	/** The ⌘K command palette, so a shortcut can toggle it from anywhere. */
-	paletteOpen: false
+	paletteOpen: false,
+	/**
+	 * The keyboard shortcuts sheet. Opened by `?` and by the sidebar's "Keyboard shortcuts"
+	 * row — the only way in on a phone, which has no `?` key to press.
+	 */
+	helpOpen: false
 });

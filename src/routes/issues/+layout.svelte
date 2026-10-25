@@ -5,19 +5,17 @@
 
 	import { onMount, tick } from 'svelte';
 	import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
-	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
 	import ListFilterIcon from '@lucide/svelte/icons/list-filter';
+	import ListTodoIcon from '@lucide/svelte/icons/list-todo';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { afterNavigate, goto, preloadCode } from '$app/navigation';
-	import { resolve } from '$app/paths';
+	import { afterNavigate, preloadCode } from '$app/navigation';
 	import { page } from '$app/state';
 	import { connectionCopy } from '$lib/format.js';
 	import { ISSUE_STATUSES, STATUS_META } from '$lib/model/issue.js';
 	import type { IssueSort } from '$lib/model/query.js';
-	import { WORKSPACE_PARAM } from '$lib/model/workspace.js';
 	import type { PersistenceState } from '$lib/sync/relay-notice.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
@@ -26,6 +24,7 @@
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { STATUS_UI } from '$lib/components/issues/meta.js';
 	import IssueList from '$lib/components/issues/issue-list.svelte';
+	import SecondWindowInvite from '$lib/components/shell/second-window-invite.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -52,6 +51,16 @@
 		store.connection === 'connected' && store.relaySynced && presence.peers.length === 0
 	);
 	const query = new IssueQuery(store);
+	/**
+	 * Whether the empty state is offering example issues — and so owns this surface's one
+	 * primary action. Same condition the empty state renders the button under.
+	 *
+	 * Seeding is the evaluator's real first step: fourteen issues across every status is what
+	 * makes the list, the board and a second window worth looking at. DESIGN.md allows one solid
+	 * Ink button per surface, so while it is on offer "New issue" steps down to outline rather
+	 * than two black buttons competing for the first click.
+	 */
+	const offeringExamples = $derived(query.synced && query.total === 0 && store.settled);
 
 	let draft = $state('');
 	/** The list's keyboard cursor; the list moves real focus to follow it. */
@@ -166,25 +175,11 @@
 		(row ?? newIssueButton)?.focus();
 	});
 
-	// A `?ws=` that could not be used has to leave the address bar too. Left there, the link
-	// goes on looking like it worked, a reload repeats it, and anything copied out of the
-	// address bar passes the same broken link along. `replaceState` rewrites the entry rather
-	// than adding one, so Back cannot walk into it either.
-	//
-	// Deferred by a microtask because SvelteKit marks the router started *after* running these
-	// callbacks for the initial load, so navigating from inside this call races hydration.
-	afterNavigate(({ to }) => {
-		if (store.invalidWorkspaceParam === null || !to) return;
-		if (!to.url.searchParams.has(WORKSPACE_PARAM)) return;
-		// `page.params` again, for the same reason as above: a cold load with a bad `?ws=`
-		// reports no params here, and stripping to `/issues` would close a sheet the visitor
-		// deep-linked to — irrecoverably, since `replaceState` drops the entry.
-		const openIssue = page.params.id;
-		const target = openIssue ? resolve('/issues/[id]', { id: openIssue }) : resolve('/issues');
-		void Promise.resolve().then(() =>
-			goto(target, { replaceState: true, keepFocus: true, noScroll: true })
-		);
-	});
+	// A `?ws=` that could not be used is taken out of the address bar by the root layout, which
+	// puts the real id in its place after every navigation — it is no longer only this route's
+	// concern, since every route's address is now the workspace link. The notice above reads
+	// the store's record of the bad value, not the URL, so it survives that rewrite and still
+	// shows once.
 
 	const activeIssue = $derived(page.params.id ? store.get(page.params.id) : undefined);
 
@@ -267,6 +262,7 @@
 		<Button
 			bind:ref={newIssueButton}
 			size="sm"
+			variant={offeringExamples ? 'outline' : 'default'}
 			class="ml-auto"
 			onclick={() => (issueUi.createOpen = true)}
 		>
@@ -307,20 +303,20 @@
 	     workspace never saw it, and those are the two states where there is something to lose.
 	     Here it sits under the field they type into, in every state, which is what the ADR
 	     actually asks for. Caption size and muted so it reads as a standing condition rather
-	     than an alert that never resolves. -->
+	     than an alert that never resolves.
+
+	     "This link" is literal: the root layout keeps the workspace's `?ws=` in the address bar
+	     on every route, so the link in front of the visitor is the one this sentence means.
+	     Before that it pointed at a bare `/issues` that opened anyone else a new workspace. -->
 	<p class="text-muted-foreground -mt-1 text-xs">
 		Anyone with this link can read and edit this workspace — please don't put anything real or
 		sensitive in it.
 	</p>
 
-	<!-- The product demonstrating its own claim instead of asserting it in a 12px corner.
-	     Shown only while the relay is ready and nobody else is here; a second peer arriving is
-	     what removes it, which is the proof arriving. Caption register and no card, because the
-	     surrounding restraint is the reason the status colours read at all. -->
+	<!-- Shown only while the relay is ready and nobody else is here; a second peer arriving is
+	     what removes it, which is the proof arriving. -->
 	{#if inviteSecondWindow}
-		<p class="text-muted-foreground -mt-2 text-xs">
-			Open this link in a second window — edits merge both ways, even offline.
-		</p>
+		<SecondWindowInvite workspaceId={store.workspaceId} />
 	{/if}
 
 	<div class="flex items-center justify-between">
@@ -380,7 +376,10 @@
 		<div
 			class="flex min-h-[40vh] flex-col items-center justify-center gap-3 rounded-lg border border-dashed p-12 text-center"
 		>
-			<CircleDotIcon class="text-muted-foreground size-8" />
+			<!-- The Issues nav's own glyph, so the empty state names the place it is the empty state
+			     of. It was circle-dot, which is a status (In Progress) and so breaks DESIGN.md's
+			     Circle Belongs to Status Rule; see app-sidebar.svelte for why list-todo won. -->
+			<ListTodoIcon class="text-muted-foreground size-8" />
 			{#if query.total === 0}
 				<p class="text-base font-medium">No issues yet</p>
 				<p class="text-muted-foreground max-w-sm text-sm">
@@ -392,7 +391,7 @@
 				     empty long before the relay has said a word — and fourteen example issues
 				     appended into somebody else's backlog is not something a CRDT can take back. -->
 				{#if store.settled}
-					<Button variant="outline" size="sm" onclick={() => store.seedDemo()}>
+					<Button size="sm" onclick={() => store.seedDemo()}>
 						<SparklesIcon />
 						Load example issues
 					</Button>

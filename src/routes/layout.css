@@ -222,6 +222,87 @@
 		background-color: var(--muted);
 		color: var(--muted-foreground);
 	}
+	/*
+		The arrival of someone else's edit, drawn on the row or card it changed.
+
+		In the author's peer hue, because peer identity is one of the four things hue is allowed
+		to mean here, and the trace is how "that was Ada" reads without a word. Built from the
+		same validated hue *number* and the same theme-owned `--peer-l`/`--peer-c` as the avatar,
+		so it is exactly as legible as the avatar in either theme and a peer still cannot reach
+		a style attribute with anything but a number.
+
+		A 2px inset edge plus a faint wash of the same colour, as an overlay rather than on the
+		row itself: the row's own background is its selection and hover state, and fighting
+		over one property would make the trace erase the cursor. Opacity is the only thing that
+		moves — a brief rise, a hold long enough to be seen from the corner of an eye, then a
+		long ease out. Nothing bounces and nothing shifts layout. Not a thick left stripe: that
+		is a different, banned pattern, and it reads as a category, not an event.
+
+		`--trace-delay` is negative when a row mounts part-way through its trace (scrolled into
+		the rendered window, or re-rendered into its new section), so it resumes where it is
+		rather than replaying from the top.
+	*/
+	.remote-trace {
+		--trace: oklch(var(--peer-l) var(--peer-c) var(--peer-h, 0));
+		position: absolute;
+		inset: 0;
+		/* Under the content, over the background: the host is `relative isolate`, so -1 paints
+		   above its own fill (selection, card) and below the title, pickers and focus ring. */
+		z-index: -1;
+		pointer-events: none;
+		border-radius: inherit;
+		background-color: color-mix(in oklch, var(--trace) 12%, transparent);
+		box-shadow: inset 0 0 0 2px var(--trace);
+		animation: remote-trace 1200ms linear var(--trace-delay, 0ms) both;
+	}
+	/* The author's initials beside the trace (remote-trace-author.svelte): the non-hue half of
+	   "that was Ada", on the wash's own timeline so the two leave together. */
+	.remote-trace-author {
+		animation: remote-trace 1200ms linear var(--trace-delay, 0ms) both;
+	}
+	/* An author this browser cannot name gets no colour: a hue would claim an identity. */
+	.remote-trace-anon {
+		--trace: var(--muted-foreground);
+	}
+	@keyframes remote-trace {
+		0% {
+			opacity: 0;
+		}
+		8% {
+			opacity: 1;
+		}
+		40% {
+			opacity: 1;
+			animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+		}
+		100% {
+			opacity: 0;
+		}
+	}
+	/* The one-line notice for a remote change whose row is not on screen (issue-list.svelte). */
+	.remote-notice {
+		animation: remote-notice-in 150ms ease-out;
+	}
+	@keyframes remote-notice-in {
+		from {
+			opacity: 0;
+		}
+	}
+}
+
+/*
+	Reduced motion keeps the trace and drops the fade. The blanket block below would cut the
+	animation to 0.01ms, and with a fill of `both` that ends on the last keyframe — the trace
+	would never be seen at all, which loses the *information*, not just the motion. With no
+	animation the overlay's resting style is the full trace, shown for the record's 1.2s and
+	then removed by the timer that removes it anyway: a state change, not a movement.
+	Unlayered and `!important` for the same reason as the block below.
+*/
+@media (prefers-reduced-motion: reduce) {
+	.remote-trace,
+	.remote-trace-author {
+		animation: none !important;
+	}
 }
 
 /*

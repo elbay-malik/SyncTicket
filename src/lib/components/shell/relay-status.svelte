@@ -77,8 +77,14 @@
 		data-synced={store.relaySynced}
 		data-persistence={store.relayPersistence}
 		aria-label={label}
-		class="text-muted-foreground hover:bg-muted hover:text-foreground flex min-h-6 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs transition-colors"
+		class="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-ring flex min-h-6 items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-xs transition-colors outline-none focus-visible:ring-2"
 	>
+		<!-- Styled in place rather than through `child` + Button, so it gets none of Button's
+		     focus treatment for free — and for a while it had none at all, the one control in
+		     the header on the browser's default 1px auto outline. The ring is Button's exactly:
+		     2px solid Focus Grey plus a border change, with the border transparent at rest so
+		     gaining it moves nothing. focus-ring.test.ts now fails any hand-styled trigger or
+		     button that drops it. -->
 		<!-- Ahead of every connection branch, replacing whichever one would have rendered
 		     rather than joining them as another connection state: when the relay cannot save,
 		     `connection` is literally 'connected' and the cloud icon is an active lie — the

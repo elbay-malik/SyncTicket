@@ -1,5 +1,5 @@
 <script lang="ts">
-	import CircleDotIcon from '@lucide/svelte/icons/circle-dot';
+	import ListTodoIcon from '@lucide/svelte/icons/list-todo';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import SquareKanbanIcon from '@lucide/svelte/icons/square-kanban';
 	import { tick } from 'svelte';
@@ -32,6 +32,16 @@
 		}
 		issueUi.paletteOpen = true;
 	}
+
+	// The same sheet `?` opens, by the same route out of the mobile sidebar as the palette:
+	// close the sidebar's own sheet first, so its focus restore does not land inside this one.
+	async function openHelp() {
+		if (sidebar.isMobile) {
+			sidebar.setOpenMobile(false);
+			await tick();
+		}
+		issueUi.helpOpen = true;
+	}
 </script>
 
 <Sidebar.Root>
@@ -53,7 +63,13 @@
 							<Sidebar.MenuButton isActive={page.url.pathname.startsWith('/issues')}>
 								{#snippet child({ props })}
 									<a href={resolve('/issues')} {...props}>
-										<CircleDotIcon />
+										<!-- Not circle-dot, which this used to be: that glyph IS a status (In Progress),
+										     and DESIGN.md's Circle Belongs to Status Rule keeps rings out of chrome.
+										     list-todo won a 16px render beside the mark, the status set and the
+										     other chrome glyphs: `ticket`'s side notches echo the mark's split seams,
+										     and `layout-list` / `rows-3` merge into `panel-left` and `square-kanban`.
+										     Open strokes and a tick, no ring, no closed panel. -->
+										<ListTodoIcon />
 										<span>Issues</span>
 									</a>
 								{/snippet}
@@ -86,12 +102,22 @@
 	</Sidebar.Content>
 	<Sidebar.Footer>
 		<!-- The ⌘K hint moved onto the Search item above; the help sheet is otherwise the one
-		     thing in the app with no visible way to reach it. -->
-		<div class="text-muted-foreground flex items-center justify-between px-2 py-1 text-xs">
-			<span>Keyboard shortcuts</span>
-			{#if helpHint}
-				<Kbd>{helpHint}</Kbd>
-			{/if}
-		</div>
+		     thing in the app with no visible way to reach it.
+
+		     A button, not a caption. As plain text it was a label pointing at a key: no tab stop,
+		     nothing to tap, and on a phone — where Kbd hides its chip — a label pointing at
+		     nothing, for a sheet only the `?` key could open. Now it opens the sheet itself, so
+		     the label has an action everywhere and the sheet's chips are reachable on touch. -->
+		<Sidebar.Menu>
+			<Sidebar.MenuItem>
+				<Sidebar.MenuButton size="sm" class="text-muted-foreground" onclick={openHelp}>
+					<span>Keyboard shortcuts</span>
+					{#if helpHint}
+						<!-- Out of the accessible name, as on Search: the button is "Keyboard shortcuts". -->
+						<Kbd aria-hidden="true" class="ml-auto">{helpHint}</Kbd>
+					{/if}
+				</Sidebar.MenuButton>
+			</Sidebar.MenuItem>
+		</Sidebar.Menu>
 	</Sidebar.Footer>
 </Sidebar.Root>

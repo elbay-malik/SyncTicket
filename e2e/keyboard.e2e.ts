@@ -4,7 +4,7 @@
 // convention and matters doubly here: shortcuts are registered on mount, so they simply do
 // not exist until the client has hydrated.
 
-import { expect, test, type Page } from './fixtures.js';
+import { expect, onRoute, test, type Page } from './fixtures.js';
 
 async function seeded(page: Page, titles: string[]) {
 	await page.goto('/issues');
@@ -43,7 +43,7 @@ test('an issue can be created, found, opened, edited and deleted by keyboard alo
 
 	// OPEN — Enter activates the focused link; no global Enter shortcut is involved.
 	await page.keyboard.press('Enter');
-	await expect(page).toHaveURL(/\/issues\/[0-9a-f-]{36}$/);
+	await expect(page).toHaveURL(onRoute('/issues/[0-9a-f-]{36}'));
 	const sheet = page.getByRole('dialog');
 	await expect(sheet.getByLabel('Title')).toHaveValue('Keyboard only');
 
@@ -64,7 +64,7 @@ test('an issue can be created, found, opened, edited and deleted by keyboard alo
 	await expect(confirm.getByRole('button', { name: 'Delete issue' })).toBeFocused();
 	await page.keyboard.press('Enter');
 
-	await expect(page).toHaveURL(/\/issues$/);
+	await expect(page).toHaveURL(onRoute('/issues'));
 	await expect(page.getByText('No issues yet')).toBeVisible();
 });
 
@@ -119,16 +119,16 @@ test('the palette toggles with the same chord and runs a command', async ({ page
 	await expect(palette).toBeVisible();
 	await palette.fill('board');
 	await page.keyboard.press('Enter');
-	await expect(page).toHaveURL(/\/board$/);
+	await expect(page).toHaveURL(onRoute('/board'));
 });
 
 test('navigation and help are one keystroke away', async ({ page }) => {
 	await seeded(page, ['Anything']);
 
 	await page.keyboard.press('b');
-	await expect(page).toHaveURL(/\/board$/);
+	await expect(page).toHaveURL(onRoute('/board'));
 	await page.keyboard.press('i');
-	await expect(page).toHaveURL(/\/issues$/);
+	await expect(page).toHaveURL(onRoute('/issues'));
 
 	// "?" is matched as the character the keyboard produces, not as Shift plus a US key.
 	await page.keyboard.press('?');
@@ -148,7 +148,7 @@ test('shortcuts stay out of the way while typing', async ({ page }) => {
 	// Typing a title containing every shortcut letter must not trigger any of them.
 	const input = page.getByPlaceholder('Add an issue and press Enter…');
 	await input.fill('cijkb?');
-	await expect(page).toHaveURL(/\/issues$/);
+	await expect(page).toHaveURL(onRoute('/issues'));
 	await expect(page.getByRole('dialog')).toHaveCount(0);
 	await expect(input).toHaveValue('cijkb?');
 });

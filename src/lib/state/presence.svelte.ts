@@ -24,6 +24,7 @@ import {
 	seededRandom,
 	type Identity
 } from '$lib/model/identity.js';
+import type { RemoteActivity } from './remote-activity.svelte.js';
 
 /** How often a peer announces that it is still there, while anyone else is known. */
 const HEARTBEAT_MS = 10_000;
@@ -103,8 +104,11 @@ function saveIdentity(identity: Identity): void {
  * name means "not ready", not "invalid". Anything that *is* there goes through
  * `parseIdentity`, which is the same validation the local identity gets: this data is
  * written by anyone holding the workspace link.
+ *
+ * Exported for the store, which names the author of a remote edit from the same awareness
+ * state — and so must get the same validated hue an avatar would, never the raw field.
  */
-function toPeer(raw: unknown): Peer | null {
+export function toPeer(raw: unknown): Peer | null {
 	if (typeof raw !== 'object' || raw === null) return null;
 	const state = raw as Partial<PresenceState>;
 	if (typeof state.name !== 'string' || typeof state.userId !== 'string') return null;
@@ -157,9 +161,23 @@ export class Presence {
 
 	#activeIssueId: string | null = null;
 
-	constructor(awareness: Awareness, identity: Identity = loadIdentity()) {
+	/**
+	 * What peers have just changed — the store's record, carried here so that anything holding
+	 * presence can say so. The header's presence bar is mounted on every route and is handed
+	 * only this object, which makes it the one place an announcer can live that is neither
+	 * route-specific nor gone while the list is empty (the moment a peer adds the first issue
+	 * is exactly the one most worth announcing). Null for a bare Presence in tests.
+	 */
+	readonly activity: RemoteActivity | null;
+
+	constructor(
+		awareness: Awareness,
+		identity: Identity = loadIdentity(),
+		activity: RemoteActivity | null = null
+	) {
 		this.#awareness = awareness;
 		this.me = identity;
+		this.activity = activity;
 		// `update` rather than `change`: any message at all proves a peer is alive, including
 		// a beat that happens to repeat what it said last time.
 		this.#awareness.on('update', this.#onUpdate);
@@ -170,7 +188,17 @@ export class Presence {
 
 	/** Everyone in the workspace, this browser first. */
 	get everyone(): Peer[] {
-		return [{ ...this.me, activeIssueId: this.#activeIssueId, sessions: 1 }, ...this.peers];
+		// This browser's other tabs share its identity, so `peers` carries them under *my* user
+		// id. Listed beside me they were the same person twice, and a keyed avatar list threw
+		// `each_key_duplicate` — which halts every later update on the page, so the first tab
+		// froze the moment the "Open a second window" invitation was taken up. They are folded
+		// into me as extra sessions instead: one person, several tabs, exactly as for anyone
+		// else. `peers` keeps them, because another window of this workspace is still the
+		// second view the invitation asked for.
+		const mine = this.peers.find((peer) => peer.userId === this.me.userId);
+		const others = this.peers.filter((peer) => peer.userId !== this.me.userId);
+		const sessions = 1 + (mine?.sessions ?? 0);
+		return [{ ...this.me, activeIssueId: this.#activeIssueId, sessions }, ...others];
 	}
 
 	/** The other people currently looking at `issueId`. */
@@ -306,9 +334,10 @@ let browserPresence: Presence | null = null;
  * `getIssueStore` is: presence held across requests would leak one visitor's peers into
  * another's first render.
  */
-export function getPresence(store: { awareness: Awareness }): Presence {
-	if (!browser) return new Presence(store.awareness);
-	if (!browserPresence) browserPresence = new Presence(store.awareness);
+export function getPresence(store: { awareness: Awareness; remote?: RemoteActivity }): Presence {
+	const create = () => new Presence(store.awareness, undefined, store.remote ?? null);
+	if (!browser) return create();
+	if (!browserPresence) browserPresence = create();
 	return browserPresence;
 }
 
