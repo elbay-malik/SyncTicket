@@ -256,6 +256,13 @@ Two lexical engines, measured over 10,000 generated issues in Node before choosi
 - **The empty state can seed itself, but only when asked.** `query.total === 0` is also true of a workspace that is genuinely, permanently empty, and most of the e2e suite depends on that staying true after nothing but constructing a store — so "Load example issues" is a button, not something that happens to a fresh visitor automatically. It is also withheld until the store has _settled_ — local load plus the relay's first word, or the relay being given up on — because on a share link `query.total === 0` means "not here yet", and seeding over data still in flight writes 14 issues into someone else's workspace permanently.
 - **The last step was a person's to take, and then it was taken.** For most of this project's life `wrangler deploy` had no account to deploy to, and authenticating one is not something an agent session should do on a user's behalf — so the phase sat finished-but-unshipped behind a clean `--dry-run`. Both workers went live on the free plan on 2026-10-22: `syncticket` at 1,579.82 KiB plus 42 static assets, `syncticket-relay` at 333.83 KiB with its `v1` `new_sqlite_classes` migration applying silently. What the dry-run could not have told anyone is that **both** surprises were in the tooling rather than the bundle: `wrangler login` reported `Timed out waiting for authorization code` and exited non-zero while having already written valid credentials, so `whoami` is the check and the exit code is not; and a bare `wrangler deploy` only _warns_ that the relay's config carries an `e2e` environment with no rate limiter, which is now closed by `--env=""` in both of its scripts. [docs/DEPLOY.md](docs/DEPLOY.md) records what exists under "The deploy that exists".
 
+## Acknowledgements
+
+SyncTicket was built together with Claude, Anthropic's AI model, working through
+[Claude Code](https://claude.com/claude-code): every commit in this history was co-authored with
+it, across the Claude Opus, Fable and Sonnet models. The commit messages carry no per-commit
+co-author lines, so this section is the credit for all of them.
+
 ## License
 
 SyncTicket's own source is [MIT](LICENSE).
