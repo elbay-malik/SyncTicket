@@ -5,7 +5,8 @@
 // transactions unfinished, no observer or `update` ever fired again, and the visitor went on typing
 // into a document that kept nothing. The relay decoded it as well, so everyone arriving got it.
 // patches/yjs@*.patch makes the decoders turn such a value into null. These go through bytes
-// written by hand, because a patched sender would have cleaned its own value up on the way out.
+// written by hand, because `Y.Map.set` only makes ContentAny, and a sender's encoder recurses too,
+// so it overflows long before the deepest of these and nothing leaves.
 
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -155,6 +156,33 @@ describe('what the limit must not change', () => {
 		expect(read(nestedJson(ALLOWED + 1, '"core"'))).toBeNull();
 		const wide = JSON.stringify(['['.repeat(1_000), '"\\"['.repeat(1_000), { a: [1, 2] }, [[]]]);
 		expect(read(wide)).toEqual(JSON.parse(wide));
+	});
+
+	it('reads malformed JSON as nothing past the limit, and only refuses it within the limit', () => {
+		const read = (text: string) => {
+			const doc = createDoc();
+			Y.applyUpdate(doc, handWrittenItem(VALUE_CONTENT.json(text), SLOT_ID));
+			return getIssuesMap(doc).get(SLOT_ID);
+		};
+
+		expect(() => read('['.repeat(ALLOWED))).toThrow(SyntaxError);
+		expect(read('['.repeat(ALLOWED + 1))).toBeNull();
+	});
+
+	it('only changes what a decoder reads, so the writer has its own value until it reloads', () => {
+		const writer = createDoc();
+		const value = arrayNest(ALLOWED + 44);
+		getIssuesMap(writer).set(SLOT_ID, value);
+		expect(getIssuesMap(writer).get(SLOT_ID)).toBe(value);
+
+		// Nothing was taken off it on the way out, at about two bytes a level.
+		const update = Y.encodeStateAsUpdate(writer);
+		expect(update.length).toBeGreaterThan(2 * (ALLOWED + 44));
+
+		// Everyone who decodes it, the writer included once it has reloaded, reads the same thing.
+		const reloaded = createDoc();
+		Y.applyUpdate(reloaded, update);
+		expect(getIssuesMap(reloaded).get(SLOT_ID)).toBeNull();
 	});
 
 	it('passes every ordinary value through untouched, in both formats', () => {

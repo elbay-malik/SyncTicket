@@ -209,10 +209,10 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /**
- * Every kind of Yjs content that holds a plain value, as the bytes a peer's update carries. Yjs's
- * own API never produces some of these, and a patched sender cleans up the rest, so a hostile value
- * can only be written by hand. Each takes a value already in the form it is stored in: the JSON
- * kinds a JSON text, `any` lib0's binary form.
+ * Every kind of Yjs content that holds a plain value, as the bytes a peer's update carries. Written
+ * by hand, because `Y.Map.set` only ever makes `any`, nothing in Yjs's API makes `json` any more, and
+ * past about 6,000 levels its encoder overflows before anything leaves. Each takes a value already
+ * in the form it is stored in: the JSON kinds a JSON text, `any` lib0's binary form.
  */
 export const VALUE_CONTENT = {
 	json: (text: string) => ({
