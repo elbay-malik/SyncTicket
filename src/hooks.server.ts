@@ -17,8 +17,29 @@
 
 import type { Handle } from '@sveltejs/kit';
 
+/**
+ * A redirect for a path `decodeURI` refuses, or null for every other path.
+ *
+ * SvelteKit's server answers one with a 400 page, and its client then throws decoding the same path
+ * while it starts, so that page never hydrates: no palette, no shortcuts, no `?ws=` written back.
+ * Only the server can do anything about that, because the client is what fails. Doubling each `%`
+ * makes the path say what was typed, which is then an ordinary issue or page that isn't found.
+ *
+ * Absolute, because a path can start with `//`, and as a Location that would mean another host.
+ */
+function redirectMalformedPath(url: URL): Response | null {
+	try {
+		decodeURI(url.pathname);
+		return null;
+	} catch {
+		const encoded = new URL(url);
+		encoded.pathname = url.pathname.replaceAll('%', '%25');
+		return new Response(null, { status: 308, headers: { location: encoded.href } });
+	}
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
-	const response = await resolve(event);
+	const response = redirectMalformedPath(event.url) ?? (await resolve(event));
 
 	// Stops a browser from second-guessing a declared Content-Type — the mitigation for
 	// "upload something that sniffs as script".

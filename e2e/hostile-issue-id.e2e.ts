@@ -118,7 +118,15 @@ for (const segment of [
 	'%00',
 	'x%0A',
 	'corrupt',
-	'00000000-0000-4000-8000-00000000000A'
+	'00000000-0000-4000-8000-00000000000A',
+	// decodeURI refuses these. SvelteKit's client would throw on them while starting and never
+	// hydrate, so the server sends them to the same text properly encoded (hooks.server.ts).
+	'%',
+	'%E0%A4%A',
+	'%ZZ',
+	'%FF',
+	'%C0%AF',
+	'%ED%A0%80'
 ]) {
 	test(`typing /issues/${segment} is an issue that was not found, in the same workspace`, async ({
 		page,
