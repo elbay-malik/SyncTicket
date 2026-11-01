@@ -22,6 +22,7 @@
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import BoardColumn from '$lib/components/issues/board-column.svelte';
 	import RemoteNotice from '$lib/components/presence/remote-notice.svelte';
+	import ViewBoundary from '$lib/components/shell/view-boundary.svelte';
 	import {
 		columnView,
 		reduceConsider,
@@ -112,27 +113,32 @@
 			{/each}
 		</div>
 	{:else}
-		<!-- The one horizontal scroller on the route. It only gets to be one because the inset
-		     around <main> may shrink below the columns' width (sidebar-inset.svelte's min-w-0);
-		     the test id lets board.e2e.ts assert that the overflow lands here, not on the page. -->
-		<div class="flex flex-1 gap-4 overflow-x-auto pb-4" data-testid="board-columns">
-			{#each ISSUE_STATUSES as status (status)}
-				<BoardColumn
-					{status}
-					items={previews[status] ?? columns[status].visible}
-					total={columns[status].total}
-					onconsider={(event) => onconsider(status, event)}
-					onfinalize={(event) => onfinalize(status, event)}
-					remote={store.remote}
-				/>
-			{/each}
-		</div>
-		<!-- Every issue has a column here, so only a deletion lacks a place; a card past its
-		     column's cap is never rendered and counts as off-screen. -->
-		<RemoteNotice
-			activity={store.remote}
-			listed={(id) => store.get(id) !== undefined}
-			find={(id) => document.querySelector<HTMLElement>(`[data-issue-id="${CSS.escape(id)}"]`)}
-		/>
+		<ViewBoundary
+			title="The board couldn’t be shown"
+			class="min-h-[40vh] rounded-lg border border-dashed p-12"
+		>
+			<!-- The one horizontal scroller on the route. It only gets to be one because the inset
+			     around <main> may shrink below the columns' width (sidebar-inset.svelte's min-w-0);
+			     the test id lets board.e2e.ts assert that the overflow lands here, not on the page. -->
+			<div class="flex flex-1 gap-4 overflow-x-auto pb-4" data-testid="board-columns">
+				{#each ISSUE_STATUSES as status (status)}
+					<BoardColumn
+						{status}
+						items={previews[status] ?? columns[status].visible}
+						total={columns[status].total}
+						onconsider={(event) => onconsider(status, event)}
+						onfinalize={(event) => onfinalize(status, event)}
+						remote={store.remote}
+					/>
+				{/each}
+			</div>
+			<!-- Every issue has a column here, so only a deletion lacks a place; a card past its
+			     column's cap is never rendered and counts as off-screen. -->
+			<RemoteNotice
+				activity={store.remote}
+				listed={(id) => store.get(id) !== undefined}
+				find={(id) => document.querySelector<HTMLElement>(`[data-issue-id="${CSS.escape(id)}"]`)}
+			/>
+		</ViewBoundary>
 	{/if}
 </div>

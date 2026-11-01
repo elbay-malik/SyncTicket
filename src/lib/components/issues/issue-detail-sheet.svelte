@@ -12,6 +12,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+	import ViewBoundary from '$lib/components/shell/view-boundary.svelte';
 	import IssueEditor from './issue-editor.svelte';
 
 	let {
@@ -94,8 +95,14 @@
 				<Skeleton class="h-8 w-1/2" />
 			</div>
 		{:else if issue}
+			<!-- Around the editor alone, inside the dialog: the dialog keeps its name, its Close and
+			     its focus trap, and Delete below stays reachable, which is the one way out of a record
+			     that cannot render. The key is outside so another issue starts clean rather than
+			     showing this one's failure. -->
 			{#key issue.id}
-				<IssueEditor {issue} {store} />
+				<ViewBoundary title="This issue couldn’t be shown" class="flex-1 p-8">
+					<IssueEditor {issue} {store} />
+				</ViewBoundary>
 			{/key}
 
 			<div class="mt-auto flex items-center justify-end border-t px-4 py-3">

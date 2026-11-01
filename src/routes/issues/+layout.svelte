@@ -25,6 +25,7 @@
 	import { STATUS_UI } from '$lib/components/issues/meta.js';
 	import IssueList from '$lib/components/issues/issue-list.svelte';
 	import SecondWindowInvite from '$lib/components/shell/second-window-invite.svelte';
+	import ViewBoundary from '$lib/components/shell/view-boundary.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
@@ -411,13 +412,18 @@
 		<div class="min-h-0 flex-1">
 			<!-- Sectioned only across every status: filtered to one, the filter button above already
 			     names the only section there would be. -->
-			<IssueList
-				bind:this={list}
-				issues={query.results}
-				{store}
-				sectioned={query.status === 'all'}
-				bind:selectedId
-			/>
+			<ViewBoundary
+				title="The list couldn’t be shown"
+				class="min-h-[40vh] rounded-lg border border-dashed p-12"
+			>
+				<IssueList
+					bind:this={list}
+					issues={query.results}
+					{store}
+					sectioned={query.status === 'all'}
+					bind:selectedId
+				/>
+			</ViewBoundary>
 		</div>
 	{/if}
 </div>

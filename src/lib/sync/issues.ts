@@ -52,11 +52,15 @@ function readAssignee(yIssue: YIssue): string | null {
 	return typeof value === 'string' ? value : null;
 }
 
+/**
+ * An issue's labels: strings only, each once, first occurrence winning. The UI dedupes what it
+ * writes, but a peer's array arrives as it was sent, and the views key their badges by the text,
+ * so a repeat would throw each_key_duplicate on every load. Compares as parseLabels does.
+ */
 function readLabels(yIssue: YIssue): string[] {
 	const value = yIssue.get('labels');
-	return Array.isArray(value)
-		? value.filter((item): item is string => typeof item === 'string')
-		: [];
+	if (!Array.isArray(value)) return [];
+	return [...new Set(value.filter((item): item is string => typeof item === 'string'))];
 }
 
 /**
