@@ -59,6 +59,28 @@ describe('snapshot round trip', () => {
 		expect(contents(decodeSnapshot(encodeSnapshot(a)))).toEqual({ a: 'from A', b: 'from B' });
 	});
 
+	it('keeps the workspace when the snapshot holds a struct of no length', () => {
+		// A GC of length 0 and the delete-set entry it implies, as a poisoned room saved them. The
+		// entry used to throw once the structs had landed, and the room woke up empty.
+		const state = encodeSnapshot(docWith({ a: 'one', b: 'two' }));
+		const client = [0xe1, 0x3c];
+		const poisoned = Uint8Array.from([
+			2,
+			...state.slice(1, -1),
+			1,
+			...client,
+			0,
+			0,
+			0,
+			1,
+			...client,
+			1,
+			0,
+			0
+		]);
+		expect(contents(decodeSnapshot(poisoned))).toEqual({ a: 'one', b: 'two' });
+	});
+
 	it('keeps the workspace when a peer has nested types deeper than the stack and deleted them', () => {
 		// Tombstones kept, which is what makes the rebuild walk the whole tree. A throw there used to
 		// come out of decodeSnapshot as an empty document, and the room forgot everything it held.

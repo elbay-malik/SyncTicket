@@ -26,9 +26,9 @@ allowBuilds:
 
 patchedDependencies:
   # Makes ContentType's delete and gc walks and redoItem iterative, reads a plain value nested past
-  # a fixed depth as null, stops a throw during cleanup wedging the document, and files deep events
-  # in linear time. Stock Yjs recurses once per nesting level, so a few KB from a peer overflows the
-  # stack inside Y.applyUpdate, before any of this repo's code runs. See the Data layer section of
-  # AGENTS.md. Redo it when bumping yjs: src/lib/sync/deep-nesting.test.ts, deep-values.test.ts and
-  # deep-touch.test.ts fail without it.
+  # a fixed depth as null, stops a throw during cleanup wedging the document, files deep events in
+  # linear time, and drops structs of no length. Stock Yjs recurses once per nesting level, so a few
+  # KB from a peer overflows the stack inside Y.applyUpdate, before any of this repo's code runs. See
+  # the Data layer section of AGENTS.md. Redo it when bumping yjs: src/lib/sync/deep-nesting.test.ts,
+  # deep-values.test.ts, deep-touch.test.ts and empty-structs.test.ts fail without it.
   yjs@13.6.31: patches/yjs@13.6.31.patch

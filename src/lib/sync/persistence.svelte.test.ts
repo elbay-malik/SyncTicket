@@ -12,7 +12,9 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { attachPersistence } from './persistence.js';
-import { createDoc } from './doc.js';
+import * as Y from 'yjs';
+import { REAL_ID, poisonedSnapshot, wellFormedIssue } from './junk-entries.fixture.js';
+import { createDoc, getIssuesMap } from './doc.js';
 import { IssueStore } from '$lib/state/issues.svelte.js';
 
 /**
@@ -83,6 +85,38 @@ describe('attachPersistence when IndexedDB is unavailable', () => {
 			// And it is still a working in-memory session, not a dead one.
 			store.create({ title: 'Written with no database' });
 			expect(store.all.map((issue) => issue.title)).toEqual(['Written with no database']);
+		} finally {
+			store.destroy();
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+	});
+});
+
+describe('a row saved while the document held a struct of no length', () => {
+	it('loads, rather than leaving the visitor on the skeleton', async () => {
+		// y-indexeddb starts its fetch without keeping the promise, so a throw while it applies a row
+		// reaches nobody, and 'synced' never fires. Its compaction is what used to write this row.
+		const workspaceId = `poisoned-${crypto.randomUUID()}`;
+		const peer = createDoc();
+		getIssuesMap(peer).set(REAL_ID, wellFormedIssue({ title: 'Kept' }));
+		const row = poisonedSnapshot(Y.encodeStateAsUpdate(peer));
+
+		const earlier = attachPersistence(createDoc(), workspaceId);
+		await earlier.whenSynced;
+		const database = await (earlier.provider as NonNullable<typeof earlier.provider>)._db;
+		await new Promise<void>((resolve, reject) => {
+			const write = database.transaction('updates', 'readwrite');
+			write.objectStore('updates').add(row);
+			write.oncomplete = () => resolve();
+			write.onerror = () => reject(write.error);
+		});
+		await earlier.destroy();
+
+		const store = new IssueStore(workspaceId);
+		try {
+			await vi.waitFor(() => expect(store.synced).toBe(true), { timeout: 3_000 });
+			expect(store.persisted).toBe(true);
+			expect(store.all.map((issue) => issue.title)).toEqual(['Kept']);
 		} finally {
 			store.destroy();
 			await new Promise((resolve) => setTimeout(resolve, 20));

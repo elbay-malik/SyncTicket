@@ -245,24 +245,110 @@ export function nestedAny(depth: number, kind: 'array' | 'object' = 'array'): Ui
  * the clock is zero, so one document can only take one of these.
  */
 export function handWrittenItem(
+	content: { ref: number; content: Uint8Array },
+	key: string,
+	parentId?: { client: number; clock: number }
+): Uint8Array {
+	return handWrittenStructs([handWrittenStruct(content, key, parentId)]);
+}
+
+/** One item with the given content, as it sits among the structs of an update. */
+export function handWrittenStruct(
 	{ ref, content }: { ref: number; content: Uint8Array },
 	key: string,
 	parentId?: { client: number; clock: number }
 ): Uint8Array {
 	const hasParentSub = 32;
 	return concat([
-		Uint8Array.from([...varUint(1), ...varUint(1), ...varUint(HAND_CLIENT), 0, hasParentSub | ref]),
+		Uint8Array.from([hasParentSub | ref]),
 		parentId
 			? Uint8Array.from([0, ...varUint(parentId.client), ...varUint(parentId.clock)])
 			: concat([Uint8Array.from([1]), varString('issues')]),
 		varString(key),
-		content,
+		content
+	]);
+}
+
+/** Structs in a row from the hand-writing client, the first at `clock`, in a v1 update. */
+export function handWrittenStructs(structs: readonly Uint8Array[], clock = 0): Uint8Array {
+	return concat([
+		structsOfOneClient(structs, clock),
 		// An empty delete set.
 		Uint8Array.from([0])
 	]);
 }
 
-const HAND_CLIENT = 7_777;
+function structsOfOneClient(structs: readonly Uint8Array[], clock: number): Uint8Array {
+	return concat([
+		Uint8Array.from([
+			...varUint(1),
+			...varUint(structs.length),
+			...varUint(HAND_CLIENT),
+			...varUint(clock)
+		]),
+		...structs
+	]);
+}
+
+export const HAND_CLIENT = 7_777;
+
+/** A plain value under a key of `issues`, one clock long, for standing next to the ones below. */
+export function plainStruct(key: string, value: string): Uint8Array {
+	const text = new TextEncoder().encode(value);
+	return handWrittenStruct(
+		VALUE_CONTENT.any(concat([Uint8Array.from([119, ...varUint(text.length)]), text])),
+		key
+	);
+}
+
+/**
+ * Every struct a peer can write that takes up no clock. Yjs's own API never makes one, and its
+ * encoder and its search through a client's structs both take a struct's length to be at least one.
+ */
+export const EMPTY_STRUCTS: ReadonlyArray<{ name: string; bytes: Uint8Array }> = [
+	{ name: 'a GC', bytes: Uint8Array.from([0, 0]) },
+	{ name: 'a Skip', bytes: Uint8Array.from([10, 0]) },
+	{
+		name: 'ContentAny of nothing',
+		bytes: handWrittenStruct({ ref: 8, content: Uint8Array.from([0]) }, SLOT_ID)
+	},
+	{
+		name: 'ContentJSON of nothing',
+		bytes: handWrittenStruct({ ref: 2, content: Uint8Array.from([0]) }, SLOT_ID)
+	},
+	{
+		name: 'an empty ContentString',
+		bytes: handWrittenStruct({ ref: 4, content: varString('') }, SLOT_ID)
+	},
+	{
+		name: 'ContentDeleted of nothing',
+		bytes: handWrittenStruct({ ref: 1, content: Uint8Array.from([0]) }, SLOT_ID)
+	}
+];
+
+/**
+ * A delete set of one client's `[clock, length]` ranges, in the v1 format. Length zero is the part
+ * that matters: Yjs's own v2 format cannot say it, and its v2 encoder throws when asked to.
+ */
+export function deleteSetOf(client: number, ranges: ReadonlyArray<[number, number]>): Uint8Array {
+	return Uint8Array.from(
+		[1, client, ranges.length, ...ranges.flat()].flatMap((value) => varUint(value))
+	);
+}
+
+/**
+ * What a replica holding an empty GC used to save: `state` as an update, the empty GC among its
+ * structs and the delete-set entry it implies. `state` must have no deletes of its own.
+ */
+export function poisonedSnapshot(state: Uint8Array): Uint8Array {
+	return concat([
+		Uint8Array.from([2]),
+		state.slice(1, -1),
+		Uint8Array.from([...varUint(1), ...varUint(HAND_CLIENT), 0]),
+		Uint8Array.from([0, 0]),
+		deleteSetOf(HAND_CLIENT, [[0, 0]])
+	]);
+}
 
 /**
  * Everything `peer` has written since `since`, with all of it already deleted, in one update. Its
