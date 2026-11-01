@@ -87,6 +87,15 @@ function bound(key: string | null | undefined): string | null {
 }
 
 /**
+ * Whether an error is the engine running out of stack. V8 and JavaScriptCore call that a
+ * RangeError and SpiderMonkey an InternalError, a global the others don't have, so it can only be
+ * recognised by name. The library refuses a bound with a plain Error, which is neither.
+ */
+function isStackOverflow(error: unknown): boolean {
+	return error instanceof RangeError || (error instanceof Error && error.name === 'InternalError');
+}
+
+/**
  * `generateKeyBetween` for two valid bounds in order, without the two ways it still fails them.
  *
  * Below the integer just above the smallest it returns the smallest, which it then refuses as a
@@ -103,7 +112,7 @@ function keyBetween(lower: string | null, upper: string | null): string {
 	try {
 		key = generateKeyBetween(lower, upper);
 	} catch (error) {
-		if (lower === null || !(error instanceof RangeError)) throw error;
+		if (lower === null || !isStackOverflow(error)) throw error;
 		return lower + MIDDLE_DIGIT;
 	}
 	return key === SMALLEST_INTEGER ? key + MIDDLE_DIGIT : key;
