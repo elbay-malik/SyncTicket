@@ -167,7 +167,10 @@
 <IssueCreateDialog {store} bind:open={issueUi.createOpen} />
 <ShortcutsHelp bind:open={issueUi.helpOpen} />
 
-<Sidebar.Provider>
+<!-- `h-svh`, because the provider's own `min-h-svh` is only a floor. With nothing above it
+     holding a height, the shell grew to fit the page and `<main>` never scrolled, and neither
+     did the list inside it, so virtua saw room for every row and mounted them all. -->
+<Sidebar.Provider class="h-svh">
 	<!--
 		First in the DOM, and so the first tab stop: the sidebar's navigation and the whole
 		header sit ahead of the page on every route. Inside Sidebar.Inset it would render

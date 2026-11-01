@@ -178,11 +178,10 @@
 		pendingReveal = null;
 		// Two scrolls, because two different things can be out of view. `scrollToIndex` moves
 		// virtua's own scroller so the row enters the rendered window. That is not enough on its
-		// own: the list is `h-full` inside the route column, so at short viewport heights the
-		// list has nothing to scroll and `<main>` is the scroller — `scrollToIndex` then
-		// succeeds and moves nothing, which is how this shipped broken the first time. The row
-		// is in the DOM either way (`keepMounted` pins the cursor's row), so asking the element
-		// itself to come into view scrolls whichever ancestor is actually scrolling.
+		// own: on a screen too short for the list and the controls above it, `<main>` scrolls as
+		// well, so a row can be in view of the list and still below the fold. The row is in the
+		// DOM either way (`keepMounted` pins the cursor's row), so asking the element itself to
+		// come into view scrolls whichever ancestors need it.
 		virtualizer?.scrollToIndex(index, { align: 'nearest' });
 		requestAnimationFrame(() => {
 			scroller

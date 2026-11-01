@@ -120,7 +120,7 @@
 			<!-- The one horizontal scroller on the route. It only gets to be one because the inset
 			     around <main> may shrink below the columns' width (sidebar-inset.svelte's min-w-0);
 			     the test id lets board.e2e.ts assert that the overflow lands here, not on the page. -->
-			<div class="flex flex-1 gap-4 overflow-x-auto pb-4" data-testid="board-columns">
+			<div class="flex min-h-64 flex-1 gap-4 overflow-x-auto pb-4" data-testid="board-columns">
 				{#each ISSUE_STATUSES as status (status)}
 					<BoardColumn
 						{status}

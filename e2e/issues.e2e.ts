@@ -220,9 +220,9 @@ test('a quick-added issue is scrolled to and marked, not filed silently off-scre
 	// made the one interaction that could demonstrate "instant by construction" look like
 	// nothing had happened.
 	//
-	// The short viewport is the point: at 600px the list is taller than the screen, and the list
-	// is NOT the scrolling element — `<main>` is. The first implementation called virtua's
-	// scrollToIndex alone, which moved virtua's own scroller and therefore moved nothing.
+	// The short viewport is the point: at 600px the end of the list is off-screen, so whichever
+	// element is scrolling has to move. An earlier version called virtua's scrollToIndex alone,
+	// while `<main>` was the only thing that could scroll, and so moved nothing.
 	await page.setViewportSize({ width: 1440, height: 600 });
 	await page.goto('/issues');
 	await page.getByRole('button', { name: 'Load example issues' }).click();

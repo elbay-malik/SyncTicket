@@ -409,7 +409,9 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="min-h-0 flex-1">
+		<!-- Takes what the controls above leave, but never less than a usable list. On a screen too
+		     short for both, `<main>` scrolls them past each other. -->
+		<div class="min-h-64 flex-1">
 			<!-- Sectioned only across every status: filtered to one, the filter button above already
 			     names the only section there would be. -->
 			<ViewBoundary
