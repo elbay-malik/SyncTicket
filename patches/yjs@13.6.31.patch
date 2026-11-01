@@ -1,5 +1,5 @@
 diff --git a/dist/yjs.cjs b/dist/yjs.cjs
-index 5b5690eb2f172cd99d244ff33394ff59f44fe103..bf94817a9df2882203d9bb541380a83a86e43280 100644
+index 5b5690eb2f172cd99d244ff33394ff59f44fe103..8830fa2fa49f7122148b3e915e7d8587ab44fa1f 100644
 --- a/dist/yjs.cjs
 +++ b/dist/yjs.cjs
 @@ -350,6 +350,10 @@ const readAndApplyDeleteSet = (decoder, transaction, store) => {
@@ -332,16 +332,16 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..bf94817a9df2882203d9bb541380a83a
 +    } else {
 +      current = /** @type {AbstractType<any>} */ (current._item.parent);
 +      lists = deepEventLists.get(current);
-     }
--    type = /** @type {AbstractType<any>} */ (type._item.parent);
-   }
++    }
++  }
 +  for (let i = walked.length - 1; i >= 0; i--) {
 +    const walkedType = walked[i];
 +    if (walkedType._dEH.l.length > 0) {
 +      lists = lists.concat([/** @type {Array<YEvent<any>>} */ (changedParentTypes.get(walkedType))]);
-+    }
+     }
+-    type = /** @type {AbstractType<any>} */ (type._item.parent);
 +    deepEventLists.set(walkedType, lists);
-+  }
+   }
 +  lists.forEach(events => events.push(event));
    callEventHandlerListeners(changedType._eH, event, transaction);
  };
@@ -598,8 +598,26 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..bf94817a9df2882203d9bb541380a83a
        return null
      }
      while (parentItem.redone !== null) {
+@@ -9915,7 +10218,16 @@ class Item extends AbstractStruct {
+       this.right = getItemCleanStart(transaction, this.rightOrigin);
+       this.rightOrigin = this.right.id;
+     }
+-    if ((this.left && this.left.constructor === GC) || (this.right && this.right.constructor === GC)) {
++    // Neighbours in different parents, which no real write can name, get the same answer as a collected
++    // neighbour. Stock Yjs took the left one's parent regardless, so such an item could win a key, and
++    // winning it deleted the old value and whatever was under it, which can be the right neighbour. A
++    // replica reading that state then finds the neighbour collected and writes the item off, while
++    // the ones holding the originals show it, with the same state vector, so nothing ever repairs it.
++    if (
++      (this.left && this.left.constructor === GC) ||
++      (this.right && this.right.constructor === GC) ||
++      (this.left && this.right && (this.left.parent !== this.right.parent || this.left.parentSub !== this.right.parentSub))
++    ) {
+       this.parent = null;
+     } else if (!this.parent) {
+       // only set parent if this shouldn't be garbage collected
 diff --git a/dist/yjs.mjs b/dist/yjs.mjs
-index 10d633d8e71171b2702c45376553832504921877..4c00df8273abef4746e8a6769f893308ef785f56 100644
+index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9adaa74c48c 100644
 --- a/dist/yjs.mjs
 +++ b/dist/yjs.mjs
 @@ -313,6 +313,10 @@ const readAndApplyDeleteSet = (decoder, transaction, store) => {
@@ -932,16 +950,16 @@ index 10d633d8e71171b2702c45376553832504921877..4c00df8273abef4746e8a6769f893308
 +    } else {
 +      current = /** @type {AbstractType<any>} */ (current._item.parent);
 +      lists = deepEventLists.get(current);
-     }
--    type = /** @type {AbstractType<any>} */ (type._item.parent);
-   }
++    }
++  }
 +  for (let i = walked.length - 1; i >= 0; i--) {
 +    const walkedType = walked[i];
 +    if (walkedType._dEH.l.length > 0) {
 +      lists = lists.concat([/** @type {Array<YEvent<any>>} */ (changedParentTypes.get(walkedType))]);
-+    }
+     }
+-    type = /** @type {AbstractType<any>} */ (type._item.parent);
 +    deepEventLists.set(walkedType, lists);
-+  }
+   }
 +  lists.forEach(events => events.push(event));
    callEventHandlerListeners(changedType._eH, event, transaction);
  };
@@ -1198,6 +1216,24 @@ index 10d633d8e71171b2702c45376553832504921877..4c00df8273abef4746e8a6769f893308
        return null
      }
      while (parentItem.redone !== null) {
+@@ -9878,7 +10181,16 @@ class Item extends AbstractStruct {
+       this.right = getItemCleanStart(transaction, this.rightOrigin);
+       this.rightOrigin = this.right.id;
+     }
+-    if ((this.left && this.left.constructor === GC) || (this.right && this.right.constructor === GC)) {
++    // Neighbours in different parents, which no real write can name, get the same answer as a collected
++    // neighbour. Stock Yjs took the left one's parent regardless, so such an item could win a key, and
++    // winning it deleted the old value and whatever was under it, which can be the right neighbour. A
++    // replica reading that state then finds the neighbour collected and writes the item off, while
++    // the ones holding the originals show it, with the same state vector, so nothing ever repairs it.
++    if (
++      (this.left && this.left.constructor === GC) ||
++      (this.right && this.right.constructor === GC) ||
++      (this.left && this.right && (this.left.parent !== this.right.parent || this.left.parentSub !== this.right.parentSub))
++    ) {
+       this.parent = null;
+     } else if (!this.parent) {
+       // only set parent if this shouldn't be garbage collected
 diff --git a/src/structs/ContentDoc.js b/src/structs/ContentDoc.js
 index 15836f5155c00f0147fc64acf770d7ab72340aa5..9f4a56deb917a68bd2d58081d6bc882b0fd255ac 100644
 --- a/src/structs/ContentDoc.js
@@ -1393,7 +1429,7 @@ index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b
  
    /**
 diff --git a/src/structs/Item.js b/src/structs/Item.js
-index fca5827090ca1b0fd6fdff1b74d260308e6c9196..1998ed20d29de26375baf5132a5e6c1a47e0515a 100644
+index fca5827090ca1b0fd6fdff1b74d260308e6c9196..07084109d9f33338150feaea3bd00a0c681b581b 100644
 --- a/src/structs/Item.js
 +++ b/src/structs/Item.js
 @@ -127,9 +127,17 @@ export const splitItem = (transaction, leftItem, diff) => {
@@ -1470,6 +1506,24 @@ index fca5827090ca1b0fd6fdff1b74d260308e6c9196..1998ed20d29de26375baf5132a5e6c1a
        return null
      }
      while (parentItem.redone !== null) {
+@@ -390,7 +434,16 @@ export class Item extends AbstractStruct {
+       this.right = getItemCleanStart(transaction, this.rightOrigin)
+       this.rightOrigin = this.right.id
+     }
+-    if ((this.left && this.left.constructor === GC) || (this.right && this.right.constructor === GC)) {
++    // Neighbours in different parents, which no real write can name, get the same answer as a collected
++    // neighbour. Stock Yjs took the left one's parent regardless, so such an item could win a key, and
++    // winning it deleted the old value and whatever was under it, which can be the right neighbour. A
++    // replica reading that state then finds the neighbour collected and writes the item off, while
++    // the ones holding the originals show it, with the same state vector, so nothing ever repairs it.
++    if (
++      (this.left && this.left.constructor === GC) ||
++      (this.right && this.right.constructor === GC) ||
++      (this.left && this.right && (this.left.parent !== this.right.parent || this.left.parentSub !== this.right.parentSub))
++    ) {
+       this.parent = null
+     } else if (!this.parent) {
+       // only set parent if this shouldn't be garbage collected
 diff --git a/src/types/AbstractType.js b/src/types/AbstractType.js
 index a83f3a58dd0b76465cff8e1de91b579a4214f6f5..b75eae2b429e0833e4045bc7f91d53b0386b91b4 100644
 --- a/src/types/AbstractType.js
