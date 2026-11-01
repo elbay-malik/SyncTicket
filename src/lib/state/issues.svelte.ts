@@ -15,8 +15,15 @@ import {
 	type WorkspaceResolution
 } from '$lib/model/workspace.js';
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
-import { createDoc, getIssuesMap, type YIssue } from '$lib/sync/doc.js';
-import { createIssue, deleteIssue, moveIssue, patchIssue, readIssue } from '$lib/sync/issues.js';
+import { createDoc, getIssuesMap, getYIssue, type IssuesMap, type YIssue } from '$lib/sync/doc.js';
+import {
+	createIssue,
+	deleteIssue,
+	moveIssue,
+	patchIssue,
+	readAllIssues,
+	readIssue
+} from '$lib/sync/issues.js';
 import { seedIssues, seedDemoIssues, type SeedOptions } from '$lib/sync/seed.js';
 import { attachPersistence, type WorkspacePersistence } from '$lib/sync/persistence.js';
 import { attachRelay, type RelayConnection } from '$lib/sync/provider.js';
@@ -86,7 +93,7 @@ function sessionWorkspace(): WorkspaceResolution {
 
 export class IssueStore {
 	#doc: Y.Doc;
-	#map: Y.Map<YIssue>;
+	#map: IssuesMap;
 	#undo: Y.UndoManager;
 	#persistence: WorkspacePersistence;
 	#relay: RelayConnection;
@@ -188,8 +195,14 @@ export class IssueStore {
 			}
 		});
 		void this.#persistence.whenSynced.then(
+			// Nothing a peer can write makes this rebuild throw, but if anything ever does, the
+			// visitor must still come off the loading skeleton: they have no way out of it.
 			() => {
-				this.#reindex();
+				try {
+					this.#reindex();
+				} catch (error) {
+					console.error('[issues] rebuilding after the local load failed', error);
+				}
 				this.#synced = true;
 			},
 			// If IndexedDB is unavailable (private mode, quota, blocked), degrade to an
@@ -431,7 +444,16 @@ export class IssueStore {
 
 	#emit(delta: IssueDelta): void {
 		if (delta.upserted.length === 0 && delta.removed.length === 0 && !delta.reset) return;
-		for (const listener of this.#listeners) listener(delta);
+		// Isolated because this runs inside a Yjs observer: a throw would escape into whichever
+		// provider applied the update, and cost the listeners after it and the batch's remote
+		// changes.
+		for (const listener of this.#listeners) {
+			try {
+				listener(delta);
+			} catch (error) {
+				console.error('[issues] a change listener threw', error);
+			}
+		}
 	}
 
 	/** Bulk-appends generated issues in one transaction, for benchmarking at scale. */
@@ -458,9 +480,10 @@ export class IssueStore {
 
 	/** Full idempotent resync of the projection from the CRDT (runs once, post-load). */
 	#reindex(): void {
+		const issues = readAllIssues(this.#map);
 		this.#byId.clear();
-		for (const [id, yIssue] of this.#map) this.#byId.set(id, readIssue(id, yIssue));
-		this.#emit({ upserted: [...this.#byId.values()], removed: [], reset: true });
+		for (const issue of issues) this.#byId.set(issue.id, issue);
+		this.#emit({ upserted: issues, removed: [], reset: true });
 	}
 
 	// Incrementally patches only the issues each Y event touches. Top-level events carry
@@ -476,43 +499,38 @@ export class IssueStore {
 		const live = transaction !== undefined && this.#isLiveRemote(transaction);
 		const changes: Array<{ before: Issue | undefined; after: Issue | undefined; client?: number }> =
 			[];
+		// Brings one id's row in line with the document, whatever the event was. Asking what the
+		// entry is now, rather than going by `change.action`, is what covers an issue replaced by
+		// junk: that is an 'update' to the map, but a removal to everyone reading it. An entry
+		// that was not an issue before and is not one now has no row, so it reaches nobody.
+		const project = (id: string, client: (yIssue: YIssue) => number | undefined): void => {
+			const before = this.#byId.get(id);
+			const yIssue = getYIssue(this.#map, id);
+			if (!yIssue) {
+				if (!this.#byId.delete(id)) return;
+				removed.push(id);
+				if (live) changes.push({ before, after: undefined });
+				return;
+			}
+			const issue = readIssue(id, yIssue);
+			this.#byId.set(id, issue);
+			upserted.push(issue);
+			if (live) changes.push({ before, after: issue, client: client(yIssue) });
+		};
 		for (const event of events) {
 			if (event.path.length === 0) {
-				for (const [key, change] of event.changes.keys) {
-					const before = this.#byId.get(key);
-					if (change.action === 'delete') {
-						this.#byId.delete(key);
-						removed.push(key);
-						if (live) changes.push({ before, after: undefined });
-					} else {
-						const yIssue = this.#map.get(key);
-						if (yIssue) {
-							const issue = readIssue(key, yIssue);
-							this.#byId.set(key, issue);
-							upserted.push(issue);
-							if (live)
-								changes.push({ before, after: issue, client: authorClient(this.#map, key) });
-						}
-					}
+				for (const key of event.changes.keys.keys()) {
+					project(key, () => authorClient(this.#map, key));
 				}
 			} else {
+				// An edit inside a Y.Text or Y.Array stored as junk lands here too, with path[0]
+				// naming the junk entry.
 				const id = event.path[0];
 				if (typeof id !== 'string') continue;
-				const before = this.#byId.get(id);
-				const yIssue = this.#map.get(id);
-				if (yIssue) {
-					const issue = readIssue(id, yIssue);
-					this.#byId.set(id, issue);
-					upserted.push(issue);
-					if (live) {
-						const key = event.changes.keys.keys().next().value;
-						const client = key === undefined ? undefined : authorClient(yIssue, key);
-						changes.push({ before, after: issue, client });
-					}
-				} else {
-					this.#byId.delete(id);
-					removed.push(id);
-				}
+				project(id, (yIssue) => {
+					const key = event.changes.keys.keys().next().value;
+					return key === undefined ? undefined : authorClient(yIssue, key);
+				});
 			}
 		}
 		// One emit per observer batch, so a transaction touching many issues is one message.

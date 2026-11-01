@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { sortIssues } from '$lib/model/query.js';
-import type { YIssue } from './doc.js';
-import { createDoc, getIssuesMap } from './doc.js';
+import { createDoc, getIssuesMap, getYIssue, type IssuesMap } from './doc.js';
 import {
 	createIssue,
 	deleteIssue,
@@ -12,8 +11,8 @@ import {
 	readIssue
 } from './issues.js';
 
-function read(map: Y.Map<YIssue>, id: string) {
-	const yIssue = map.get(id);
+function read(map: IssuesMap, id: string) {
+	const yIssue = getYIssue(map, id);
 	if (!yIssue) throw new Error(`missing issue ${id}`);
 	return readIssue(id, yIssue);
 }
@@ -172,7 +171,7 @@ describe('issue CRDT helpers', () => {
 
 describe('moveIssue', () => {
 	/** Ids of `status`'s column in display order. */
-	function column(map: Y.Map<YIssue>, status: string): string[] {
+	function column(map: IssuesMap, status: string): string[] {
 		return sortIssues(
 			readAllIssues(map).filter((issue) => issue.status === status),
 			'manual'
@@ -239,8 +238,8 @@ describe('moveIssue', () => {
 		const dragged = createIssue(map, { title: 'dragged', status: 'todo' });
 		// Force the exact collision the roadmap warns about.
 		doc.transact(() => {
-			map.get(a)?.set('order', 'a0');
-			map.get(b)?.set('order', 'a0');
+			getYIssue(map, a)?.set('order', 'a0');
+			getYIssue(map, b)?.set('order', 'a0');
 		});
 
 		expect(() => moveIssue(map, dragged, 'todo', [a, dragged, b])).not.toThrow();
@@ -284,7 +283,7 @@ describe('moveIssue', () => {
 		const map = getIssuesMap(doc);
 		const a = createIssue(map, { title: 'a', status: 'todo' });
 		const b = createIssue(map, { title: 'b', status: 'todo' });
-		doc.transact(() => map.get(a)?.delete('order'));
+		doc.transact(() => getYIssue(map, a)?.delete('order'));
 		expect(read(map, a).order).toBe('');
 
 		expect(() => moveIssue(map, b, 'todo', [b, a])).not.toThrow();

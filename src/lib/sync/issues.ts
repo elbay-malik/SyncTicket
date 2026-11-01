@@ -18,10 +18,10 @@ import {
 	type NewIssueInput
 } from '$lib/model/issue.js';
 import { labelsEqual } from '$lib/model/labels.js';
-import type { YIssue } from './doc.js';
+import { getYIssue, yIssues, type IssuesMap, type YIssue } from './doc.js';
 import { appendOrderKey, orderKeyBetween, planRepairs, type Ordered } from './order.js';
 
-function requireDoc(map: Y.Map<YIssue>): Y.Doc {
+function requireDoc(map: IssuesMap): Y.Doc {
 	const doc = map.doc;
 	if (!doc) throw new Error('issues map is not attached to a Y.Doc');
 	return doc;
@@ -76,16 +76,16 @@ export function readIssue(id: string, yIssue: YIssue): Issue {
 	};
 }
 
-export function readAllIssues(map: Y.Map<YIssue>): Issue[] {
+export function readAllIssues(map: IssuesMap): Issue[] {
 	const issues: Issue[] = [];
-	for (const [id, yIssue] of map) issues.push(readIssue(id, yIssue));
+	for (const [id, yIssue] of yIssues(map)) issues.push(readIssue(id, yIssue));
 	return issues;
 }
 
 /** Fractional key that sorts after every existing issue (appends to the end). */
-export function nextOrderKey(map: Y.Map<YIssue>): string {
+export function nextOrderKey(map: IssuesMap): string {
 	let max: string | null = null;
-	for (const yIssue of map.values()) {
+	for (const [, yIssue] of yIssues(map)) {
 		const order = yIssue.get('order');
 		if (typeof order === 'string' && (max === null || order > max)) max = order;
 	}
@@ -93,7 +93,7 @@ export function nextOrderKey(map: Y.Map<YIssue>): string {
 }
 
 /** Creates an issue and returns its id. All field writes happen in one transaction. */
-export function createIssue(map: Y.Map<YIssue>, input: NewIssueInput = {}): string {
+export function createIssue(map: IssuesMap, input: NewIssueInput = {}): string {
 	const doc = requireDoc(map);
 	const id = crypto.randomUUID();
 	const now = Date.now();
@@ -136,8 +136,8 @@ function isUnchanged(yIssue: YIssue, key: (typeof PATCH_KEYS)[number], next: unk
  * - A title is trimmed, and a blank one is ignored. `readIssue` only defaults a *missing*
  *   title to "Untitled", so persisting '' would render an empty row forever.
  */
-export function patchIssue(map: Y.Map<YIssue>, id: string, patch: IssuePatch): void {
-	const yIssue = map.get(id);
+export function patchIssue(map: IssuesMap, id: string, patch: IssuePatch): void {
+	const yIssue = getYIssue(map, id);
 	if (!yIssue) return;
 	const writes: Array<[(typeof PATCH_KEYS)[number], unknown]> = [];
 	for (const key of PATCH_KEYS) {
@@ -158,8 +158,9 @@ export function patchIssue(map: Y.Map<YIssue>, id: string, patch: IssuePatch): v
 	});
 }
 
-export function deleteIssue(map: Y.Map<YIssue>, id: string): void {
-	if (map.has(id)) map.delete(id);
+/** Deletes an issue. An entry that is not one is ignored like everywhere else (see doc.ts). */
+export function deleteIssue(map: IssuesMap, id: string): void {
+	if (getYIssue(map, id)) map.delete(id);
 }
 
 /**
@@ -178,22 +179,27 @@ export function deleteIssue(map: Y.Map<YIssue>, id: string): void {
  * and bumping it would make the "Recently updated" sort thrash while tidying a board.
  */
 export function moveIssue(
-	map: Y.Map<YIssue>,
+	map: IssuesMap,
 	id: string,
 	status: IssueStatus,
 	orderedIds: readonly string[]
 ): void {
-	const yIssue = map.get(id);
+	const yIssue = getYIssue(map, id);
 	if (!yIssue) return;
-	const index = orderedIds.indexOf(id);
-	if (index === -1) return;
 
+	// The position is counted among the siblings that exist rather than taken from `orderedIds`:
+	// an id with no issue behind it would otherwise leave it one too far along.
+	let index = -1;
 	const siblings: Ordered[] = [];
 	for (const siblingId of orderedIds) {
-		if (siblingId === id) continue;
-		const sibling = map.get(siblingId);
+		if (siblingId === id) {
+			if (index === -1) index = siblings.length;
+			continue;
+		}
+		const sibling = getYIssue(map, siblingId);
 		if (sibling) siblings.push({ id: siblingId, order: readString(sibling, 'order', '') });
 	}
+	if (index === -1) return;
 
 	const repairs = planRepairs(siblings);
 	if (repairs.length > 0) {
@@ -222,7 +228,7 @@ export function moveIssue(
 	const order = orderKeyBetween(previous, next);
 	const doc = requireDoc(map);
 	doc.transact(() => {
-		for (const repair of repairs) map.get(repair.id)?.set('order', repair.order);
+		for (const repair of repairs) getYIssue(map, repair.id)?.set('order', repair.order);
 		yIssue.set('order', order);
 		if (statusChanged) {
 			yIssue.set('status', status);

@@ -14,7 +14,7 @@ import {
 	type IssuePriority,
 	type IssueStatus
 } from '$lib/model/issue.js';
-import type { YIssue } from './doc.js';
+import { yIssues, type IssuesMap } from './doc.js';
 
 const SUBJECTS = [
 	'Login',
@@ -168,9 +168,9 @@ function makeRandom(seed: number): () => number {
 }
 
 /** The current highest order key in the map, or null for an empty one. Shared by both seeders. */
-function maxOrderKey(map: Y.Map<YIssue>): string | null {
+function maxOrderKey(map: IssuesMap): string | null {
 	let max: string | null = null;
-	for (const yIssue of map.values()) {
+	for (const [, yIssue] of yIssues(map)) {
 		const order = yIssue.get('order');
 		if (typeof order === 'string' && order !== '' && (max === null || order > max)) max = order;
 	}
@@ -184,7 +184,7 @@ function maxOrderKey(map: Y.Map<YIssue>): string | null {
  * `appendOrderKey`: seeding is a local bulk import, so there is no concurrent replica to
  * collide with, and 10,000 calls into the random-number generator is pure cost.
  */
-export function seedIssues(map: Y.Map<YIssue>, count: number, options: SeedOptions = {}): string[] {
+export function seedIssues(map: IssuesMap, count: number, options: SeedOptions = {}): string[] {
 	if (count <= 0) return [];
 	const doc = map.doc;
 	if (!doc) throw new Error('issues map is not attached to a Y.Doc');
@@ -238,7 +238,7 @@ export function seedIssues(map: Y.Map<YIssue>, count: number, options: SeedOptio
  * auto-seeding would break that contract for every one of them. This has to stay something
  * a visitor asks for, not something that happens to them.
  */
-export function seedDemoIssues(map: Y.Map<YIssue>): string[] {
+export function seedDemoIssues(map: IssuesMap): string[] {
 	const doc = map.doc;
 	if (!doc) throw new Error('issues map is not attached to a Y.Doc');
 
