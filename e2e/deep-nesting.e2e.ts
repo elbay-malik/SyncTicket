@@ -4,7 +4,7 @@
 
 import YProvider from 'y-partyserver/provider';
 import * as Y from 'yjs';
-import { expect, test, type Page } from './fixtures.js';
+import { committedUpdates, expect, test, waitForCommitAbove, type Page } from './fixtures.js';
 
 /** Must match RELAY_PORT in playwright.config.ts and RELAY_PARTY in src/lib/sync/provider.ts. */
 const RELAY_HOST = 'localhost:18791';
@@ -59,7 +59,8 @@ function nest(yIssue: Y.Map<unknown>): void {
 
 test('an issue holding one can be deleted, by a second browser too, and the workspace reloads', async ({
 	page,
-	workspaceId
+	workspaceId,
+	workspaceDb
 }) => {
 	const errors = collectErrors(page);
 	await openSynced(page);
@@ -77,9 +78,13 @@ test('an issue holding one can be deleted, by a second browser too, and the work
 	await row.click();
 	const sheet = page.getByRole('dialog', { name: 'Innocent' });
 	await sheet.getByRole('button', { name: 'Delete' }).click();
+	const baseline = await committedUpdates(page, workspaceDb);
 	await page.getByRole('button', { name: 'Delete issue' }).click();
 	await expect(row).toHaveCount(0);
 
+	// The delete has to be in IndexedDB for the reload to load it, which is the path that overflowed.
+	// Without this the relay's copy would remove the row and the test would pass regardless.
+	await waitForCommitAbove(page, workspaceDb, baseline);
 	await page.reload();
 	await expect(page.getByRole('link', { name: 'Kept' })).toBeVisible();
 	await expect(row).toHaveCount(0);
