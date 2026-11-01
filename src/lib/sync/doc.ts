@@ -29,6 +29,22 @@ export function getIssuesMap(doc: Y.Doc): IssuesMap {
 }
 
 /**
+ * An undo stack for what `origin` writes, and nothing else.
+ *
+ * It names its origin rather than taking Yjs's default, which tracks every transaction with no
+ * origin. That covers more than a visitor's edits: when two peers format a Y.Text at once, Yjs tidies
+ * up on each replica that receives them, in a new local transaction with no origin, so a peer could
+ * push a step onto anyone's stack and wipe their redo. Whatever writes under `origin` has to pass it
+ * to `doc.transact`; a nested transaction joins the outermost one, whose origin is what counts.
+ *
+ * `captureTimeout` is 300ms rather than the 500ms default so that typing a title and then changing
+ * a status are two undo steps rather than one.
+ */
+export function createUndoManager(map: IssuesMap, origin: object): Y.UndoManager {
+	return new Y.UndoManager(map, { captureTimeout: 300, trackedOrigins: new Set([origin]) });
+}
+
+/**
  * Whether an entry under `issues` is an issue at all: a Y.Map, under a key that is an issue id.
  *
  * Duck-typing on `.get` is not enough: Y.Array, Y.XmlFragment and a sub-document all have a

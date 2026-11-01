@@ -15,7 +15,14 @@ import {
 	type WorkspaceResolution
 } from '$lib/model/workspace.js';
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
-import { createDoc, getIssuesMap, getYIssue, type IssuesMap, type YIssue } from '$lib/sync/doc.js';
+import {
+	createDoc,
+	createUndoManager,
+	getIssuesMap,
+	getYIssue,
+	type IssuesMap,
+	type YIssue
+} from '$lib/sync/doc.js';
 import {
 	createIssue,
 	deleteIssue,
@@ -156,17 +163,14 @@ export class IssueStore {
 		this.#map.observeDeep(this.#onChange);
 		// Undo, scoped to this client's own edits and nobody else's.
 		//
-		// The scoping is the whole point and it is free: Yjs tracks only transactions whose
-		// origin is in `trackedOrigins`, which defaults to `new Set([null])`. Local mutations
-		// transact with no origin, while IndexedDB and the relay both apply with their provider
-		// as the origin — so ⌘Z takes back what you did and can never take back what a peer
-		// did, which in a shared workspace with no accounts is the difference between an undo
-		// and an attack. It is also why undo survives a merge: the stack holds this client's
-		// changes, and Yjs re-applies the inverse against whatever the document has become.
-		//
-		// `captureTimeout` is 300ms rather than the 500ms default so that typing a title and
-		// then changing a status are two undo steps rather than one.
-		this.#undo = new Y.UndoManager(this.#map, { captureTimeout: 300 });
+		// The scoping is the whole point: every write this store makes goes through `#write`, with
+		// the store as its origin, and only that origin is tracked. IndexedDB and the relay apply
+		// with their provider as the origin, and Yjs's own tidying up has none, so ⌘Z takes back what
+		// you did and can never take back what a peer did, which in a shared workspace with no
+		// accounts is the difference between an undo and an attack. It is also why undo survives a
+		// merge: the stack holds this client's changes, and Yjs re-applies the inverse against
+		// whatever the document has become.
+		this.#undo = createUndoManager(this.#map, this);
 		const syncUndoState = () => {
 			this.canUndo = this.#undo.canUndo();
 			this.canRedo = this.#undo.canRedo();
@@ -357,7 +361,7 @@ export class IssueStore {
 	}
 
 	create(input?: NewIssueInput): string {
-		return createIssue(this.#map, input);
+		return this.#write(() => createIssue(this.#map, input));
 	}
 
 	/**
@@ -379,13 +383,13 @@ export class IssueStore {
 	 */
 	update(id: string, patch: IssuePatch, group?: EditGroup): void {
 		if (!group) {
-			patchIssue(this.#map, id, patch);
+			this.#write(() => patchIssue(this.#map, id, patch));
 			return;
 		}
 		const top = this.#undo.undoStack.at(-1);
 		if (group.item !== null && top === group.item) this.#undo.lastChange = Infinity;
 		else this.#undo.stopCapturing();
-		patchIssue(this.#map, id, patch);
+		this.#write(() => patchIssue(this.#map, id, patch));
 		const after = this.#undo.undoStack.at(-1);
 		if (after !== undefined && after !== top) group.item = after;
 		this.#undo.stopCapturing();
@@ -414,7 +418,7 @@ export class IssueStore {
 	}
 
 	remove(id: string): void {
-		deleteIssue(this.#map, id);
+		this.#write(() => deleteIssue(this.#map, id));
 	}
 
 	/**
@@ -422,7 +426,7 @@ export class IssueStore {
 	 * column's ids in their new display order, including `id`). Key maths lives in sync/.
 	 */
 	move(id: string, status: IssueStatus, orderedIds: readonly string[]): void {
-		moveIssue(this.#map, id, status, orderedIds);
+		this.#write(() => moveIssue(this.#map, id, status, orderedIds));
 	}
 
 	/**
@@ -458,12 +462,12 @@ export class IssueStore {
 
 	/** Bulk-appends generated issues in one transaction, for benchmarking at scale. */
 	seed(count: number, options?: SeedOptions): string[] {
-		return seedIssues(this.#map, count, options);
+		return this.#write(() => seedIssues(this.#map, count, options));
 	}
 
 	/** Appends a small curated backlog. Called only from the empty state's own button. */
 	seedDemo(): string[] {
-		return seedDemoIssues(this.#map);
+		return this.#write(() => seedDemoIssues(this.#map));
 	}
 
 	destroy(): void {
@@ -476,6 +480,11 @@ export class IssueStore {
 		this.#status.destroy();
 		void this.#persistence.destroy();
 		this.#doc.destroy();
+	}
+
+	/** A write of this visitor's, which is what undo tracks. See the constructor. */
+	#write<T>(write: () => T): T {
+		return this.#doc.transact(write, this);
 	}
 
 	/** Full idempotent resync of the projection from the CRDT (runs once, post-load). */
