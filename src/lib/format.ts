@@ -185,7 +185,7 @@ export function connectionCopy(input: {
 
 /** ISO string for <time datetime>; invalid/zero timestamps yield undefined (no attr). */
 export function isoTime(timestamp: number): string | undefined {
-	return Number.isFinite(timestamp) && timestamp > 0
-		? new Date(timestamp).toISOString()
-		: undefined;
+	if (!(timestamp > 0)) return undefined;
+	const date = new Date(timestamp);
+	return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }

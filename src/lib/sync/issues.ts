@@ -32,9 +32,17 @@ function readString(yIssue: YIssue, key: string, fallback: string): string {
 	return typeof value === 'string' ? value : fallback;
 }
 
-function readNumber(yIssue: YIssue, key: string, fallback: number): number {
+/** The last time a Date can hold, either side of the epoch. ECMAScript fixes it at this. */
+const MAX_TIME = 8.64e15;
+
+/**
+ * A stored time, or `fallback` when a Date couldn't hold what a peer left there, so nothing past
+ * this point has to wonder: `toISOString` throws out of range, in the middle of rendering, and
+ * patchIssue never writes `createdAt`, so no edit would ever clear it.
+ */
+function readTime(yIssue: YIssue, key: string, fallback: number): number {
 	const value = yIssue.get(key);
-	return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+	return typeof value === 'number' && Math.abs(value) <= MAX_TIME ? value : fallback;
 }
 
 function readStatus(yIssue: YIssue): IssueStatus {
@@ -75,7 +83,7 @@ function readOrder(yIssue: YIssue): string {
 
 /** Deserialise one issue Y.Map into a plain Issue, tolerating missing/corrupt fields. */
 export function readIssue(id: string, yIssue: YIssue): Issue {
-	const createdAt = readNumber(yIssue, 'createdAt', 0);
+	const createdAt = readTime(yIssue, 'createdAt', 0);
 	return {
 		id,
 		title: readString(yIssue, 'title', 'Untitled'),
@@ -86,7 +94,7 @@ export function readIssue(id: string, yIssue: YIssue): Issue {
 		labels: readLabels(yIssue),
 		order: readOrder(yIssue),
 		createdAt,
-		updatedAt: readNumber(yIssue, 'updatedAt', createdAt)
+		updatedAt: readTime(yIssue, 'updatedAt', createdAt)
 	};
 }
 

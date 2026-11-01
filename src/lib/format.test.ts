@@ -34,6 +34,13 @@ describe('isoTime', () => {
 		expect(isoTime(0)).toBeUndefined();
 		expect(isoTime(Number.NaN)).toBeUndefined();
 	});
+
+	it('rejects what a Date cannot hold, rather than throwing while a view renders', () => {
+		expect(isoTime(8.64e15)).toBe('+275760-09-13T00:00:00.000Z');
+		for (const timestamp of [8.64e15 + 1, 1e300, Infinity]) {
+			expect(isoTime(timestamp)).toBeUndefined();
+		}
+	});
 });
 
 describe('listNames', () => {
