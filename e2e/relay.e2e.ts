@@ -3,8 +3,19 @@
 // These tests deliberately do not use the per-test workspace fixture the way the others do:
 // they need two contexts in the *same* room, so the id is seeded into both by hand.
 
-import { expect, test, type Browser, type Page } from './fixtures.js';
-import { DEFAULT_WORKSPACE_ID, WORKSPACE_STORAGE_KEY } from '../src/lib/model/workspace.js';
+import {
+	committedUpdates,
+	expect,
+	test,
+	waitForCommitAbove,
+	type Browser,
+	type Page
+} from './fixtures.js';
+import {
+	DEFAULT_WORKSPACE_ID,
+	WORKSPACE_STORAGE_KEY,
+	workspaceDbName
+} from '../src/lib/model/workspace.js';
 
 /** Opens a page already bound to `workspaceId`, and waits until the relay has synced it. */
 async function openPeer(browser: Browser, workspaceId: string): Promise<Page> {
@@ -108,6 +119,8 @@ test('edits made while cut off from the relay converge once it is reachable', as
 	await alice.goto('/issues');
 	await expect(alice.getByText('No issues yet')).toBeVisible();
 	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'false');
+	const aliceDb = workspaceDbName(workspaceId);
+	const baseline = await committedUpdates(alice, aliceDb);
 
 	// Local-first: the write lands immediately even with nowhere to send it.
 	const input = alice.getByPlaceholder('Add an issue…');
@@ -118,9 +131,14 @@ test('edits made while cut off from the relay converge once it is reachable', as
 	await expect(bob.getByRole('link', { name: 'Written while cut off' })).toHaveCount(0);
 
 	// Let the relay through and reload; the document is still in Alice's IndexedDB, so what
-	// converges is a change made entirely offline.
+	// converges is a change made entirely offline. Not before it has committed, though: a
+	// reload that lands first discards the write with the old page, Alice comes back to an
+	// empty workspace and syncs it in good faith, and the relay never hears of the issue.
+	await waitForCommitAbove(alice, aliceDb, baseline);
 	relayReachable = true;
 	await alice.reload();
+	// Checked before Bob, so a write lost on Alice's side cannot pass for a sync failure.
+	await expect(alice.getByRole('link', { name: 'Written while cut off' })).toBeVisible();
 	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
 		timeout: 30_000
 	});

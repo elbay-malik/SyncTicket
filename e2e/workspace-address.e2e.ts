@@ -7,7 +7,15 @@
 // navigation; these pin that from a visitor's side: what the bar says, what Back does, what a
 // reload and a copied link do, and what happens to a link that was wrong.
 
-import { expect, onRoute, test, type Browser, type Page } from './fixtures.js';
+import {
+	committedUpdates,
+	expect,
+	onRoute,
+	test,
+	waitForCommitAbove,
+	type Browser,
+	type Page
+} from './fixtures.js';
 import { WORKSPACE_STORAGE_KEY } from '../src/lib/model/workspace.js';
 
 /** The exact address `path` should end up at in `workspaceId`. */
@@ -72,18 +80,22 @@ test('the workspace stays in the address bar across /issues, /board and an issue
 	await expect(page).toHaveURL(exactly('/board', workspaceId));
 });
 
-test('a reload stays in the same workspace', async ({ page, workspaceId }) => {
+test('a reload stays in the same workspace', async ({ page, workspaceId, workspaceDb }) => {
 	await page.goto('/issues');
 	// Hydrated before typing, as issues.e2e.ts waits too: a field filled from the server-rendered
 	// HTML holds the text, but its Add button is still the disabled one the server drew, so
 	// Enter submits nothing and the issue is never made.
 	await expect(page.getByText('No issues yet')).toBeVisible();
+	const baseline = await committedUpdates(page, workspaceDb);
 	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Still here');
 	await input.press('Enter');
 	await expect(page.getByRole('link', { name: 'Still here' })).toBeVisible();
 	await expect(page).toHaveURL(exactly('/issues', workspaceId));
 
+	// Committed before the reload: one that lands first loses the write on this side, and the
+	// relay can only hand it back if this page's socket was open in time to send it.
+	await waitForCommitAbove(page, workspaceDb, baseline);
 	await page.reload();
 	await expect(page).toHaveURL(exactly('/issues', workspaceId));
 	await expect(page.getByRole('link', { name: 'Still here' })).toBeVisible();
@@ -119,16 +131,21 @@ test('copying the address bar into another browser joins the same workspace', as
 
 test('a bad workspace link is replaced by the real one, says so once, and keeps the sheet open', async ({
 	page,
-	workspaceId
+	workspaceId,
+	workspaceDb
 }) => {
 	await page.goto('/issues');
 	await expect(page.getByText('No issues yet')).toBeVisible();
+	const baseline = await committedUpdates(page, workspaceDb);
 	const input = page.getByPlaceholder('Add an issue…');
 	await input.fill('Deep link target');
 	await input.press('Enter');
 	await page.getByRole('link', { name: 'Deep link target' }).click();
 	await expect(page).toHaveURL(exactly('/issues/[0-9a-f-]{36}', workspaceId));
 	const issuePath = new URL(page.url()).pathname;
+	// Committed before the cold load: a full page load that lands first loses the issue on
+	// this side, and the relay can only hand it back if the socket was open in time to send it.
+	await waitForCommitAbove(page, workspaceDb, baseline);
 
 	// A cold load of that issue with a broken id — a mangled share link.
 	await page.goto(`${issuePath}?ws=not%20a%20valid%20id!`);

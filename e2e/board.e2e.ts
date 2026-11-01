@@ -7,63 +7,14 @@
 // it doubles as the accessibility proof — the assertions on the live region below are the
 // same text a screen-reader user hears.
 
-import { expect, onRoute, test, type Page } from './fixtures.js';
-
-function committedUpdates(page: Page, DB_NAME: string): Promise<number> {
-	return page.evaluate(
-		(db) =>
-			new Promise<number>((resolve) => {
-				const request = indexedDB.open(db);
-				request.onsuccess = () => {
-					const conn = request.result;
-					if (!conn.objectStoreNames.contains('updates')) {
-						conn.close();
-						resolve(0);
-						return;
-					}
-					const countReq = conn.transaction('updates').objectStore('updates').count();
-					countReq.onsuccess = () => {
-						conn.close();
-						resolve(countReq.result);
-					};
-					countReq.onerror = () => {
-						conn.close();
-						resolve(0);
-					};
-				};
-				request.onerror = () => resolve(0);
-			}),
-		DB_NAME
-	);
-}
-
-async function waitForCommitAbove(page: Page, DB_NAME: string, baseline: number) {
-	await page.waitForFunction(
-		({ db, base }) =>
-			new Promise<boolean>((resolve) => {
-				const request = indexedDB.open(db);
-				request.onsuccess = () => {
-					const conn = request.result;
-					if (!conn.objectStoreNames.contains('updates')) {
-						conn.close();
-						resolve(false);
-						return;
-					}
-					const countReq = conn.transaction('updates').objectStore('updates').count();
-					countReq.onsuccess = () => {
-						conn.close();
-						resolve(countReq.result > base);
-					};
-					countReq.onerror = () => {
-						conn.close();
-						resolve(false);
-					};
-				};
-				request.onerror = () => resolve(false);
-			}),
-		{ db: DB_NAME, base: baseline }
-	);
-}
+import {
+	committedUpdates,
+	expect,
+	onRoute,
+	test,
+	waitForCommitAbove,
+	type Page
+} from './fixtures.js';
 
 /**
  * Seeds issues through the quick-add field, then opens the board.

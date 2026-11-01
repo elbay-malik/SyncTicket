@@ -1,69 +1,14 @@
-import { expect, onRoute, test, type Page } from './fixtures.js';
+import {
+	committedUpdates,
+	expect,
+	onRoute,
+	test,
+	waitForCommitAbove,
+	type Page
+} from './fixtures.js';
 
 /** Any well-formed id that cannot exist, used to warm the detail route. */
 const ABSENT_ID = '00000000-0000-4000-8000-000000000000';
-
-/** Number of Yjs update rows y-indexeddb has committed for the default workspace. */
-function committedUpdates(page: Page, DB_NAME: string): Promise<number> {
-	return page.evaluate(
-		(db) =>
-			new Promise<number>((resolve) => {
-				const request = indexedDB.open(db);
-				request.onsuccess = () => {
-					const conn = request.result;
-					if (!conn.objectStoreNames.contains('updates')) {
-						conn.close();
-						resolve(0);
-						return;
-					}
-					const countReq = conn.transaction('updates').objectStore('updates').count();
-					countReq.onsuccess = () => {
-						conn.close();
-						resolve(countReq.result);
-					};
-					countReq.onerror = () => {
-						conn.close();
-						resolve(0);
-					};
-				};
-				request.onerror = () => resolve(0);
-			}),
-		DB_NAME
-	);
-}
-
-/**
- * Blocks until y-indexeddb has committed at least one update beyond `baseline`. Reloading
- * without this races the async IndexedDB write. Re-baseline immediately before the write
- * you care about: a stale baseline is already satisfied by an earlier mutation.
- */
-async function waitForCommitAbove(page: Page, DB_NAME: string, baseline: number) {
-	await page.waitForFunction(
-		({ db, base }) =>
-			new Promise<boolean>((resolve) => {
-				const request = indexedDB.open(db);
-				request.onsuccess = () => {
-					const conn = request.result;
-					if (!conn.objectStoreNames.contains('updates')) {
-						conn.close();
-						resolve(false);
-						return;
-					}
-					const countReq = conn.transaction('updates').objectStore('updates').count();
-					countReq.onsuccess = () => {
-						conn.close();
-						resolve(countReq.result > base);
-					};
-					countReq.onerror = () => {
-						conn.close();
-						resolve(false);
-					};
-				};
-				request.onerror = () => resolve(false);
-			}),
-		{ db: DB_NAME, base: baseline }
-	);
-}
 
 /**
  * Visits the detail route once so its lazily-imported chunk is in the module map. Without
@@ -221,9 +166,13 @@ test('a detail sheet URL can be shared and reloaded', async ({ page, workspaceDb
 	await expect(page.getByRole('link', { name: 'Deep linked' })).toBeVisible();
 });
 
-test('the empty state can seed itself with example issues, on request only', async ({ page }) => {
+test('the empty state can seed itself with example issues, on request only', async ({
+	page,
+	workspaceDb
+}) => {
 	await page.goto('/issues');
 	await expect(page.getByText('No issues yet')).toBeVisible();
+	const baseline = await committedUpdates(page, workspaceDb);
 
 	await page.getByRole('button', { name: 'Load example issues' }).click();
 	await expect(page.getByText('No issues yet')).toHaveCount(0);
@@ -236,6 +185,7 @@ test('the empty state can seed itself with example issues, on request only', asy
 
 	// Survives a reload like anything else the user does — it is real, ordinary local data
 	// from here on, not a special demo mode.
+	await waitForCommitAbove(page, workspaceDb, baseline);
 	await page.reload();
 	await expect(page.getByRole('link', { name: /Board column drag is broken/ })).toBeVisible();
 	await expect(page.getByRole('listitem')).toHaveCount(rowCount);

@@ -6,7 +6,7 @@
 // the next local run, because the room's storage outlives the process. Seeding a unique
 // workspace id before any script runs restores isolation for both the database and the room.
 
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 import { WORKSPACE_STORAGE_KEY, workspaceDbName } from '../src/lib/model/workspace.js';
 
 export interface WorkspaceFixtures {
@@ -49,6 +49,62 @@ export const test = base.extend<WorkspaceFixtures>({
  */
 export function onRoute(path: string): RegExp {
 	return new RegExp(`${path}\\?ws=[A-Za-z0-9_-]+$`);
+}
+
+/**
+ * Number of Yjs update rows y-indexeddb has committed to the database `DB_NAME`. It never
+ * creates the database: counting before the app has opened it would otherwise leave an empty
+ * one behind, which y-indexeddb then opens as it is and can store nothing in.
+ */
+export function committedUpdates(page: Page, DB_NAME: string): Promise<number> {
+	return page.evaluate(
+		(db) =>
+			new Promise<number>((resolve) => {
+				const request = indexedDB.open(db);
+				// Fires only when there is no such database yet: aborting fails the open (0).
+				request.onupgradeneeded = () => request.transaction?.abort();
+				request.onsuccess = () => {
+					const conn = request.result;
+					if (!conn.objectStoreNames.contains('updates')) {
+						conn.close();
+						resolve(0);
+						return;
+					}
+					const countReq = conn.transaction('updates').objectStore('updates').count();
+					countReq.onsuccess = () => {
+						conn.close();
+						resolve(countReq.result);
+					};
+					countReq.onerror = () => {
+						conn.close();
+						resolve(0);
+					};
+				};
+				request.onerror = () => resolve(0);
+			}),
+		DB_NAME
+	);
+}
+
+/**
+ * Waits until y-indexeddb has committed at least one update beyond `baseline`, and fails the
+ * test if it never does. Reloading without this races the async IndexedDB write, and the race
+ * is lost, not merely late: a navigation that lands first aborts the transaction, and the
+ * reloaded page never had the write. Take the baseline right before the write you care about,
+ * once the page shows it has loaded from IndexedDB (its empty state or its list): before
+ * that, the load's own first row is not counted yet and would satisfy the wait, and a stale
+ * baseline is already satisfied by an earlier mutation.
+ *
+ * `expect.poll`, not `page.waitForFunction`: handed a predicate that returns a promise,
+ * waitForFunction resolves after one call with whatever the promise settles to, `false`
+ * included, so it neither waits nor fails.
+ */
+export async function waitForCommitAbove(page: Page, DB_NAME: string, baseline: number) {
+	await expect
+		.poll(() => committedUpdates(page, DB_NAME), {
+			message: 'the write is committed to IndexedDB'
+		})
+		.toBeGreaterThan(baseline);
 }
 
 export { expect };
