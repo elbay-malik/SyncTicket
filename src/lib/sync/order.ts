@@ -10,8 +10,11 @@
 // id tiebreak in model/query.ts), but a drag between two equal keys would throw. Two
 // defences below: jitter makes fresh collisions vanishingly unlikely, and planRepairs
 // heals the ones that already exist.
+//
+// The other hard part is that a key is a peer's string. fractional-indexing checks only some of
+// what it needs, so isOrderKey below decides what may ever reach it.
 
-import { BASE_62_DIGITS, generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
+import { BASE_62_DIGITS, generateKeyBetween } from 'fractional-indexing';
 
 /** The subset of an issue this module needs: a stable id and its current order key. */
 export interface Ordered {
@@ -22,6 +25,47 @@ export interface Ordered {
 /** Digits usable in a jitter suffix. '0' is excluded: a key ending in '0' is invalid. */
 const JITTER_DIGITS = BASE_62_DIGITS.slice(1);
 const JITTER_LENGTH = 4;
+
+/** The middle digit, which is what the library itself mints when nothing bounds it from above. */
+const MIDDLE_DIGIT = 'V';
+
+/** Which char codes are base-62 digits. Anything past the end of the table reads as not one. */
+const IS_DIGIT = new Uint8Array(128);
+for (const digit of BASE_62_DIGITS) IS_DIGIT[digit.charCodeAt(0)] = 1;
+
+const CODE_ZERO = '0'.charCodeAt(0);
+
+/** The one well-formed string the library refuses: the integer with nothing below it. */
+const SMALLEST_INTEGER = `A${'0'.repeat(26)}`;
+
+/**
+ * Whether a string is an order key, by the rules fractional-indexing relies on: the first
+ * character says how long the integer part is ('a' or 'Z' is 2, up to 'z' or 'A' at 27), every
+ * character after it is a base-62 digit, and a fraction doesn't end in '0'.
+ *
+ * Asking the library is no substitute, in either direction. Appending after 'a0.' or 'aé' just
+ * returns 'a1', because it never looks at a fraction it isn't using, and then the same key used
+ * as a bound quietly produces garbage: 'a0' and an emoji mints 'a0undefinedundefinedV'. And it
+ * can refuse its own output, as keyBetween below explains.
+ *
+ * There is deliberately no length limit. A real key grows each time a card is dropped into the
+ * same slot, and a key's length is no more dangerous than a title's.
+ *
+ * This runs on every read of every issue, so it allocates nothing: about 20 ns for a usual key.
+ */
+export function isOrderKey(key: string): boolean {
+	const head = key.charCodeAt(0);
+	let integerLength: number;
+	if (head >= 97 && head <= 122) integerLength = head - 95;
+	else if (head >= 65 && head <= 90) integerLength = 92 - head;
+	else return false;
+	if (key.length < integerLength) return false;
+	if (key.length > integerLength && key.charCodeAt(key.length - 1) === CODE_ZERO) return false;
+	for (let index = 1; index < key.length; index += 1) {
+		if (IS_DIGIT[key.charCodeAt(index)] !== 1) return false;
+	}
+	return key !== SMALLEST_INTEGER;
+}
 
 /**
  * A short random suffix appended to generated keys so that two replicas generating "the
@@ -37,14 +81,65 @@ function jitter(): string {
 	return suffix;
 }
 
-/** A missing or blank order key means "unordered", never a key to compute against. */
+/** A missing or invalid order key means "unordered", never a key to compute against. */
 function bound(key: string | null | undefined): string | null {
-	return key ? key : null;
+	return key && isOrderKey(key) ? key : null;
+}
+
+/**
+ * `generateKeyBetween` for two valid bounds in order, without the two ways it still fails them.
+ *
+ * Below the integer just above the smallest it returns the smallest, which it then refuses as a
+ * bound. Any fraction makes that valid, and it still sorts below the integer it was asked about.
+ *
+ * And its midpoint recurses once per 'z' at the start of what is left of `lower`, so a run of
+ * about 8,000 overflows the stack on a key that is valid. A limit would have to guess how much
+ * stack the caller left, so this catches the overflow instead. It can only happen once `lower`
+ * has differed from `upper`, so extending `lower` stays below `upper`, and no shorter key exists:
+ * anything above `lower` has to carry the whole run too.
+ */
+function keyBetween(lower: string | null, upper: string | null): string {
+	let key: string;
+	try {
+		key = generateKeyBetween(lower, upper);
+	} catch (error) {
+		if (lower === null || !(error instanceof RangeError)) throw error;
+		return lower + MIDDLE_DIGIT;
+	}
+	return key === SMALLEST_INTEGER ? key + MIDDLE_DIGIT : key;
+}
+
+/**
+ * `count` unjittered keys in order between two bounds, each of which may be null. This is
+ * `generateNKeysBetween` over {@link keyBetween}, since the library's can't be given another.
+ */
+export function orderKeysBetween(
+	lower: string | null,
+	upper: string | null,
+	count: number
+): string[] {
+	if (count <= 0) return [];
+	if (lower !== null && upper !== null) {
+		const middle = keyBetween(lower, upper);
+		const below = Math.floor(count / 2);
+		return [
+			...orderKeysBetween(lower, middle, below),
+			middle,
+			...orderKeysBetween(middle, upper, count - below - 1)
+		];
+	}
+	const keys: string[] = [];
+	let edge = lower ?? upper;
+	for (let index = 0; index < count; index += 1) {
+		edge = upper === null ? keyBetween(edge, null) : keyBetween(null, edge);
+		keys.push(edge);
+	}
+	return upper === null ? keys : keys.reverse();
 }
 
 /** Key that sorts after every existing key. Used when appending a new issue. */
 export function appendOrderKey(max: string | null, suffix: () => string = jitter): string {
-	return generateKeyBetween(bound(max), null) + suffix();
+	return keyBetween(bound(max), null) + suffix();
 }
 
 /** How many times to descend towards `next` looking for room to fit a jittered key. */
@@ -70,11 +165,11 @@ export function orderKeyBetween(
 	suffix: () => string = jitter
 ): string {
 	const upper = bound(next);
-	let key = generateKeyBetween(bound(prev), upper);
+	let key = keyBetween(bound(prev), upper);
 	for (let attempt = 0; attempt < JITTER_ATTEMPTS; attempt += 1) {
 		const jittered = key + suffix();
 		if (upper === null || jittered < upper) return jittered;
-		key = generateKeyBetween(key, upper);
+		key = keyBetween(key, upper);
 	}
 	return key;
 }
@@ -84,20 +179,22 @@ export function orderKeyBetween(
  * or `[]` when they already are — which is the normal case, so a healthy board pays
  * nothing. `items` must be in the order they are displayed in.
  *
+ * Whatever is not a key counts as damage, not only the blank that `readIssue` reports for one, so
+ * nothing but a valid key can become a bound here, whoever the caller is.
+ *
  * Only the offending run is rekeyed rather than the whole column: Phase 6 targets 10k
  * issues, and a full rewrite would be thousands of CRDT writes for a cosmetic problem.
  */
 export function planRepairs(items: readonly Ordered[]): Ordered[] {
+	const isAbove = (order: string, lower: string | null) =>
+		isOrderKey(order) && (lower === null || order > lower);
 	const repairs: Ordered[] = [];
 	let previous: string | null = null;
 	let index = 0;
 	while (index < items.length) {
 		const current = items[index];
 		if (!current) break;
-		// A blank key is not merely out of order, it is not a key at all: readIssue defaults a
-		// missing `order` to '', and feeding that to fractional-indexing throws a TypeError.
-		// Treat it as damage to repair rather than as a bound to measure against.
-		if (current.order !== '' && (previous === null || current.order > previous)) {
+		if (isAbove(current.order, previous)) {
 			previous = current.order;
 			index += 1;
 			continue;
@@ -109,11 +206,11 @@ export function planRepairs(items: readonly Ordered[]): Ordered[] {
 		while (end < items.length) {
 			const candidate = items[end];
 			if (!candidate) break;
-			if (candidate.order !== '' && (previous === null || candidate.order > previous)) break;
+			if (isAbove(candidate.order, previous)) break;
 			end += 1;
 		}
 		const upper = items[end]?.order ?? null;
-		const keys = generateNKeysBetween(previous, upper, end - index);
+		const keys = orderKeysBetween(previous, upper, end - index);
 		for (let offset = 0; offset < keys.length; offset += 1) {
 			const item = items[index + offset];
 			const order = keys[offset];

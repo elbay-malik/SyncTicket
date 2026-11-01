@@ -19,7 +19,7 @@ import {
 } from '$lib/model/issue.js';
 import { labelsEqual } from '$lib/model/labels.js';
 import { getYIssue, yIssues, type IssuesMap, type YIssue } from './doc.js';
-import { appendOrderKey, orderKeyBetween, planRepairs, type Ordered } from './order.js';
+import { appendOrderKey, isOrderKey, orderKeyBetween, planRepairs, type Ordered } from './order.js';
 
 function requireDoc(map: IssuesMap): Y.Doc {
 	const doc = map.doc;
@@ -59,6 +59,16 @@ function readLabels(yIssue: YIssue): string[] {
 		: [];
 }
 
+/**
+ * An issue's order key, or '' when what a peer left there is not one. Nothing that goes on to
+ * compute a key may read the field any other way, because fractional-indexing throws on a bad
+ * bound or returns garbage. The bad key stays in the document until a move replaces it.
+ */
+function readOrder(yIssue: YIssue): string {
+	const value = yIssue.get('order');
+	return typeof value === 'string' && isOrderKey(value) ? value : '';
+}
+
 /** Deserialise one issue Y.Map into a plain Issue, tolerating missing/corrupt fields. */
 export function readIssue(id: string, yIssue: YIssue): Issue {
 	const createdAt = readNumber(yIssue, 'createdAt', 0);
@@ -70,7 +80,7 @@ export function readIssue(id: string, yIssue: YIssue): Issue {
 		priority: readPriority(yIssue),
 		assignee: readAssignee(yIssue),
 		labels: readLabels(yIssue),
-		order: readString(yIssue, 'order', ''),
+		order: readOrder(yIssue),
 		createdAt,
 		updatedAt: readNumber(yIssue, 'updatedAt', createdAt)
 	};
@@ -82,14 +92,19 @@ export function readAllIssues(map: IssuesMap): Issue[] {
 	return issues;
 }
 
-/** Fractional key that sorts after every existing issue (appends to the end). */
-export function nextOrderKey(map: IssuesMap): string {
+/** The highest valid order key in the map, or null when there is none. */
+export function maxOrderKey(map: IssuesMap): string | null {
 	let max: string | null = null;
 	for (const [, yIssue] of yIssues(map)) {
-		const order = yIssue.get('order');
-		if (typeof order === 'string' && (max === null || order > max)) max = order;
+		const order = readOrder(yIssue);
+		if (order !== '' && (max === null || order > max)) max = order;
 	}
-	return appendOrderKey(max);
+	return max;
+}
+
+/** Fractional key that sorts after every existing issue (appends to the end). */
+export function nextOrderKey(map: IssuesMap): string {
+	return appendOrderKey(maxOrderKey(map));
 }
 
 /** Creates an issue and returns its id. All field writes happen in one transaction. */
@@ -197,7 +212,7 @@ export function moveIssue(
 			continue;
 		}
 		const sibling = getYIssue(map, siblingId);
-		if (sibling) siblings.push({ id: siblingId, order: readString(sibling, 'order', '') });
+		if (sibling) siblings.push({ id: siblingId, order: readOrder(sibling) });
 	}
 	if (index === -1) return;
 
@@ -218,7 +233,7 @@ export function moveIssue(
 	// carry random jitter the freshly computed one would differ from the stored one every
 	// time, so comparing keys is not enough. Ask the question that actually matters: does the
 	// key it already has put it where it now needs to be?
-	const current = readString(yIssue, 'order', '');
+	const current = readOrder(yIssue);
 	const alreadyInPlace =
 		current !== '' &&
 		(previous === null || current > previous) &&

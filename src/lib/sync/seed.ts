@@ -6,7 +6,6 @@
 // the keys in a single pass, which is the difference between a few seconds and a few tens
 // of milliseconds.
 
-import { generateNKeysBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
 import {
 	ISSUE_PRIORITIES,
@@ -14,7 +13,9 @@ import {
 	type IssuePriority,
 	type IssueStatus
 } from '$lib/model/issue.js';
-import { yIssues, type IssuesMap } from './doc.js';
+import type { IssuesMap } from './doc.js';
+import { maxOrderKey } from './issues.js';
+import { orderKeysBetween } from './order.js';
 
 const SUBJECTS = [
 	'Login',
@@ -167,20 +168,10 @@ function makeRandom(seed: number): () => number {
 	};
 }
 
-/** The current highest order key in the map, or null for an empty one. Shared by both seeders. */
-function maxOrderKey(map: IssuesMap): string | null {
-	let max: string | null = null;
-	for (const [, yIssue] of yIssues(map)) {
-		const order = yIssue.get('order');
-		if (typeof order === 'string' && order !== '' && (max === null || order > max)) max = order;
-	}
-	return max;
-}
-
 /**
  * Appends `count` generated issues in one transaction and returns their ids.
  *
- * Order keys come from a single `generateNKeysBetween` run rather than the jittered
+ * Order keys come from a single `orderKeysBetween` run rather than the jittered
  * `appendOrderKey`: seeding is a local bulk import, so there is no concurrent replica to
  * collide with, and 10,000 calls into the random-number generator is pure cost.
  */
@@ -191,7 +182,7 @@ export function seedIssues(map: IssuesMap, count: number, options: SeedOptions =
 
 	const max = maxOrderKey(map);
 	const random = makeRandom(options.seed ?? 1);
-	const keys = generateNKeysBetween(max, null, count);
+	const keys = orderKeysBetween(max, null, count);
 	const now = Date.now();
 	const ids: string[] = [];
 
@@ -242,7 +233,7 @@ export function seedDemoIssues(map: IssuesMap): string[] {
 	const doc = map.doc;
 	if (!doc) throw new Error('issues map is not attached to a Y.Doc');
 
-	const keys = generateNKeysBetween(maxOrderKey(map), null, DEMO_ISSUES.length);
+	const keys = orderKeysBetween(maxOrderKey(map), null, DEMO_ISSUES.length);
 	const now = Date.now();
 	const ids: string[] = [];
 

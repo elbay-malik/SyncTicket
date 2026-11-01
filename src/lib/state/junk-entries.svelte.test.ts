@@ -194,6 +194,28 @@ describe.each(JUNK_VALUES)('$name under issues', ({ make }) => {
 	});
 });
 
+describe.each(['~', 'zz', 'a0.', 'aé', `A${'0'.repeat(26)}`, 42])(
+	'a peer leaving %j as an order key',
+	(key) => {
+		it('stops nobody creating or moving an issue', async () => {
+			const { store, peer, expectInStep } = await makeHarness();
+			const victim = store.create({ title: 'Victim', status: 'todo' });
+			const other = store.create({ title: 'Other', status: 'todo' });
+
+			peer((issues) => (issues.get(victim) as Y.Map<unknown>).set('order', key));
+			expect(store.get(victim)?.order).toBe('');
+			expectInStep();
+
+			const created = store.create({ title: 'Created', status: 'todo' });
+			store.move(created, 'todo', [created, victim, other]);
+			const orders = [created, victim, other].map((id) => store.get(id)?.order ?? '');
+			expect(orders.every((order) => order !== '')).toBe(true);
+			expect([...orders].sort()).toEqual(orders);
+			expectInStep();
+		});
+	}
+);
+
 describe('edits inside a junk entry', () => {
 	const nested: ReadonlyArray<{
 		name: string;
