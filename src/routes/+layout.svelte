@@ -3,6 +3,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { ModeWatcher } from 'mode-watcher';
 	import { onMount } from 'svelte';
+	import type { Snapshot } from '@sveltejs/kit';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -28,6 +29,17 @@
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 
 	let { children } = $props();
+
+	let main = $state<HTMLElement | null>(null);
+
+	// `<main>` scrolls where the window used to, on a screen too short for what a route shows, and
+	// the window's position is the only one SvelteKit keeps. The list keeps its own, in its route.
+	export const snapshot: Snapshot<number> = {
+		capture: () => main?.scrollTop ?? 0,
+		restore: (top) => {
+			if (main) main.scrollTop = top;
+		}
+	};
 
 	// One keydown listener for the whole app; every shortcut is declared in the registry so
 	// the palette and the help sheet can show what actually exists (src/lib/keyboard).
@@ -227,7 +239,7 @@
 				</span>
 			</div>
 		</header>
-		<main id="main-content" tabindex="-1" class="min-h-0 flex-1 overflow-auto p-6">
+		<main bind:this={main} id="main-content" tabindex="-1" class="min-h-0 flex-1 overflow-auto p-6">
 			{@render children()}
 		</main>
 	</Sidebar.Inset>

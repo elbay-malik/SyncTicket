@@ -1,3 +1,16 @@
+<script module lang="ts">
+	/**
+	 * Where the list is scrolled to, by the entry at its top and how far down that entry, so that it
+	 * still means the same row if peers have changed what is above it. `offset` is for when that
+	 * entry has gone. Kept by SvelteKit between visits, which is why it is plain JSON.
+	 */
+	export interface ListPosition {
+		key: string;
+		within: number;
+		offset: number;
+	}
+</script>
+
 <script lang="ts">
 	// The list is virtualized because the DOM is the only thing that does not scale here.
 	// Measured at 10,000 issues before this change: filtering and sorting the whole set took
@@ -230,6 +243,59 @@
 		});
 	}
 
+	const keyOf = (entry: ListEntry) =>
+		entry.kind === 'section' ? `section:${entry.status}` : entry.issue.id;
+
+	// The window never scrolls on this shell, and the window's position is the only one SvelteKit
+	// keeps, so the route has to save and restore this one with a snapshot.
+	export function scrollPosition(): ListPosition | null {
+		if (!virtualizer) return null;
+		const offset = virtualizer.getScrollOffset();
+		const index = virtualizer.findItemIndex(offset);
+		const entry = entries[index];
+		if (!entry) return null;
+		return { key: keyOf(entry), within: offset - virtualizer.getItemOffset(index), offset };
+	}
+
+	export function restoreScroll({ key, within, offset }: ListPosition) {
+		const index = entries.findIndex((entry) => keyOf(entry) === key);
+		// By index rather than by offset alone: a newly mounted list has only estimated its rows, and
+		// `scrollToIndex` keeps correcting as they are measured.
+		if (index === -1) virtualizer?.scrollTo(offset);
+		else virtualizer?.scrollToIndex(index, { align: 'start', offset: within });
+	}
+
+	/** How far one press of an arrow key scrolls; about a row, and what browsers do for a page. */
+	const LINE_PX = 40;
+
+	/**
+	 * The keys that scroll a page, while focus is on the page itself.
+	 *
+	 * Skip to content puts focus on `<main>`, which has nothing to scroll while the list fits inside
+	 * it, and the list is not an ancestor of focus, so the browser moves nothing. Everywhere else
+	 * focus is in a row or a control, which has its own idea of what these keys mean, and on a screen
+	 * too short for the list `<main>` does scroll, and the browser sees to that itself.
+	 */
+	function onPageKeydown(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+		const main = event.target;
+		if (!scroller || !(main instanceof HTMLElement) || main.id !== 'main-content') return;
+		if (main.scrollHeight > main.clientHeight) return;
+		const page = scroller.clientHeight - LINE_PX;
+		const by: Record<string, number> = {
+			PageDown: page,
+			PageUp: -page,
+			' ': event.shiftKey ? -page : page,
+			ArrowDown: LINE_PX,
+			ArrowUp: -LINE_PX
+		};
+		if (event.key === 'Home') scroller.scrollTo({ top: 0 });
+		else if (event.key === 'End') scroller.scrollTo({ top: scroller.scrollHeight });
+		else if (event.key in by) scroller.scrollBy({ top: by[event.key] });
+		else return;
+		event.preventDefault();
+	}
+
 	/**
 	 * Moves focus across the controls of the row it is already in — a within-row convenience,
 	 * not a second cursor. Nothing is stored, so the next Up/Down still lands on a link.
@@ -274,6 +340,8 @@
 	}
 </script>
 
+<svelte:document onkeydown={onPageKeydown} />
+
 <!--
 	The handler is a delegation point for keys pressed on the rows inside, not a control of
 	its own: the list semantics live on the <ul> that virtua renders within.
@@ -292,8 +360,7 @@
 		<Virtualizer
 			bind:this={virtualizer}
 			data={entries}
-			getKey={(entry: ListEntry) =>
-				entry.kind === 'section' ? `section:${entry.status}` : entry.issue.id}
+			getKey={keyOf}
 			as="ul"
 			item="li"
 			itemProps={({ item }) => ({

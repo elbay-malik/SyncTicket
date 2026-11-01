@@ -11,6 +11,7 @@
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
+	import type { Snapshot } from '@sveltejs/kit';
 	import { afterNavigate, preloadCode } from '$app/navigation';
 	import { page } from '$app/state';
 	import { connectionCopy } from '$lib/format.js';
@@ -23,7 +24,7 @@
 	import { IssueQuery } from '$lib/state/queries.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
 	import { STATUS_UI } from '$lib/components/issues/meta.js';
-	import IssueList from '$lib/components/issues/issue-list.svelte';
+	import IssueList, { type ListPosition } from '$lib/components/issues/issue-list.svelte';
 	import SecondWindowInvite from '$lib/components/shell/second-window-invite.svelte';
 	import ViewBoundary from '$lib/components/shell/view-boundary.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -68,6 +69,23 @@
 	let selectedId = $state<string | null>(null);
 	let list = $state<ReturnType<typeof IssueList> | null>(null);
 	let newIssueButton = $state<HTMLButtonElement | null>(null);
+	/** A position to go back to, held until there is a list to apply it to. */
+	let positionToRestore = $state<ListPosition | null>(null);
+
+	// Back to this route mounts a new list, with its rows on their way: on a reload they are still
+	// coming out of IndexedDB when SvelteKit asks, so the position waits for the list to exist.
+	export const snapshot: Snapshot<ListPosition | null> = {
+		capture: () => list?.scrollPosition() ?? null,
+		restore: (position) => {
+			positionToRestore = position;
+		}
+	};
+
+	$effect(() => {
+		if (list === null || positionToRestore === null) return;
+		list.restoreScroll(positionToRestore);
+		positionToRestore = null;
+	});
 
 	const SORT_LABEL: Record<IssueSort, string> = {
 		// "Board order", not "Manual order": this list cannot reorder anything — dragging exists
