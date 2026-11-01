@@ -43,6 +43,10 @@ export function attachPersistence(doc: Y.Doc, workspaceId: string): WorkspacePer
 		// skeleton on it, so the whole app would hang on a spinner with no error and no way
 		// forward. Racing `_db`'s rejection against it is what makes the store's
 		// degrade-to-in-memory path reachable at all, and marks that rejection handled.
+		//
+		// A throw while applying what was stored has no such signal: y-indexeddb starts that
+		// fetch without keeping its promise, so 'synced' just never fires. That is why nothing a
+		// peer can store may throw out of Y.applyUpdate, which is what patches/yjs@*.patch is for.
 		whenSynced: new Promise<void>((resolve, reject) => {
 			void provider.whenSynced.then(() => resolve());
 			provider._db.catch(reject);

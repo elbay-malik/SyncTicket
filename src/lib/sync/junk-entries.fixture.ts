@@ -92,3 +92,45 @@ export function peerWrites(
 	write(peer.getMap<unknown>(ISSUES_KEY));
 	Y.applyUpdate(target, Y.encodeStateAsUpdate(peer, Y.encodeStateVector(target)), origin);
 }
+
+/**
+ * Nests `depth` maps under `key`, the way a peer can for about 12 bytes a level. Yjs takes it
+ * without complaint, and its delete and collect walks are what used to run out of stack.
+ */
+export function nestMaps(parent: Y.Map<unknown>, key: string, depth: number): void {
+	const nest = () => {
+		let current = new Y.Map<unknown>();
+		parent.set(key, current);
+		for (let level = 1; level < depth; level += 1) {
+			const next = new Y.Map<unknown>();
+			current.set('n', next);
+			current = next;
+		}
+	};
+	if (parent.doc) parent.doc.transact(nest);
+	else throw new Error('nestMaps needs a parent that is in a document');
+}
+
+/**
+ * Everything `peer` has written since `since`, with all of it already deleted, in one update. Its
+ * own Yjs never runs the delete, so the delete set is written out by hand in the v1 format: no
+ * structs, one client, one range.
+ */
+export function treeAndItsDelete(peer: Y.Doc, since: Uint8Array): Uint8Array {
+	const from = Y.decodeStateVector(since).get(peer.clientID) ?? 0;
+	const to = Y.getState(peer.store, peer.clientID);
+	const varUint = (value: number): number[] => {
+		const bytes: number[] = [];
+		let rest = value;
+		while (rest > 127) {
+			bytes.push((rest % 128) | 128);
+			rest = Math.floor(rest / 128);
+		}
+		bytes.push(rest);
+		return bytes;
+	};
+	const deletion = Uint8Array.from(
+		[0, 1, peer.clientID, 1, from, to - from].flatMap((value) => varUint(value))
+	);
+	return Y.mergeUpdates([Y.encodeStateAsUpdate(peer, since), deletion]);
+}

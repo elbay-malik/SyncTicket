@@ -1,0 +1,441 @@
+diff --git a/dist/yjs.cjs b/dist/yjs.cjs
+index 5b5690eb2f172cd99d244ff33394ff59f44fe103..1d97cbe08f8ee0ab249e32cc857413f76a607b0a 100644
+--- a/dist/yjs.cjs
++++ b/dist/yjs.cjs
+@@ -9417,6 +9417,74 @@ const YXmlFragmentRefID = 4;
+ const YXmlHookRefID = 5;
+ const YXmlTextRefID = 6;
+ 
++/**
++ * The types whose children are still to be deleted or collected, while one of those walks runs.
++ *
++ * An item and its content call each other once per nesting level, and any peer can nest a type
++ * deeper than the stack goes for a few bytes a level. A throw from there leaves the document half
++ * deleted and escapes Y.applyUpdate, on every replica that receives or loads the result. So a walk
++ * that is already running takes a nested type as work for later instead of descending into it:
++ * nothing between one level and the next depends on the order, and the outermost call does not
++ * return until the list is empty, so to its caller the walk is exactly as complete as before.
++ *
++ * @type {Array<AbstractType<any>> | null}
++ */
++let deleteQueue = null;
++
++/**
++ * @type {Array<AbstractType<any>> | null}
++ */
++let gcQueue = null;
++
++/**
++ * @param {AbstractType<any>} type
++ * @param {Transaction} transaction
++ */
++const deleteChildren = (type, transaction) => {
++  let item = type._start;
++  while (item !== null) {
++    if (!item.deleted) {
++      item.delete(transaction);
++    } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
++      // This will be gc'd later and we want to merge it if possible
++      // We try to merge all deleted items after each transaction,
++      // but we have no knowledge about that this needs to be merged
++      // since it is not in transaction.ds. Hence we add it to transaction._mergeStructs
++      transaction._mergeStructs.push(item);
++    }
++    item = item.right;
++  }
++  type._map.forEach(item => {
++    if (!item.deleted) {
++      item.delete(transaction);
++    } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
++      // same as above
++      transaction._mergeStructs.push(item);
++    }
++  });
++  transaction.changed.delete(type);
++};
++
++/**
++ * @param {AbstractType<any>} type
++ * @param {StructStore} store
++ */
++const gcChildren = (type, store) => {
++  let item = type._start;
++  while (item !== null) {
++    item.gc(store, true);
++    item = item.right;
++  }
++  type._start = null;
++  type._map.forEach(/** @param {Item | null} item */ (item) => {
++    while (item !== null) {
++      item.gc(store, true);
++      item = item.left;
++    }
++  });
++  type._map = new Map();
++};
++
+ /**
+  * @private
+  */
+@@ -9487,47 +9555,36 @@ class ContentType {
+    * @param {Transaction} transaction
+    */
+   delete (transaction) {
+-    let item = this.type._start;
+-    while (item !== null) {
+-      if (!item.deleted) {
+-        item.delete(transaction);
+-      } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
+-        // This will be gc'd later and we want to merge it if possible
+-        // We try to merge all deleted items after each transaction,
+-        // but we have no knowledge about that this needs to be merged
+-        // since it is not in transaction.ds. Hence we add it to transaction._mergeStructs
+-        transaction._mergeStructs.push(item);
+-      }
+-      item = item.right;
++    if (deleteQueue !== null) {
++      deleteQueue.push(this.type);
++      return;
+     }
+-    this.type._map.forEach(item => {
+-      if (!item.deleted) {
+-        item.delete(transaction);
+-      } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
+-        // same as above
+-        transaction._mergeStructs.push(item);
++    const queue = deleteQueue = [this.type];
++    try {
++      while (queue.length > 0) {
++        deleteChildren(/** @type {AbstractType<any>} */ (queue.pop()), transaction);
+       }
+-    });
+-    transaction.changed.delete(this.type);
++    } finally {
++      deleteQueue = null;
++    }
+   }
+ 
+   /**
+    * @param {StructStore} store
+    */
+   gc (store) {
+-    let item = this.type._start;
+-    while (item !== null) {
+-      item.gc(store, true);
+-      item = item.right;
++    if (gcQueue !== null) {
++      gcQueue.push(this.type);
++      return;
+     }
+-    this.type._start = null;
+-    this.type._map.forEach(/** @param {Item | null} item */ (item) => {
+-      while (item !== null) {
+-        item.gc(store, true);
+-        item = item.left;
++    const queue = gcQueue = [this.type];
++    try {
++      while (queue.length > 0) {
++        gcChildren(/** @type {AbstractType<any>} */ (queue.pop()), store);
+       }
+-    });
+-    this.type._map = new Map();
++    } finally {
++      gcQueue = null;
++    }
+   }
+ 
+   /**
+diff --git a/dist/yjs.mjs b/dist/yjs.mjs
+index 10d633d8e71171b2702c45376553832504921877..581e41df7699c6f5f877f2a19c108a3e47f576c8 100644
+--- a/dist/yjs.mjs
++++ b/dist/yjs.mjs
+@@ -9380,6 +9380,74 @@ const YXmlFragmentRefID = 4;
+ const YXmlHookRefID = 5;
+ const YXmlTextRefID = 6;
+ 
++/**
++ * The types whose children are still to be deleted or collected, while one of those walks runs.
++ *
++ * An item and its content call each other once per nesting level, and any peer can nest a type
++ * deeper than the stack goes for a few bytes a level. A throw from there leaves the document half
++ * deleted and escapes Y.applyUpdate, on every replica that receives or loads the result. So a walk
++ * that is already running takes a nested type as work for later instead of descending into it:
++ * nothing between one level and the next depends on the order, and the outermost call does not
++ * return until the list is empty, so to its caller the walk is exactly as complete as before.
++ *
++ * @type {Array<AbstractType<any>> | null}
++ */
++let deleteQueue = null;
++
++/**
++ * @type {Array<AbstractType<any>> | null}
++ */
++let gcQueue = null;
++
++/**
++ * @param {AbstractType<any>} type
++ * @param {Transaction} transaction
++ */
++const deleteChildren = (type, transaction) => {
++  let item = type._start;
++  while (item !== null) {
++    if (!item.deleted) {
++      item.delete(transaction);
++    } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
++      // This will be gc'd later and we want to merge it if possible
++      // We try to merge all deleted items after each transaction,
++      // but we have no knowledge about that this needs to be merged
++      // since it is not in transaction.ds. Hence we add it to transaction._mergeStructs
++      transaction._mergeStructs.push(item);
++    }
++    item = item.right;
++  }
++  type._map.forEach(item => {
++    if (!item.deleted) {
++      item.delete(transaction);
++    } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
++      // same as above
++      transaction._mergeStructs.push(item);
++    }
++  });
++  transaction.changed.delete(type);
++};
++
++/**
++ * @param {AbstractType<any>} type
++ * @param {StructStore} store
++ */
++const gcChildren = (type, store) => {
++  let item = type._start;
++  while (item !== null) {
++    item.gc(store, true);
++    item = item.right;
++  }
++  type._start = null;
++  type._map.forEach(/** @param {Item | null} item */ (item) => {
++    while (item !== null) {
++      item.gc(store, true);
++      item = item.left;
++    }
++  });
++  type._map = new Map();
++};
++
+ /**
+  * @private
+  */
+@@ -9450,47 +9518,36 @@ class ContentType {
+    * @param {Transaction} transaction
+    */
+   delete (transaction) {
+-    let item = this.type._start;
+-    while (item !== null) {
+-      if (!item.deleted) {
+-        item.delete(transaction);
+-      } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
+-        // This will be gc'd later and we want to merge it if possible
+-        // We try to merge all deleted items after each transaction,
+-        // but we have no knowledge about that this needs to be merged
+-        // since it is not in transaction.ds. Hence we add it to transaction._mergeStructs
+-        transaction._mergeStructs.push(item);
+-      }
+-      item = item.right;
++    if (deleteQueue !== null) {
++      deleteQueue.push(this.type);
++      return;
+     }
+-    this.type._map.forEach(item => {
+-      if (!item.deleted) {
+-        item.delete(transaction);
+-      } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
+-        // same as above
+-        transaction._mergeStructs.push(item);
++    const queue = deleteQueue = [this.type];
++    try {
++      while (queue.length > 0) {
++        deleteChildren(/** @type {AbstractType<any>} */ (queue.pop()), transaction);
+       }
+-    });
+-    transaction.changed.delete(this.type);
++    } finally {
++      deleteQueue = null;
++    }
+   }
+ 
+   /**
+    * @param {StructStore} store
+    */
+   gc (store) {
+-    let item = this.type._start;
+-    while (item !== null) {
+-      item.gc(store, true);
+-      item = item.right;
++    if (gcQueue !== null) {
++      gcQueue.push(this.type);
++      return;
+     }
+-    this.type._start = null;
+-    this.type._map.forEach(/** @param {Item | null} item */ (item) => {
+-      while (item !== null) {
+-        item.gc(store, true);
+-        item = item.left;
++    const queue = gcQueue = [this.type];
++    try {
++      while (queue.length > 0) {
++        gcChildren(/** @type {AbstractType<any>} */ (queue.pop()), store);
+       }
+-    });
+-    this.type._map = new Map();
++    } finally {
++      gcQueue = null;
++    }
+   }
+ 
+   /**
+diff --git a/src/structs/ContentType.js b/src/structs/ContentType.js
+index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b45dab80e 100644
+--- a/src/structs/ContentType.js
++++ b/src/structs/ContentType.js
+@@ -33,6 +33,74 @@ export const YXmlFragmentRefID = 4
+ export const YXmlHookRefID = 5
+ export const YXmlTextRefID = 6
+ 
++/**
++ * The types whose children are still to be deleted or collected, while one of those walks runs.
++ *
++ * An item and its content call each other once per nesting level, and any peer can nest a type
++ * deeper than the stack goes for a few bytes a level. A throw from there leaves the document half
++ * deleted and escapes Y.applyUpdate, on every replica that receives or loads the result. So a walk
++ * that is already running takes a nested type as work for later instead of descending into it:
++ * nothing between one level and the next depends on the order, and the outermost call does not
++ * return until the list is empty, so to its caller the walk is exactly as complete as before.
++ *
++ * @type {Array<AbstractType<any>> | null}
++ */
++let deleteQueue = null
++
++/**
++ * @type {Array<AbstractType<any>> | null}
++ */
++let gcQueue = null
++
++/**
++ * @param {AbstractType<any>} type
++ * @param {Transaction} transaction
++ */
++const deleteChildren = (type, transaction) => {
++  let item = type._start
++  while (item !== null) {
++    if (!item.deleted) {
++      item.delete(transaction)
++    } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
++      // This will be gc'd later and we want to merge it if possible
++      // We try to merge all deleted items after each transaction,
++      // but we have no knowledge about that this needs to be merged
++      // since it is not in transaction.ds. Hence we add it to transaction._mergeStructs
++      transaction._mergeStructs.push(item)
++    }
++    item = item.right
++  }
++  type._map.forEach(item => {
++    if (!item.deleted) {
++      item.delete(transaction)
++    } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
++      // same as above
++      transaction._mergeStructs.push(item)
++    }
++  })
++  transaction.changed.delete(type)
++}
++
++/**
++ * @param {AbstractType<any>} type
++ * @param {StructStore} store
++ */
++const gcChildren = (type, store) => {
++  let item = type._start
++  while (item !== null) {
++    item.gc(store, true)
++    item = item.right
++  }
++  type._start = null
++  type._map.forEach(/** @param {Item | null} item */ (item) => {
++    while (item !== null) {
++      item.gc(store, true)
++      item = item.left
++    }
++  })
++  type._map = new Map()
++}
++
+ /**
+  * @private
+  */
+@@ -103,47 +171,36 @@ export class ContentType {
+    * @param {Transaction} transaction
+    */
+   delete (transaction) {
+-    let item = this.type._start
+-    while (item !== null) {
+-      if (!item.deleted) {
+-        item.delete(transaction)
+-      } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
+-        // This will be gc'd later and we want to merge it if possible
+-        // We try to merge all deleted items after each transaction,
+-        // but we have no knowledge about that this needs to be merged
+-        // since it is not in transaction.ds. Hence we add it to transaction._mergeStructs
+-        transaction._mergeStructs.push(item)
+-      }
+-      item = item.right
++    if (deleteQueue !== null) {
++      deleteQueue.push(this.type)
++      return
+     }
+-    this.type._map.forEach(item => {
+-      if (!item.deleted) {
+-        item.delete(transaction)
+-      } else if (item.id.clock < (transaction.beforeState.get(item.id.client) || 0)) {
+-        // same as above
+-        transaction._mergeStructs.push(item)
++    const queue = deleteQueue = [this.type]
++    try {
++      while (queue.length > 0) {
++        deleteChildren(/** @type {AbstractType<any>} */ (queue.pop()), transaction)
+       }
+-    })
+-    transaction.changed.delete(this.type)
++    } finally {
++      deleteQueue = null
++    }
+   }
+ 
+   /**
+    * @param {StructStore} store
+    */
+   gc (store) {
+-    let item = this.type._start
+-    while (item !== null) {
+-      item.gc(store, true)
+-      item = item.right
++    if (gcQueue !== null) {
++      gcQueue.push(this.type)
++      return
+     }
+-    this.type._start = null
+-    this.type._map.forEach(/** @param {Item | null} item */ (item) => {
+-      while (item !== null) {
+-        item.gc(store, true)
+-        item = item.left
++    const queue = gcQueue = [this.type]
++    try {
++      while (queue.length > 0) {
++        gcChildren(/** @type {AbstractType<any>} */ (queue.pop()), store)
+       }
+-    })
+-    this.type._map = new Map()
++    } finally {
++      gcQueue = null
++    }
+   }
+ 
+   /**

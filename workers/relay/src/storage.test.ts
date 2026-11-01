@@ -58,6 +58,27 @@ describe('snapshot round trip', () => {
 		Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
 		expect(contents(decodeSnapshot(encodeSnapshot(a)))).toEqual({ a: 'from A', b: 'from B' });
 	});
+
+	it('keeps the workspace when a peer has nested types deeper than the stack and deleted them', () => {
+		// Tombstones kept, which is what makes the rebuild walk the whole tree. A throw there used to
+		// come out of decodeSnapshot as an empty document, and the room forgot everything it held.
+		const doc = new Y.Doc({ gc: false });
+		const map = doc.getMap<unknown>('issues');
+		map.set('kept', 'still here');
+		const top = new Y.Map<unknown>();
+		map.set('deep', top);
+		doc.transact(() => {
+			let current = top;
+			for (let level = 1; level < 3_000; level += 1) {
+				const next = new Y.Map<unknown>();
+				current.set('n', next);
+				current = next;
+			}
+		});
+		map.delete('deep');
+
+		expect(contents(decodeSnapshot(encodeSnapshot(doc)))).toEqual({ kept: 'still here' });
+	});
 });
 
 describe('snapshot sizes', () => {
