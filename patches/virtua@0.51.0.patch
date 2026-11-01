@@ -1,0 +1,39 @@
+diff --git a/lib/core/index.js b/lib/core/index.js
+index 1880efd8bb9bdea9baf56bc888a202dc599fdf04..4b095edce7dbddbcde0176f1f940bf95cf035f0e 100644
+--- a/lib/core/index.js
++++ b/lib/core/index.js
+@@ -281,6 +281,7 @@ var {min: e, max: t, abs: o, floor: n} = Math, s = (o, n, s) => e(s, t(n, o)), r
+             g.delete(e), d.i(e);
+         }),
+         $scroll: u,
++        $cancelScroll: $,
+         $effect() {
+             n && n.u();
+         },
+diff --git a/lib/svelte/Virtualizer.svelte b/lib/svelte/Virtualizer.svelte
+index ffc9a90458b7b8e16a08efbe5a40da98d3d2fdd9..4e4191f5b73ddebef265e19554bb1d8df5627573 100644
+--- a/lib/svelte/Virtualizer.svelte
++++ b/lib/svelte/Virtualizer.svelte
+@@ -157,6 +157,8 @@
+     _scrollTo(driver, offset);
+   export const scrollBy: VirtualizerHandle["scrollBy"] = (offset) =>
+     _scrollBy(driver, store, offset);
++  export const cancelScroll: VirtualizerHandle["cancelScroll"] = () =>
++    driver.$cancelScroll();
+ 
+   let containerStyle = $derived(
+     styleToString({
+diff --git a/lib/svelte/Virtualizer.type.d.ts b/lib/svelte/Virtualizer.type.d.ts
+index df758c2622cc2f740765a58c250f49232e48d2a6..f7a1f34db67d6fd914179e757afa8f72003a52c4 100644
+--- a/lib/svelte/Virtualizer.type.d.ts
++++ b/lib/svelte/Virtualizer.type.d.ts
+@@ -136,4 +136,9 @@ export interface VirtualizerHandle {
+      * @param offset offset from current position
+      */
+     scrollBy(offset: number): void;
++    /**
++     * Stop correcting a scroll asked for by scrollTo, scrollToIndex or scrollBy.
++     * Each of them keeps scrolling back to its target as rows are measured, until 150ms after the last.
++     */
++    cancelScroll(): void;
+ }

@@ -265,6 +265,27 @@
 		else virtualizer?.scrollToIndex(index, { align: 'start', offset: within });
 	}
 
+	// virtua does not trust a scroll it was asked for to land: it scrolls back to the target whenever
+	// rows are measured, until 150 ms after the last of them. A hand moving the list inside that time
+	// brings new rows into view, so measuring them undid the hand's scroll, all of it: a wheel within
+	// about 100 ms of Back or of a cursor move put the list back where it was. So anything that says a
+	// person has taken over ends the correction, and what is on screen by then is theirs. The keys are
+	// in `onKeydown` and `onPageKeydown`.
+	//
+	// Plain listeners, not `on` from svelte/events, which runs the delegated handlers from inside its
+	// own: passive there would make every `preventDefault` under the list do nothing.
+	$effect(() => {
+		if (!scroller) return;
+		const listeners = new AbortController();
+		for (const type of ['wheel', 'touchstart', 'pointerdown']) {
+			scroller.addEventListener(type, () => virtualizer?.cancelScroll(), {
+				passive: true,
+				signal: listeners.signal
+			});
+		}
+		return () => listeners.abort();
+	});
+
 	/** How far one press of an arrow key scrolls; about a row, and what browsers do for a page. */
 	const LINE_PX = 40;
 
@@ -293,6 +314,8 @@
 		else if (event.key === 'End') scroller.scrollTo({ top: scroller.scrollHeight });
 		else if (event.key in by) scroller.scrollBy({ top: by[event.key] });
 		else return;
+		// Focus is outside the list, so the listeners on it heard nothing of this key.
+		virtualizer?.cancelScroll();
 		event.preventDefault();
 	}
 
@@ -323,6 +346,7 @@
 		// as well, tearing focus out of the menu that had just opened.
 		if (event.defaultPrevented) return;
 		if (event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+		virtualizer?.cancelScroll();
 
 		const down = event.key === 'ArrowDown' || event.key === 'j';
 		const up = event.key === 'ArrowUp' || event.key === 'k';

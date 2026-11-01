@@ -147,17 +147,20 @@ const firstVisibleRow = (page: Page) =>
 		return Number(links[0]?.textContent?.match(/Planted (\d+)/)?.[1]);
 	});
 
+async function overList(page: Page): Promise<void> {
+	const box = await scroller(page).boundingBox();
+	if (!box) throw new Error('The list has no box to point at');
+	await page.mouse.move(box.x + box.width / 2, box.y + 20);
+}
+
+// With the wheel, because a person has to be the one moving it. Writing `scrollTop` says nothing about
+// who did it, so the list goes on correcting a scroll it was asked for and takes the write back.
 async function scrollListTo(page: Page, row: number): Promise<number> {
-	// Set again on each try: a list just brought back is still settling, and its last correction can
-	// land on top of a scroll made in the same few milliseconds, which no hand is quick enough for.
-	await expect
-		.poll(async () => {
-			await scroller(page).evaluate((list, target) => {
-				list.scrollTop = target;
-			}, row * 41);
-			return firstVisibleRow(page);
-		})
-		.toBeGreaterThan(row - 8);
+	await overList(page);
+	const from = await scroller(page).evaluate((list) => list.scrollTop);
+	await page.mouse.wheel(0, row * 41 - from);
+	await expect.poll(() => firstVisibleRow(page)).toBeGreaterThan(row - 8);
+	// Long enough for a correction to land on top of it, which is what the callers are checking.
 	await page.waitForTimeout(200);
 	return firstVisibleRow(page);
 }
@@ -195,6 +198,42 @@ test('Back returns the list to the row it was on, and a new visit starts at the 
 	await page.getByRole('link', { name: 'Issues', exact: true }).click();
 	await expect(page.getByRole('link', { name: 'Planted 0', exact: true })).toBeVisible();
 	expect(await scroller(page).evaluate((list) => list.scrollTop)).toBe(0);
+});
+
+for (const focus of ['main', 'a row']) {
+	test(`PageDown right after Back, with focus on ${focus}, is not undone`, async ({
+		page,
+		workspaceId
+	}) => {
+		await openPlanted(page, workspaceId);
+		const before = await scrollListTo(page, 144);
+
+		await page.getByRole('link', { name: 'Board', exact: true }).click();
+		await expect(page.getByTestId('board-columns')).toBeVisible();
+		await page.goBack();
+		await expect.poll(() => firstVisibleRow(page)).toBe(before);
+
+		if (focus === 'main') await page.locator('#main-content').focus();
+		else await page.getByRole('link', { name: `Planted ${before}`, exact: true }).focus();
+		await page.keyboard.press('PageDown');
+		await expect.poll(() => firstVisibleRow(page)).toBeGreaterThan(before + 5);
+		await page.waitForTimeout(200);
+		expect(await firstVisibleRow(page)).toBeGreaterThan(before + 5);
+	});
+}
+
+test('the wheel right after a cursor move is not undone', async ({ page, workspaceId }) => {
+	await openPlanted(page, workspaceId);
+	await overList(page);
+	await page.getByRole('link', { name: 'Planted 0', exact: true }).focus();
+	// Far enough that the list has to scroll to follow, which is what starts a correction.
+	for (let press = 0; press < 25; press += 1) await page.keyboard.press('j');
+	const before = await firstVisibleRow(page);
+
+	await page.mouse.wheel(0, 4000);
+	await expect.poll(() => firstVisibleRow(page)).toBeGreaterThan(before + 50);
+	await page.waitForTimeout(200);
+	expect(await firstVisibleRow(page)).toBeGreaterThan(before + 50);
 });
 
 test('Back finds the row it was on even if the rows above it have changed', async ({
