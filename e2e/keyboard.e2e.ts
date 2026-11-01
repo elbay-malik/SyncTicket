@@ -46,6 +46,13 @@ test('an issue can be created, found, opened, edited and deleted by keyboard alo
 	await expect(page).toHaveURL(onRoute('/issues/[0-9a-f-]{36}'));
 	const sheet = page.getByRole('dialog');
 	await expect(sheet.getByLabel('Title')).toHaveValue('Keyboard only');
+	// The sheet's focus scope puts focus on Title itself, from a requestAnimationFrame, in the
+	// frame that first draws it. Everything below can fit inside that one frame, so the
+	// autofocus can land between focusing Delete and pressing Enter, and Enter then goes to
+	// Title. No person can act that early, since the sheet is not on screen yet. `toBeFocused`
+	// cannot wait for it: the focus trap has already put focus on Title by then, when SvelteKit
+	// resets focus after the navigation. A frame requested now runs after the scope's.
+	await page.evaluate(() => new Promise(requestAnimationFrame));
 
 	// EDIT — Enter commits the field in place.
 	await sheet.getByLabel('Title').fill('Renamed by keyboard');
