@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { parseLabels } from '$lib/model/labels.js';
+import { formatLabels, parseLabels } from '$lib/model/labels.js';
 import { createDoc, getIssuesMap, getYIssue } from './doc.js';
 import { createIssue, patchIssue, readAllIssues, readIssue } from './issues.js';
 import { peerWrites } from './junk-entries.fixture.js';
@@ -37,14 +37,16 @@ describe('labels a peer repeats', () => {
 		expect(deliver(labels).read).toEqual(read);
 	});
 
-	it('is case-sensitive and does not trim, exactly as parseLabels compares', () => {
-		expect(deliver(['Bug', 'bug', 'BUG', ' bug', 'bug']).read).toEqual([
-			'Bug',
-			'bug',
-			'BUG',
-			' bug'
-		]);
-		expect(parseLabels('Bug, bug, Bug')).toEqual(['Bug', 'bug']);
+	it('is case-sensitive, as parseLabels is', () => {
+		expect(deliver(['Bug', 'bug', 'BUG', 'bug']).read).toEqual(['Bug', 'bug', 'BUG']);
+		expect(parseLabels('Bug, bug, BUG, bug')).toEqual(['Bug', 'bug', 'BUG']);
+	});
+
+	it('does not trim, which parseLabels does, so an edit is what collapses them', () => {
+		const { read } = deliver([' bug', 'bug']);
+		expect(read).toEqual([' bug', 'bug']);
+		expect(new Set(read).size).toBe(read.length);
+		expect(parseLabels(formatLabels(read))).toEqual(['bug']);
 	});
 
 	it('leaves distinct labels alone, in their order', () => {
