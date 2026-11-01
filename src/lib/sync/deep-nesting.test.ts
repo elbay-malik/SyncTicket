@@ -9,8 +9,10 @@ import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import {
 	REAL_ID,
+	chainUnder,
 	nestMaps,
 	peerWrites,
+	splitChain,
 	treeAndItsDelete,
 	wellFormedIssue
 } from './junk-entries.fixture.js';
@@ -260,5 +262,125 @@ describe('what the patch must not change', () => {
 		expect(titles(doc)).toEqual([]);
 		expect(titles(freshReplica(doc))).toEqual([]);
 		undo.destroy();
+	});
+});
+
+// Well past where the recursion gave out. Not much further, because the UndoManager's scope check
+// walks to the root for each item, which takes seconds beyond this without overflowing anything.
+describe.each([10_000])(
+	'undoing the delete of a chain of %i split across clients',
+	{ timeout: 60_000 },
+	(depth) => {
+		const ORDERS = [
+			{ name: 'the last writer has the lower id', clients: { first: 1, second: 2 } },
+			{ name: 'the last writer has the higher id', clients: { first: 2, second: 1 } }
+		];
+
+		it.each(ORDERS)('restores all of it when $name', ({ clients }) => {
+			const doc = createDoc();
+			const map = getIssuesMap(doc);
+			const undo = new Y.UndoManager(map, { captureTimeout: 0 });
+			splitChain(doc, depth, 'relay', clients);
+			deleteIssue(map, REAL_ID);
+			expect(titles(doc)).toEqual([]);
+
+			expect(() => undo.undo()).not.toThrow();
+
+			const back = map.get(REAL_ID) as Y.Map<unknown>;
+			expect(titles(doc)).toEqual(['Innocent']);
+			expect(back.get('description')).toBe('Written by the first client');
+			expect(chainUnder(back)).toEqual({ depth: depth + 1, leaf: 'from the first client' });
+			const replica = freshReplica(doc);
+			expect(chainUnder(getIssuesMap(replica).get(REAL_ID) as Y.Map<unknown>)).toEqual({
+				depth: depth + 1,
+				leaf: 'from the first client'
+			});
+
+			expect(() => undo.redo()).not.toThrow();
+			expect(titles(doc)).toEqual([]);
+			undo.destroy();
+		});
+
+		it('stays gone when a peer has written over the id since', () => {
+			const doc = createDoc();
+			const map = getIssuesMap(doc);
+			const undo = new Y.UndoManager(map, { captureTimeout: 0 });
+			splitChain(doc, depth, 'relay');
+			const peer = freshReplica(doc);
+			deleteIssue(map, REAL_ID);
+			getIssuesMap(peer).set(REAL_ID, wellFormedIssue({ title: 'Theirs' }));
+			Y.applyUpdate(doc, Y.encodeStateAsUpdate(peer), 'relay');
+
+			expect(() => undo.undo()).not.toThrow();
+
+			expect(titles(doc)).toEqual(['Theirs']);
+			undo.destroy();
+		});
+	}
+);
+
+describe('what iterating the redo must not change', () => {
+	function withUndo() {
+		const doc = createDoc();
+		const map = getIssuesMap(doc);
+		const undo = new Y.UndoManager(map, { captureTimeout: 0 });
+		peerWrites(
+			doc,
+			(issues) => {
+				const yIssue = wellFormedIssue({ title: 'Nested' });
+				issues.set(REAL_ID, yIssue);
+				const outer = new Y.Map<unknown>();
+				yIssue.set('outer', outer);
+				const middle = new Y.Map<unknown>();
+				outer.set('middle', middle);
+				const inner = new Y.Map<unknown>();
+				middle.set('inner', inner);
+				inner.set('k', 'v');
+				const list = new Y.Array<unknown>();
+				inner.set('list', list);
+				list.push(['a', new Y.Map([['deep', 'x']]), 'b']);
+			},
+			'relay'
+		);
+		const yIssue = map.get(REAL_ID) as Y.Map<unknown>;
+		return { doc, map, undo, yIssue, outer: yIssue.get('outer') as Y.Map<unknown> };
+	}
+
+	it('brings back a nested tree in place, with its array in order', () => {
+		const { map, undo } = withUndo();
+
+		deleteIssue(map, REAL_ID);
+		undo.undo();
+
+		const inner = (
+			((map.get(REAL_ID) as Y.Map<unknown>).get('outer') as Y.Map<unknown>).get(
+				'middle'
+			) as Y.Map<unknown>
+		).get('inner') as Y.Map<unknown>;
+		expect(inner.get('k')).toBe('v');
+		const list = (inner.get('list') as Y.Array<unknown>).toArray();
+		expect(list[0]).toBe('a');
+		expect((list[1] as Y.Map<unknown>).get('deep')).toBe('x');
+		expect(list[2]).toBe('b');
+	});
+
+	it('leaves everything gone when a peer deleted an ancestor the undo does not cover', () => {
+		const { doc, undo, yIssue, outer } = withUndo();
+		const middle = outer.get('middle') as Y.Map<unknown>;
+		// Only `inner` and what is under it are this client's to bring back.
+		middle.delete('inner');
+		peerWrites(
+			doc,
+			(issues) => {
+				((issues.get(REAL_ID) as Y.Map<unknown>).get('outer') as Y.Map<unknown>).delete('middle');
+			},
+			'relay'
+		);
+		expect(outer.has('middle')).toBe(false);
+
+		expect(() => undo.undo()).not.toThrow();
+
+		expect(outer.has('middle')).toBe(false);
+		expect(yIssue.get('title')).toBe('Nested');
 	});
 });

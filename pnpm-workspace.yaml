@@ -25,9 +25,9 @@ allowBuilds:
   protobufjs: false
 
 patchedDependencies:
-  # Makes ContentType's delete and gc walks iterative, reads a plain value nested past a fixed depth
-  # as null, and stops a throw during cleanup wedging the document. Stock Yjs recurses once per
-  # nesting level, so a few KB from a peer overflows the stack inside Y.applyUpdate, before any of
-  # this repo's code runs. See the Data layer section of AGENTS.md. Redo it when bumping yjs:
+  # Makes ContentType's delete and gc walks and redoItem iterative, reads a plain value nested past
+  # a fixed depth as null, and stops a throw during cleanup wedging the document. Stock Yjs recurses
+  # once per nesting level, so a few KB from a peer overflows the stack inside Y.applyUpdate, before
+  # any of this repo's code runs. See the Data layer section of AGENTS.md. Redo it when bumping yjs:
   # src/lib/sync/deep-nesting.test.ts and deep-values.test.ts fail without it.
   yjs@13.6.31: patches/yjs@13.6.31.patch

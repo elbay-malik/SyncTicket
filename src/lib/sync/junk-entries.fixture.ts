@@ -111,6 +111,54 @@ export function nestMaps(parent: Y.Map<unknown>, key: string, depth: number): vo
 	else throw new Error('nestMaps needs a parent that is in a document');
 }
 
+/**
+ * A chain written by two clients: `first` writes the issue and the top map, `second` nests `depth`
+ * more under that, and `first` finishes with `leaf` at the very bottom. Undoing a delete of it visits
+ * one client's items at a time, so `first`'s last item comes before the parents `second` wrote,
+ * which is the order that used to recurse. A chain from one client is walked top-down and never did.
+ */
+export function splitChain(
+	target: Y.Doc,
+	depth: number,
+	origin: unknown,
+	clients: { first: number; second: number } = { first: 1, second: 2 }
+): void {
+	const first = new Y.Doc();
+	first.clientID = clients.first;
+	Y.applyUpdate(first, Y.encodeStateAsUpdate(target));
+	const yIssue = wellFormedIssue({ title: 'Innocent' });
+	first.getMap<unknown>(ISSUES_KEY).set(REAL_ID, yIssue);
+	const top = new Y.Map<unknown>();
+	yIssue.set('zzz', top);
+
+	const second = new Y.Doc();
+	second.clientID = clients.second;
+	Y.applyUpdate(second, Y.encodeStateAsUpdate(first));
+	const theirIssue = second.getMap<Y.Map<unknown>>(ISSUES_KEY).get(REAL_ID) as Y.Map<unknown>;
+	nestMaps(theirIssue.get('zzz') as Y.Map<unknown>, 'n', depth);
+
+	Y.applyUpdate(first, Y.encodeStateAsUpdate(second));
+	let deepest = top;
+	for (let next = deepest.get('n'); next instanceof Y.Map; next = deepest.get('n')) deepest = next;
+	deepest.set('leaf', 'from the first client');
+	yIssue.set('description', 'Written by the first client');
+
+	Y.applyUpdate(target, Y.encodeStateAsUpdate(first, Y.encodeStateVector(target)), origin);
+}
+
+/** How many maps hang under `zzz`, walked by hand, and what the last of them holds. */
+export function chainUnder(yIssue: Y.Map<unknown>): { depth: number; leaf: unknown } {
+	let depth = 0;
+	let current = yIssue.get('zzz');
+	let last: Y.Map<unknown> | null = null;
+	while (current instanceof Y.Map) {
+		depth += 1;
+		last = current;
+		current = current.get('n');
+	}
+	return { depth, leaf: last?.get('leaf') };
+}
+
 function varUint(value: number): number[] {
 	const bytes: number[] = [];
 	let rest = value;

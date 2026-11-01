@@ -9,12 +9,14 @@ import { Awareness } from 'y-protocols/awareness';
 import { getIssuesMap } from '$lib/sync/doc.js';
 import {
 	VALUE_CONTENT,
+	chainUnder,
 	handWrittenItem,
 	nestMaps,
 	nestedJson,
 	peerWrites,
 	REAL_ID,
 	SLOT_ID,
+	splitChain,
 	treeAndItsDelete,
 	wellFormedIssue
 } from '$lib/sync/junk-entries.fixture.js';
@@ -204,6 +206,28 @@ describe('a store holding an issue with a deep chain of nested types', () => {
 		expect(() => Y.applyUpdate(replica, Y.encodeStateAsUpdate(victim.doc))).not.toThrow();
 		expect(getIssuesMap(replica).has(REAL_ID)).toBe(false);
 	});
+});
+
+describe('a store undoing the delete of a chain split across clients', () => {
+	it.each([5_000, 10_000])(
+		'takes it back whole at %i levels, and has it after a reload',
+		async (depth) => {
+			const first = await open();
+			splitChain(first.doc, depth, first.provider);
+			first.store.remove(REAL_ID);
+			expect(titles(first.store)).toEqual([]);
+
+			expect(() => first.store.undo()).not.toThrow();
+
+			expect(titles(first.store)).toEqual(['Innocent']);
+			expect(first.store.get(REAL_ID)?.description).toBe('Written by the first client');
+			const stored = getIssuesMap(first.doc).get(REAL_ID) as Y.Map<unknown>;
+			expect(chainUnder(stored)).toEqual({ depth: depth + 1, leaf: 'from the first client' });
+
+			const second = await reload(first);
+			expect(second.store.get(REAL_ID)?.description).toBe('Written by the first client');
+		}
+	);
 });
 
 describe('a store handed a plain value nested too deep to write out again', () => {

@@ -1,5 +1,5 @@
 diff --git a/dist/yjs.cjs b/dist/yjs.cjs
-index 5b5690eb2f172cd99d244ff33394ff59f44fe103..52298a6a31ca144659fb8f97330f3ee7be4b308e 100644
+index 5b5690eb2f172cd99d244ff33394ff59f44fe103..488fbf4e9f578fa744f3b88b2c9c45e8f49f4f63 100644
 --- a/dist/yjs.cjs
 +++ b/dist/yjs.cjs
 @@ -745,6 +745,121 @@ class Doc extends observable.ObservableV2 {
@@ -365,8 +365,82 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..52298a6a31ca144659fb8f97330f3ee7
    }
  
    /**
+@@ -9652,9 +9839,17 @@ const splitItem = (transaction, leftItem, diff) => {
+ const isDeletedByUndoStack = (stack, id) => array__namespace.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id));
+ 
+ /**
+- * Redoes the effect of this operation.
++ * Redoes an item, redoing first whichever of its deleted parents this undo is also bringing back.
+  *
+- * @param {Transaction} transaction The Yjs instance.
++ * Stock Yjs recursed to reach them. That only shows when a chain has more than one author: the
++ * items of an undo come one client at a time, so one client's chain is met parent first, but the
++ * last item of a chain another client finished is met before everything above it, and a peer can
++ * make that deeper than the stack goes. The walk up is a loop, for the same reason as ContentType.
++ *
++ * A type that cannot come back leaves `redoitems` along with what was waiting on it, or the next
++ * item down would walk all the way up again to find the same answer.
++ *
++ * @param {Transaction} transaction
+  * @param {Item} item
+  * @param {Set<Item>} redoitems
+  * @param {DeleteSet} itemsToDelete
+@@ -9666,6 +9861,42 @@ const isDeletedByUndoStack = (stack, id) => array__namespace.some(stack, /** @pa
+  * @private
+  */
+ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
++  const waiting = [item];
++  let current = item;
++  while (current.redone === null) {
++    const parentItem = /** @type {AbstractType<any>} */ (current.parent)._item;
++    if (parentItem === null || parentItem.deleted !== true || parentItem.redone !== null || !redoitems.has(parentItem)) {
++      break
++    }
++    waiting.push(parentItem);
++    current = parentItem;
++  }
++  let redone = null;
++  while (waiting.length > 0) {
++    redone = redoItemAfterParents(transaction, /** @type {Item} */ (waiting.pop()), itemsToDelete, ignoreRemoteMapChanges, um);
++    if (redone === null) {
++      redoitems.delete(item);
++      waiting.forEach(below => redoitems.delete(below));
++      return null
++    }
++  }
++  return redone
++};
++
++/**
++ * Redoes the effect of this operation.
++ *
++ * @param {Transaction} transaction The Yjs instance.
++ * @param {Item} item
++ * @param {DeleteSet} itemsToDelete
++ * @param {boolean} ignoreRemoteMapChanges
++ * @param {import('../utils/UndoManager.js').UndoManager} um
++ *
++ * @return {Item|null}
++ *
++ * @private
++ */
++const redoItemAfterParents = (transaction, item, itemsToDelete, ignoreRemoteMapChanges, um) => {
+   const doc = transaction.doc;
+   const store = doc.store;
+   const ownClientID = doc.clientID;
+@@ -9684,8 +9915,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
+   let right;
+   // make sure that parent is redone
+   if (parentItem !== null && parentItem.deleted === true) {
+-    // try to undo parent if it will be undone anyway
+-    if (parentItem.redone === null && (!redoitems.has(parentItem) || redoItem(transaction, parentItem, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) === null)) {
++    // redoItem has already tried the parent, if this undo covers it
++    if (parentItem.redone === null) {
+       return null
+     }
+     while (parentItem.redone !== null) {
 diff --git a/dist/yjs.mjs b/dist/yjs.mjs
-index 10d633d8e71171b2702c45376553832504921877..bae4ba948b1be297343caf5bd51f55630e6f1556 100644
+index 10d633d8e71171b2702c45376553832504921877..c3f573f5efa6b6ec66ef20809e14da88032e8a9e 100644
 --- a/dist/yjs.mjs
 +++ b/dist/yjs.mjs
 @@ -708,6 +708,121 @@ class Doc extends ObservableV2 {
@@ -732,6 +806,80 @@ index 10d633d8e71171b2702c45376553832504921877..bae4ba948b1be297343caf5bd51f5563
    }
  
    /**
+@@ -9615,9 +9802,17 @@ const splitItem = (transaction, leftItem, diff) => {
+ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id));
+ 
+ /**
+- * Redoes the effect of this operation.
++ * Redoes an item, redoing first whichever of its deleted parents this undo is also bringing back.
+  *
+- * @param {Transaction} transaction The Yjs instance.
++ * Stock Yjs recursed to reach them. That only shows when a chain has more than one author: the
++ * items of an undo come one client at a time, so one client's chain is met parent first, but the
++ * last item of a chain another client finished is met before everything above it, and a peer can
++ * make that deeper than the stack goes. The walk up is a loop, for the same reason as ContentType.
++ *
++ * A type that cannot come back leaves `redoitems` along with what was waiting on it, or the next
++ * item down would walk all the way up again to find the same answer.
++ *
++ * @param {Transaction} transaction
+  * @param {Item} item
+  * @param {Set<Item>} redoitems
+  * @param {DeleteSet} itemsToDelete
+@@ -9629,6 +9824,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
+  * @private
+  */
+ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
++  const waiting = [item];
++  let current = item;
++  while (current.redone === null) {
++    const parentItem = /** @type {AbstractType<any>} */ (current.parent)._item;
++    if (parentItem === null || parentItem.deleted !== true || parentItem.redone !== null || !redoitems.has(parentItem)) {
++      break
++    }
++    waiting.push(parentItem);
++    current = parentItem;
++  }
++  let redone = null;
++  while (waiting.length > 0) {
++    redone = redoItemAfterParents(transaction, /** @type {Item} */ (waiting.pop()), itemsToDelete, ignoreRemoteMapChanges, um);
++    if (redone === null) {
++      redoitems.delete(item);
++      waiting.forEach(below => redoitems.delete(below));
++      return null
++    }
++  }
++  return redone
++};
++
++/**
++ * Redoes the effect of this operation.
++ *
++ * @param {Transaction} transaction The Yjs instance.
++ * @param {Item} item
++ * @param {DeleteSet} itemsToDelete
++ * @param {boolean} ignoreRemoteMapChanges
++ * @param {import('../utils/UndoManager.js').UndoManager} um
++ *
++ * @return {Item|null}
++ *
++ * @private
++ */
++const redoItemAfterParents = (transaction, item, itemsToDelete, ignoreRemoteMapChanges, um) => {
+   const doc = transaction.doc;
+   const store = doc.store;
+   const ownClientID = doc.clientID;
+@@ -9647,8 +9878,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
+   let right;
+   // make sure that parent is redone
+   if (parentItem !== null && parentItem.deleted === true) {
+-    // try to undo parent if it will be undone anyway
+-    if (parentItem.redone === null && (!redoitems.has(parentItem) || redoItem(transaction, parentItem, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) === null)) {
++    // redoItem has already tried the parent, if this undo covers it
++    if (parentItem.redone === null) {
+       return null
+     }
+     while (parentItem.redone !== null) {
 diff --git a/src/structs/ContentDoc.js b/src/structs/ContentDoc.js
 index 15836f5155c00f0147fc64acf770d7ab72340aa5..a57f92ce1f0d2fcbe548bd8df466a163078e0e62 100644
 --- a/src/structs/ContentDoc.js
@@ -909,6 +1057,84 @@ index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b
    }
  
    /**
+diff --git a/src/structs/Item.js b/src/structs/Item.js
+index fca5827090ca1b0fd6fdff1b74d260308e6c9196..1998ed20d29de26375baf5132a5e6c1a47e0515a 100644
+--- a/src/structs/Item.js
++++ b/src/structs/Item.js
+@@ -127,9 +127,17 @@ export const splitItem = (transaction, leftItem, diff) => {
+ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id))
+ 
+ /**
+- * Redoes the effect of this operation.
++ * Redoes an item, redoing first whichever of its deleted parents this undo is also bringing back.
+  *
+- * @param {Transaction} transaction The Yjs instance.
++ * Stock Yjs recursed to reach them. That only shows when a chain has more than one author: the
++ * items of an undo come one client at a time, so one client's chain is met parent first, but the
++ * last item of a chain another client finished is met before everything above it, and a peer can
++ * make that deeper than the stack goes. The walk up is a loop, for the same reason as ContentType.
++ *
++ * A type that cannot come back leaves `redoitems` along with what was waiting on it, or the next
++ * item down would walk all the way up again to find the same answer.
++ *
++ * @param {Transaction} transaction
+  * @param {Item} item
+  * @param {Set<Item>} redoitems
+  * @param {DeleteSet} itemsToDelete
+@@ -141,6 +149,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
+  * @private
+  */
+ export const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
++  const waiting = [item]
++  let current = item
++  while (current.redone === null) {
++    const parentItem = /** @type {AbstractType<any>} */ (current.parent)._item
++    if (parentItem === null || parentItem.deleted !== true || parentItem.redone !== null || !redoitems.has(parentItem)) {
++      break
++    }
++    waiting.push(parentItem)
++    current = parentItem
++  }
++  let redone = null
++  while (waiting.length > 0) {
++    redone = redoItemAfterParents(transaction, /** @type {Item} */ (waiting.pop()), itemsToDelete, ignoreRemoteMapChanges, um)
++    if (redone === null) {
++      redoitems.delete(item)
++      waiting.forEach(below => redoitems.delete(below))
++      return null
++    }
++  }
++  return redone
++}
++
++/**
++ * Redoes the effect of this operation.
++ *
++ * @param {Transaction} transaction The Yjs instance.
++ * @param {Item} item
++ * @param {DeleteSet} itemsToDelete
++ * @param {boolean} ignoreRemoteMapChanges
++ * @param {import('../utils/UndoManager.js').UndoManager} um
++ *
++ * @return {Item|null}
++ *
++ * @private
++ */
++const redoItemAfterParents = (transaction, item, itemsToDelete, ignoreRemoteMapChanges, um) => {
+   const doc = transaction.doc
+   const store = doc.store
+   const ownClientID = doc.clientID
+@@ -159,8 +203,8 @@ export const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemo
+   let right
+   // make sure that parent is redone
+   if (parentItem !== null && parentItem.deleted === true) {
+-    // try to undo parent if it will be undone anyway
+-    if (parentItem.redone === null && (!redoitems.has(parentItem) || redoItem(transaction, parentItem, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) === null)) {
++    // redoItem has already tried the parent, if this undo covers it
++    if (parentItem.redone === null) {
+       return null
+     }
+     while (parentItem.redone !== null) {
 diff --git a/src/utils/Transaction.js b/src/utils/Transaction.js
 index 44771b05e22d191d9eb708cf7163092486781d33..fdb48966930754699516606d8d70df753c1d05bd 100644
 --- a/src/utils/Transaction.js
