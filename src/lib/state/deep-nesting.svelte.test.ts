@@ -8,9 +8,13 @@ import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { getIssuesMap } from '$lib/sync/doc.js';
 import {
+	VALUE_CONTENT,
+	handWrittenItem,
 	nestMaps,
+	nestedJson,
 	peerWrites,
 	REAL_ID,
+	SLOT_ID,
 	treeAndItsDelete,
 	wellFormedIssue
 } from '$lib/sync/junk-entries.fixture.js';
@@ -199,5 +203,56 @@ describe('a store holding an issue with a deep chain of nested types', () => {
 		const replica = new Y.Doc();
 		expect(() => Y.applyUpdate(replica, Y.encodeStateAsUpdate(victim.doc))).not.toThrow();
 		expect(getIssuesMap(replica).has(REAL_ID)).toBe(false);
+	});
+});
+
+describe('a store handed a plain value nested too deep to write out again', () => {
+	/** The value that passes JSON.parse and then overflows JSON.stringify. */
+	const frozen = (depth: number) =>
+		handWrittenItem(VALUE_CONTENT.json(nestedJson(depth, '{"toJSON":1}')), SLOT_ID);
+
+	it.each([5_120, 20_000])(
+		'keeps working at %i levels, shows later writes, and has them after a reload',
+		async (depth) => {
+			const first = await open();
+			first.store.create({ title: 'Kept' });
+
+			expect(() => Y.applyUpdate(first.doc, frozen(depth), first.provider)).not.toThrow();
+
+			first.store.create({ title: 'Mine' });
+			expect(titles(first.store)).toEqual(['Kept', 'Mine']);
+			expect(first.sent).toHaveLength(2);
+			peerWrites(
+				first.doc,
+				(issues) => issues.set(REAL_ID, wellFormedIssue({ title: 'Theirs' })),
+				first.provider
+			);
+			expect(titles(first.store)).toEqual(['Kept', 'Mine', 'Theirs']);
+
+			const second = await reload(first);
+			expect(second.store.persisted).toBe(true);
+			expect(titles(second.store)).toEqual(['Kept', 'Mine', 'Theirs']);
+		}
+	);
+
+	it('loads a database that already holds it', async () => {
+		const workspaceId = `deep-${crypto.randomUUID()}`;
+		const empty = new Y.Doc();
+		const persistence = attachPersistence(empty, workspaceId);
+		await persistence.whenSynced;
+		const db = persistence.provider?.db as IDBDatabase;
+		await new Promise((resolve, reject) => {
+			const transaction = db.transaction('updates', 'readwrite');
+			transaction.objectStore('updates').add(frozen(20_000));
+			transaction.oncomplete = resolve;
+			transaction.onerror = reject;
+		});
+		await persistence.destroy();
+		empty.destroy();
+
+		const opened = await open(workspaceId);
+		opened.store.create({ title: 'Mine' });
+
+		expect(titles(opened.store)).toEqual(['Mine']);
 	});
 });

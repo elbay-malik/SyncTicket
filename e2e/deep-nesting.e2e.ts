@@ -121,3 +121,108 @@ test('one that arrives already deleted leaves no ghost, and the room goes on wor
 	await expect(page.getByRole('link', { name: 'Innocent' })).toHaveCount(0);
 	expect(errors).toEqual([]);
 });
+
+/**
+ * A value that decodes and then overflows on its way out again, as one hand-written item under
+ * `issues`. `Y.applyUpdate` on a peer's own document would clean it up before it left, so it goes
+ * straight down the provider's socket, the way a client that isn't this one would send it.
+ */
+function frozenUpdate(depth: number): Uint8Array {
+	const utf8 = (text: string): number[] => {
+		const bytes = [...new TextEncoder().encode(text)];
+		return [...varUint(bytes.length), ...bytes];
+	};
+	const json = utf8(`${'['.repeat(depth)}{"toJSON":1}${']'.repeat(depth)}`);
+	return Uint8Array.from([
+		1,
+		1,
+		...varUint(7_777),
+		0,
+		32 | 2,
+		1,
+		...utf8('issues'),
+		...utf8(crypto.randomUUID()),
+		1,
+		...json,
+		0
+	]);
+}
+
+function varUint(value: number): number[] {
+	const bytes: number[] = [];
+	let rest = value;
+	while (rest > 127) {
+		bytes.push((rest % 128) | 128);
+		rest = Math.floor(rest / 128);
+	}
+	bytes.push(rest);
+	return bytes;
+}
+
+async function sendRaw(workspaceId: string, update: Uint8Array): Promise<void> {
+	const doc = new Y.Doc();
+	const provider = new YProvider(RELAY_HOST, workspaceId, doc, { party: RELAY_PARTY });
+	await new Promise<void>((resolve) => {
+		provider.once('synced', () => resolve());
+	});
+	const messageSync = 0;
+	const messageUpdate = 2;
+	provider.ws?.send(
+		Uint8Array.from([messageSync, messageUpdate, ...varUint(update.length), ...update])
+	);
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	provider.destroy();
+	doc.destroy();
+}
+
+// Either side of where Chromium's stack gives out on this value, and past where the relay's does.
+for (const depth of [5_118, 5_300, 20_000]) {
+	test(`a plain value nested ${depth} deep freezes nobody, now or on arrival`, async ({
+		browser,
+		page,
+		workspaceId
+	}) => {
+		const errors = collectErrors(page);
+		await openSynced(page);
+		await asPeer(workspaceId, (doc) => {
+			doc.getMap<unknown>('issues').set(crypto.randomUUID(), peerIssue('Before', 'a0'));
+		});
+		await expect(page.getByRole('link', { name: 'Before' })).toBeVisible({ timeout: 10_000 });
+
+		await sendRaw(workspaceId, frozenUpdate(depth));
+
+		// The tab it reached is still alive in both directions.
+		const field = page.getByRole('textbox', { name: 'New issue title' });
+		await field.fill('Written after');
+		await field.press('Enter');
+		await expect(page.getByRole('link', { name: 'Written after' })).toBeVisible();
+		await asPeer(workspaceId, (doc) => {
+			expect(
+				[...doc.getMap<Y.Map<unknown>>('issues').values()].map((issue) =>
+					issue instanceof Y.Map ? issue.get('title') : null
+				)
+			).toContain('Written after');
+			doc.getMap<unknown>('issues').set(crypto.randomUUID(), peerIssue('Live', 'a1'));
+		});
+		await expect(page.getByRole('link', { name: 'Live' })).toBeVisible({ timeout: 10_000 });
+
+		// Someone arriving now gets all of it, and can write too.
+		const context = await browser.newContext();
+		const visitor = await context.newPage();
+		const visitorErrors = collectErrors(visitor);
+		await visitor.goto(`/issues?ws=${workspaceId}`);
+		await expect(visitor.getByRole('link', { name: 'Written after' })).toBeVisible({
+			timeout: 30_000
+		});
+		const visitorField = visitor.getByRole('textbox', { name: 'New issue title' });
+		await visitorField.fill('From the visitor');
+		await visitorField.press('Enter');
+		await expect(visitor.getByRole('link', { name: 'From the visitor' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'From the visitor' })).toBeVisible({
+			timeout: 10_000
+		});
+		await context.close();
+		expect(errors).toEqual([]);
+		expect(visitorErrors).toEqual([]);
+	});
+}

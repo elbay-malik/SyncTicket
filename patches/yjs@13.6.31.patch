@@ -1,8 +1,228 @@
 diff --git a/dist/yjs.cjs b/dist/yjs.cjs
-index 5b5690eb2f172cd99d244ff33394ff59f44fe103..1d97cbe08f8ee0ab249e32cc857413f76a607b0a 100644
+index 5b5690eb2f172cd99d244ff33394ff59f44fe103..52298a6a31ca144659fb8f97330f3ee7be4b308e 100644
 --- a/dist/yjs.cjs
 +++ b/dist/yjs.cjs
-@@ -9417,6 +9417,74 @@ const YXmlFragmentRefID = 4;
+@@ -745,6 +745,121 @@ class Doc extends observable.ObservableV2 {
+   }
+ }
+ 
++/**
++ * How deeply a plain value may nest before it reads as null.
++ *
++ * Decoding and encoding a value each recurse once per level, in lib0 and in the engine's JSON, and
++ * any peer can nest a value for two bytes a level. Those recursions give out at different depths,
++ * depending on the engine, on the shape of the value and on how much stack the caller left. So a
++ * value can pass on the relay and overflow in a browser, which then cannot load the workspace at
++ * all, or pass the decoder and overflow the encoder, inside the cleanup after a transaction. The
++ * limit is a fixed number, far below all of those, so that every replica reads the same thing. A
++ * value past it keeps its place in the document, because clocks have to line up.
++ */
++const MAX_VALUE_DEPTH = 256;
++
++/**
++ * @param {string} text
++ * @return {any}
++ */
++const parseBoundedJSON = text => {
++  let depth = 0;
++  let inString = false;
++  for (let i = 0; i < text.length; i++) {
++    const code = text.charCodeAt(i);
++    if (inString) {
++      if (code === 92 /* backslash */) {
++        i++;
++      } else if (code === 34 /* quote */) {
++        inString = false;
++      }
++    } else if (code === 34) {
++      inString = true;
++    } else if (code === 91 /* [ */ || code === 123 /* { */) {
++      if (++depth > MAX_VALUE_DEPTH) {
++        return null
++      }
++    } else if (code === 93 /* ] */ || code === 125 /* } */) {
++      depth--;
++    }
++  }
++  return JSON.parse(text)
++};
++
++/**
++ * Moves past one value in lib0's any-encoding without recursing.
++ *
++ * @param {decoding__namespace.Decoder} decoder
++ * @return {boolean} Whether the value nests deeper than MAX_VALUE_DEPTH
++ */
++const skipAny = decoder => {
++  // How many values are still to come at each open level, negative at the level of an object,
++  // where each one follows its key. The first entry stands for the value itself.
++  const open = [1];
++  let tooDeep = false;
++  while (open.length > 0) {
++    const top = open.length - 1;
++    const left = open[top];
++    if (left === 0) {
++      open.pop();
++      continue
++    }
++    if (left < 0) {
++      decoding__namespace.readVarUint8Array(decoder);
++      open[top] = left + 1;
++    } else {
++      open[top] = left - 1;
++    }
++    const tag = decoding__namespace.readUint8(decoder);
++    switch (tag) {
++      case 127: case 126: case 121: case 120:
++        break
++      case 125:
++        decoding__namespace.readVarInt(decoder);
++        break
++      case 124:
++        decoding__namespace.readFloat32(decoder);
++        break
++      case 123:
++        decoding__namespace.readFloat64(decoder);
++        break
++      case 122:
++        decoding__namespace.readBigInt64(decoder);
++        break
++      case 119: case 116:
++        decoding__namespace.readVarUint8Array(decoder);
++        break
++      case 118:
++        open.push(-decoding__namespace.readVarUint(decoder));
++        tooDeep = tooDeep || open.length > MAX_VALUE_DEPTH + 1;
++        break
++      case 117:
++        open.push(decoding__namespace.readVarUint(decoder));
++        tooDeep = tooDeep || open.length > MAX_VALUE_DEPTH + 1;
++        break
++      default:
++        throw new Error('Unknown value tag')
++    }
++  }
++  return tooDeep
++};
++
++/**
++ * @param {decoding__namespace.Decoder} decoder
++ * @return {any}
++ */
++const readBoundedAny = decoder => {
++  const start = decoder.pos;
++  const tag = decoder.arr[start];
++  if (tag === 117 || tag === 118) {
++    if (skipAny(decoder)) {
++      return null
++    }
++    decoder.pos = start;
++  }
++  return decoding__namespace.readAny(decoder)
++};
++
+ class DSDecoderV1 {
+   /**
+    * @param {decoding.Decoder} decoder
+@@ -836,7 +951,7 @@ class UpdateDecoderV1 extends DSDecoderV1 {
+    * @return {any}
+    */
+   readAny () {
+-    return decoding__namespace.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -852,7 +967,7 @@ class UpdateDecoderV1 extends DSDecoderV1 {
+    * @return {any}
+    */
+   readJSON () {
+-    return JSON.parse(decoding__namespace.readVarString(this.restDecoder))
++    return parseBoundedJSON(decoding__namespace.readVarString(this.restDecoder))
+   }
+ 
+   /**
+@@ -985,7 +1100,7 @@ class UpdateDecoderV2 extends DSDecoderV2 {
+    * @return {any}
+    */
+   readAny () {
+-    return decoding__namespace.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -1003,7 +1118,7 @@ class UpdateDecoderV2 extends DSDecoderV2 {
+    * @return {any}
+    */
+   readJSON () {
+-    return decoding__namespace.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -3279,7 +3394,7 @@ const tryGc = (ds, store, gcFilter) => {
+  * @param {Array<Transaction>} transactionCleanups
+  * @param {number} i
+  */
+-const cleanupTransactions = (transactionCleanups, i) => {
++const cleanupTransaction = (transactionCleanups, i) => {
+   if (i < transactionCleanups.length) {
+     const transaction = transactionCleanups[i];
+     const doc = transaction.doc;
+@@ -3409,13 +3524,28 @@ const cleanupTransactions = (transactionCleanups, i) => {
+         doc.emit('subdocs', [{ loaded: subdocsLoaded, added: subdocsAdded, removed: subdocsRemoved }, doc, transaction]);
+         subdocsRemoved.forEach(subdoc => subdoc.destroy());
+       }
++    }
++  }
++};
+ 
+-      if (transactionCleanups.length <= i + 1) {
+-        doc._transactionCleanups = [];
+-        doc.emit('afterAllTransactions', [doc, transactionCleanups]);
+-      } else {
+-        cleanupTransactions(transactionCleanups, i + 1);
+-      }
++/**
++ * Whatever a listener or an encoder throws during a cleanup, the queue still has to empty. Until
++ * it does, every later transaction takes itself for a nested one and leaves its cleanup to a call
++ * that already ended, so the document changes with no observer or update ever firing again.
++ *
++ * @param {Array<Transaction>} transactionCleanups
++ * @param {number} i
++ */
++const cleanupTransactions = (transactionCleanups, i) => {
++  try {
++    cleanupTransaction(transactionCleanups, i);
++  } finally {
++    if (transactionCleanups.length <= i + 1) {
++      const doc = transactionCleanups[i].doc;
++      doc._transactionCleanups = [];
++      doc.emit('afterAllTransactions', [doc, transactionCleanups]);
++    } else {
++      cleanupTransactions(transactionCleanups, i + 1);
+     }
+   }
+ };
+@@ -8870,7 +9000,7 @@ class ContentDoc {
+  * @param {UpdateDecoderV1 | UpdateDecoderV2} decoder
+  * @return {ContentDoc}
+  */
+-const readContentDoc = decoder => new ContentDoc(createDocFromOpts(decoder.readString(), decoder.readAny()));
++const readContentDoc = decoder => new ContentDoc(createDocFromOpts(decoder.readString(), decoder.readAny() ?? {}));
+ 
+ /**
+  * @private
+@@ -9172,7 +9302,7 @@ const readContentJSON = decoder => {
+     if (c === 'undefined') {
+       cs.push(undefined);
+     } else {
+-      cs.push(JSON.parse(c));
++      cs.push(parseBoundedJSON(c));
+     }
+   }
+   return new ContentJSON(cs)
+@@ -9417,6 +9547,74 @@ const YXmlFragmentRefID = 4;
  const YXmlHookRefID = 5;
  const YXmlTextRefID = 6;
  
@@ -77,7 +297,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..1d97cbe08f8ee0ab249e32cc857413f7
  /**
   * @private
   */
-@@ -9487,47 +9555,36 @@ class ContentType {
+@@ -9487,47 +9685,36 @@ class ContentType {
     * @param {Transaction} transaction
     */
    delete (transaction) {
@@ -146,10 +366,230 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..1d97cbe08f8ee0ab249e32cc857413f7
  
    /**
 diff --git a/dist/yjs.mjs b/dist/yjs.mjs
-index 10d633d8e71171b2702c45376553832504921877..581e41df7699c6f5f877f2a19c108a3e47f576c8 100644
+index 10d633d8e71171b2702c45376553832504921877..bae4ba948b1be297343caf5bd51f55630e6f1556 100644
 --- a/dist/yjs.mjs
 +++ b/dist/yjs.mjs
-@@ -9380,6 +9380,74 @@ const YXmlFragmentRefID = 4;
+@@ -708,6 +708,121 @@ class Doc extends ObservableV2 {
+   }
+ }
+ 
++/**
++ * How deeply a plain value may nest before it reads as null.
++ *
++ * Decoding and encoding a value each recurse once per level, in lib0 and in the engine's JSON, and
++ * any peer can nest a value for two bytes a level. Those recursions give out at different depths,
++ * depending on the engine, on the shape of the value and on how much stack the caller left. So a
++ * value can pass on the relay and overflow in a browser, which then cannot load the workspace at
++ * all, or pass the decoder and overflow the encoder, inside the cleanup after a transaction. The
++ * limit is a fixed number, far below all of those, so that every replica reads the same thing. A
++ * value past it keeps its place in the document, because clocks have to line up.
++ */
++const MAX_VALUE_DEPTH = 256;
++
++/**
++ * @param {string} text
++ * @return {any}
++ */
++const parseBoundedJSON = text => {
++  let depth = 0;
++  let inString = false;
++  for (let i = 0; i < text.length; i++) {
++    const code = text.charCodeAt(i);
++    if (inString) {
++      if (code === 92 /* backslash */) {
++        i++;
++      } else if (code === 34 /* quote */) {
++        inString = false;
++      }
++    } else if (code === 34) {
++      inString = true;
++    } else if (code === 91 /* [ */ || code === 123 /* { */) {
++      if (++depth > MAX_VALUE_DEPTH) {
++        return null
++      }
++    } else if (code === 93 /* ] */ || code === 125 /* } */) {
++      depth--;
++    }
++  }
++  return JSON.parse(text)
++};
++
++/**
++ * Moves past one value in lib0's any-encoding without recursing.
++ *
++ * @param {decoding.Decoder} decoder
++ * @return {boolean} Whether the value nests deeper than MAX_VALUE_DEPTH
++ */
++const skipAny = decoder => {
++  // How many values are still to come at each open level, negative at the level of an object,
++  // where each one follows its key. The first entry stands for the value itself.
++  const open = [1];
++  let tooDeep = false;
++  while (open.length > 0) {
++    const top = open.length - 1;
++    const left = open[top];
++    if (left === 0) {
++      open.pop();
++      continue
++    }
++    if (left < 0) {
++      decoding.readVarUint8Array(decoder);
++      open[top] = left + 1;
++    } else {
++      open[top] = left - 1;
++    }
++    const tag = decoding.readUint8(decoder);
++    switch (tag) {
++      case 127: case 126: case 121: case 120:
++        break
++      case 125:
++        decoding.readVarInt(decoder);
++        break
++      case 124:
++        decoding.readFloat32(decoder);
++        break
++      case 123:
++        decoding.readFloat64(decoder);
++        break
++      case 122:
++        decoding.readBigInt64(decoder);
++        break
++      case 119: case 116:
++        decoding.readVarUint8Array(decoder);
++        break
++      case 118:
++        open.push(-decoding.readVarUint(decoder));
++        tooDeep = tooDeep || open.length > MAX_VALUE_DEPTH + 1;
++        break
++      case 117:
++        open.push(decoding.readVarUint(decoder));
++        tooDeep = tooDeep || open.length > MAX_VALUE_DEPTH + 1;
++        break
++      default:
++        throw new Error('Unknown value tag')
++    }
++  }
++  return tooDeep
++};
++
++/**
++ * @param {decoding.Decoder} decoder
++ * @return {any}
++ */
++const readBoundedAny = decoder => {
++  const start = decoder.pos;
++  const tag = decoder.arr[start];
++  if (tag === 117 || tag === 118) {
++    if (skipAny(decoder)) {
++      return null
++    }
++    decoder.pos = start;
++  }
++  return decoding.readAny(decoder)
++};
++
+ class DSDecoderV1 {
+   /**
+    * @param {decoding.Decoder} decoder
+@@ -799,7 +914,7 @@ class UpdateDecoderV1 extends DSDecoderV1 {
+    * @return {any}
+    */
+   readAny () {
+-    return decoding.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -815,7 +930,7 @@ class UpdateDecoderV1 extends DSDecoderV1 {
+    * @return {any}
+    */
+   readJSON () {
+-    return JSON.parse(decoding.readVarString(this.restDecoder))
++    return parseBoundedJSON(decoding.readVarString(this.restDecoder))
+   }
+ 
+   /**
+@@ -948,7 +1063,7 @@ class UpdateDecoderV2 extends DSDecoderV2 {
+    * @return {any}
+    */
+   readAny () {
+-    return decoding.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -966,7 +1081,7 @@ class UpdateDecoderV2 extends DSDecoderV2 {
+    * @return {any}
+    */
+   readJSON () {
+-    return decoding.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -3242,7 +3357,7 @@ const tryGc = (ds, store, gcFilter) => {
+  * @param {Array<Transaction>} transactionCleanups
+  * @param {number} i
+  */
+-const cleanupTransactions = (transactionCleanups, i) => {
++const cleanupTransaction = (transactionCleanups, i) => {
+   if (i < transactionCleanups.length) {
+     const transaction = transactionCleanups[i];
+     const doc = transaction.doc;
+@@ -3372,13 +3487,28 @@ const cleanupTransactions = (transactionCleanups, i) => {
+         doc.emit('subdocs', [{ loaded: subdocsLoaded, added: subdocsAdded, removed: subdocsRemoved }, doc, transaction]);
+         subdocsRemoved.forEach(subdoc => subdoc.destroy());
+       }
++    }
++  }
++};
+ 
+-      if (transactionCleanups.length <= i + 1) {
+-        doc._transactionCleanups = [];
+-        doc.emit('afterAllTransactions', [doc, transactionCleanups]);
+-      } else {
+-        cleanupTransactions(transactionCleanups, i + 1);
+-      }
++/**
++ * Whatever a listener or an encoder throws during a cleanup, the queue still has to empty. Until
++ * it does, every later transaction takes itself for a nested one and leaves its cleanup to a call
++ * that already ended, so the document changes with no observer or update ever firing again.
++ *
++ * @param {Array<Transaction>} transactionCleanups
++ * @param {number} i
++ */
++const cleanupTransactions = (transactionCleanups, i) => {
++  try {
++    cleanupTransaction(transactionCleanups, i);
++  } finally {
++    if (transactionCleanups.length <= i + 1) {
++      const doc = transactionCleanups[i].doc;
++      doc._transactionCleanups = [];
++      doc.emit('afterAllTransactions', [doc, transactionCleanups]);
++    } else {
++      cleanupTransactions(transactionCleanups, i + 1);
+     }
+   }
+ };
+@@ -8833,7 +8963,7 @@ class ContentDoc {
+  * @param {UpdateDecoderV1 | UpdateDecoderV2} decoder
+  * @return {ContentDoc}
+  */
+-const readContentDoc = decoder => new ContentDoc(createDocFromOpts(decoder.readString(), decoder.readAny()));
++const readContentDoc = decoder => new ContentDoc(createDocFromOpts(decoder.readString(), decoder.readAny() ?? {}));
+ 
+ /**
+  * @private
+@@ -9135,7 +9265,7 @@ const readContentJSON = decoder => {
+     if (c === 'undefined') {
+       cs.push(undefined);
+     } else {
+-      cs.push(JSON.parse(c));
++      cs.push(parseBoundedJSON(c));
+     }
+   }
+   return new ContentJSON(cs)
+@@ -9380,6 +9510,74 @@ const YXmlFragmentRefID = 4;
  const YXmlHookRefID = 5;
  const YXmlTextRefID = 6;
  
@@ -224,7 +664,7 @@ index 10d633d8e71171b2702c45376553832504921877..581e41df7699c6f5f877f2a19c108a3e
  /**
   * @private
   */
-@@ -9450,47 +9518,36 @@ class ContentType {
+@@ -9450,47 +9648,36 @@ class ContentType {
     * @param {Transaction} transaction
     */
    delete (transaction) {
@@ -292,6 +732,36 @@ index 10d633d8e71171b2702c45376553832504921877..581e41df7699c6f5f877f2a19c108a3e
    }
  
    /**
+diff --git a/src/structs/ContentDoc.js b/src/structs/ContentDoc.js
+index 15836f5155c00f0147fc64acf770d7ab72340aa5..a57f92ce1f0d2fcbe548bd8df466a163078e0e62 100644
+--- a/src/structs/ContentDoc.js
++++ b/src/structs/ContentDoc.js
+@@ -137,4 +137,4 @@ export class ContentDoc {
+  * @param {UpdateDecoderV1 | UpdateDecoderV2} decoder
+  * @return {ContentDoc}
+  */
+-export const readContentDoc = decoder => new ContentDoc(createDocFromOpts(decoder.readString(), decoder.readAny()))
++export const readContentDoc = decoder => new ContentDoc(createDocFromOpts(decoder.readString(), decoder.readAny() ?? {}))
+diff --git a/src/structs/ContentJSON.js b/src/structs/ContentJSON.js
+index 29b2f754042e4489e44b632cdab3e4f7733f8179..5c8c3e22276b37369dcb21c28f9eba79dbde3319 100644
+--- a/src/structs/ContentJSON.js
++++ b/src/structs/ContentJSON.js
+@@ -1,5 +1,5 @@
+ import {
+-  UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, Transaction, Item, StructStore // eslint-disable-line
++  parseBoundedJSON, UpdateDecoderV1, UpdateDecoderV2, UpdateEncoderV1, UpdateEncoderV2, Transaction, Item, StructStore // eslint-disable-line
+ } from '../internals.js'
+ 
+ /**
+@@ -111,7 +111,7 @@ export const readContentJSON = decoder => {
+     if (c === 'undefined') {
+       cs.push(undefined)
+     } else {
+-      cs.push(JSON.parse(c))
++      cs.push(parseBoundedJSON(c))
+     }
+   }
+   return new ContentJSON(cs)
 diff --git a/src/structs/ContentType.js b/src/structs/ContentType.js
 index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b45dab80e 100644
 --- a/src/structs/ContentType.js
@@ -436,6 +906,216 @@ index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b
 +    } finally {
 +      gcQueue = null
 +    }
+   }
+ 
+   /**
+diff --git a/src/utils/Transaction.js b/src/utils/Transaction.js
+index 44771b05e22d191d9eb708cf7163092486781d33..fdb48966930754699516606d8d70df753c1d05bd 100644
+--- a/src/utils/Transaction.js
++++ b/src/utils/Transaction.js
+@@ -257,7 +257,7 @@ export const tryGc = (ds, store, gcFilter) => {
+  * @param {Array<Transaction>} transactionCleanups
+  * @param {number} i
+  */
+-const cleanupTransactions = (transactionCleanups, i) => {
++const cleanupTransaction = (transactionCleanups, i) => {
+   if (i < transactionCleanups.length) {
+     const transaction = transactionCleanups[i]
+     const doc = transaction.doc
+@@ -387,13 +387,28 @@ const cleanupTransactions = (transactionCleanups, i) => {
+         doc.emit('subdocs', [{ loaded: subdocsLoaded, added: subdocsAdded, removed: subdocsRemoved }, doc, transaction])
+         subdocsRemoved.forEach(subdoc => subdoc.destroy())
+       }
++    }
++  }
++}
+ 
+-      if (transactionCleanups.length <= i + 1) {
+-        doc._transactionCleanups = []
+-        doc.emit('afterAllTransactions', [doc, transactionCleanups])
+-      } else {
+-        cleanupTransactions(transactionCleanups, i + 1)
+-      }
++/**
++ * Whatever a listener or an encoder throws during a cleanup, the queue still has to empty. Until
++ * it does, every later transaction takes itself for a nested one and leaves its cleanup to a call
++ * that already ended, so the document changes with no observer or update ever firing again.
++ *
++ * @param {Array<Transaction>} transactionCleanups
++ * @param {number} i
++ */
++const cleanupTransactions = (transactionCleanups, i) => {
++  try {
++    cleanupTransaction(transactionCleanups, i)
++  } finally {
++    if (transactionCleanups.length <= i + 1) {
++      const doc = transactionCleanups[i].doc
++      doc._transactionCleanups = []
++      doc.emit('afterAllTransactions', [doc, transactionCleanups])
++    } else {
++      cleanupTransactions(transactionCleanups, i + 1)
+     }
+   }
+ }
+diff --git a/src/utils/UpdateDecoder.js b/src/utils/UpdateDecoder.js
+index 67a38cebce0a3a04890cbe437df08c9143c12100..162ad89994fce835038165b82fa0a76e111a8f32 100644
+--- a/src/utils/UpdateDecoder.js
++++ b/src/utils/UpdateDecoder.js
+@@ -4,6 +4,121 @@ import {
+   ID, createID
+ } from '../internals.js'
+ 
++/**
++ * How deeply a plain value may nest before it reads as null.
++ *
++ * Decoding and encoding a value each recurse once per level, in lib0 and in the engine's JSON, and
++ * any peer can nest a value for two bytes a level. Those recursions give out at different depths,
++ * depending on the engine, on the shape of the value and on how much stack the caller left. So a
++ * value can pass on the relay and overflow in a browser, which then cannot load the workspace at
++ * all, or pass the decoder and overflow the encoder, inside the cleanup after a transaction. The
++ * limit is a fixed number, far below all of those, so that every replica reads the same thing. A
++ * value past it keeps its place in the document, because clocks have to line up.
++ */
++const MAX_VALUE_DEPTH = 256
++
++/**
++ * @param {string} text
++ * @return {any}
++ */
++export const parseBoundedJSON = text => {
++  let depth = 0
++  let inString = false
++  for (let i = 0; i < text.length; i++) {
++    const code = text.charCodeAt(i)
++    if (inString) {
++      if (code === 92 /* backslash */) {
++        i++
++      } else if (code === 34 /* quote */) {
++        inString = false
++      }
++    } else if (code === 34) {
++      inString = true
++    } else if (code === 91 /* [ */ || code === 123 /* { */) {
++      if (++depth > MAX_VALUE_DEPTH) {
++        return null
++      }
++    } else if (code === 93 /* ] */ || code === 125 /* } */) {
++      depth--
++    }
++  }
++  return JSON.parse(text)
++}
++
++/**
++ * Moves past one value in lib0's any-encoding without recursing.
++ *
++ * @param {decoding.Decoder} decoder
++ * @return {boolean} Whether the value nests deeper than MAX_VALUE_DEPTH
++ */
++const skipAny = decoder => {
++  // How many values are still to come at each open level, negative at the level of an object,
++  // where each one follows its key. The first entry stands for the value itself.
++  const open = [1]
++  let tooDeep = false
++  while (open.length > 0) {
++    const top = open.length - 1
++    const left = open[top]
++    if (left === 0) {
++      open.pop()
++      continue
++    }
++    if (left < 0) {
++      decoding.readVarUint8Array(decoder)
++      open[top] = left + 1
++    } else {
++      open[top] = left - 1
++    }
++    const tag = decoding.readUint8(decoder)
++    switch (tag) {
++      case 127: case 126: case 121: case 120:
++        break
++      case 125:
++        decoding.readVarInt(decoder)
++        break
++      case 124:
++        decoding.readFloat32(decoder)
++        break
++      case 123:
++        decoding.readFloat64(decoder)
++        break
++      case 122:
++        decoding.readBigInt64(decoder)
++        break
++      case 119: case 116:
++        decoding.readVarUint8Array(decoder)
++        break
++      case 118:
++        open.push(-decoding.readVarUint(decoder))
++        tooDeep = tooDeep || open.length > MAX_VALUE_DEPTH + 1
++        break
++      case 117:
++        open.push(decoding.readVarUint(decoder))
++        tooDeep = tooDeep || open.length > MAX_VALUE_DEPTH + 1
++        break
++      default:
++        throw new Error('Unknown value tag')
++    }
++  }
++  return tooDeep
++}
++
++/**
++ * @param {decoding.Decoder} decoder
++ * @return {any}
++ */
++const readBoundedAny = decoder => {
++  const start = decoder.pos
++  const tag = decoder.arr[start]
++  if (tag === 117 || tag === 118) {
++    if (skipAny(decoder)) {
++      return null
++    }
++    decoder.pos = start
++  }
++  return decoding.readAny(decoder)
++}
++
+ export class DSDecoderV1 {
+   /**
+    * @param {decoding.Decoder} decoder
+@@ -95,7 +210,7 @@ export class UpdateDecoderV1 extends DSDecoderV1 {
+    * @return {any}
+    */
+   readAny () {
+-    return decoding.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -111,7 +226,7 @@ export class UpdateDecoderV1 extends DSDecoderV1 {
+    * @return {any}
+    */
+   readJSON () {
+-    return JSON.parse(decoding.readVarString(this.restDecoder))
++    return parseBoundedJSON(decoding.readVarString(this.restDecoder))
+   }
+ 
+   /**
+@@ -244,7 +359,7 @@ export class UpdateDecoderV2 extends DSDecoderV2 {
+    * @return {any}
+    */
+   readAny () {
+-    return decoding.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
+   }
+ 
+   /**
+@@ -262,7 +377,7 @@ export class UpdateDecoderV2 extends DSDecoderV2 {
+    * @return {any}
+    */
+   readJSON () {
+-    return decoding.readAny(this.restDecoder)
++    return readBoundedAny(this.restDecoder)
    }
  
    /**
