@@ -35,6 +35,7 @@ function item(ref: number, content: number[]): number[] {
 }
 
 const ANY = 8;
+const SUB_DOCUMENT = 9;
 const STRING_VALUE = [1, 119, ...utf8('junk')];
 
 const PAYLOADS: ReadonlyArray<{ name: string; update: () => Uint8Array }> = [
@@ -50,6 +51,19 @@ const PAYLOADS: ReadonlyArray<{ name: string; update: () => Uint8Array }> = [
 	{
 		name: 'a delete-set entry of no length',
 		update: () => Uint8Array.from([0, 1, 0xe1, 0x3c, 1, 0, 0])
+	},
+	{
+		name: 'a sub-document whose options name a null guid',
+		update: () =>
+			Uint8Array.from([
+				1,
+				1,
+				0xe1,
+				0x3c,
+				0,
+				...item(SUB_DOCUMENT, [...utf8('sub'), 118, 1, ...utf8('guid'), 126]),
+				0
+			])
 	}
 ];
 

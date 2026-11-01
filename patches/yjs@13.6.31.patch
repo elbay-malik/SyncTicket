@@ -1,5 +1,5 @@
 diff --git a/dist/yjs.cjs b/dist/yjs.cjs
-index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f04325b836 100644
+index 5b5690eb2f172cd99d244ff33394ff59f44fe103..bf94817a9df2882203d9bb541380a83a86e43280 100644
 --- a/dist/yjs.cjs
 +++ b/dist/yjs.cjs
 @@ -350,6 +350,10 @@ const readAndApplyDeleteSet = (decoder, transaction, store) => {
@@ -346,7 +346,24 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
    callEventHandlerListeners(changedType._eH, event, transaction);
  };
  
-@@ -8870,7 +9068,7 @@ class ContentDoc {
+@@ -8737,11 +8935,15 @@ class ContentDeleted {
+  */
+ const readContentDeleted = decoder => new ContentDeleted(decoder.readLen());
+ 
++// Only what the ContentDoc constructor writes, because the rest is a peer's to fill in. Spread over
++// the arguments of `new Doc`, their options replaced the guid the item had just read, and an item
++// whose guid is null or an array integrates and then throws whenever it is written, which starts
++// inside the cleanup of its own transaction. Nothing that encodes this document works after that.
+ /**
+  * @param {string} guid
+  * @param {Object<string, any>} opts
+  */
+-const createDocFromOpts = (guid, opts) => new Doc({ guid, ...opts, shouldLoad: opts.shouldLoad || opts.autoLoad || false });
++const createDocFromOpts = (guid, opts) => new Doc({ guid, gc: opts.gc, autoLoad: opts.autoLoad, meta: opts.meta, shouldLoad: opts.autoLoad || false });
+ 
+ /**
+  * @private
+@@ -8870,7 +9072,7 @@ class ContentDoc {
   * @param {UpdateDecoderV1 | UpdateDecoderV2} decoder
   * @return {ContentDoc}
   */
@@ -355,7 +372,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
  
  /**
   * @private
-@@ -9172,7 +9370,7 @@ const readContentJSON = decoder => {
+@@ -9172,7 +9374,7 @@ const readContentJSON = decoder => {
      if (c === 'undefined') {
        cs.push(undefined);
      } else {
@@ -364,7 +381,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
      }
    }
    return new ContentJSON(cs)
-@@ -9417,6 +9615,74 @@ const YXmlFragmentRefID = 4;
+@@ -9417,6 +9619,74 @@ const YXmlFragmentRefID = 4;
  const YXmlHookRefID = 5;
  const YXmlTextRefID = 6;
  
@@ -439,7 +456,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
  /**
   * @private
   */
-@@ -9487,47 +9753,36 @@ class ContentType {
+@@ -9487,47 +9757,36 @@ class ContentType {
     * @param {Transaction} transaction
     */
    delete (transaction) {
@@ -507,7 +524,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
    }
  
    /**
-@@ -9652,9 +9907,17 @@ const splitItem = (transaction, leftItem, diff) => {
+@@ -9652,9 +9911,17 @@ const splitItem = (transaction, leftItem, diff) => {
  const isDeletedByUndoStack = (stack, id) => array__namespace.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id));
  
  /**
@@ -527,7 +544,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
   * @param {Item} item
   * @param {Set<Item>} redoitems
   * @param {DeleteSet} itemsToDelete
-@@ -9666,6 +9929,42 @@ const isDeletedByUndoStack = (stack, id) => array__namespace.some(stack, /** @pa
+@@ -9666,6 +9933,42 @@ const isDeletedByUndoStack = (stack, id) => array__namespace.some(stack, /** @pa
   * @private
   */
  const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
@@ -570,7 +587,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
    const doc = transaction.doc;
    const store = doc.store;
    const ownClientID = doc.clientID;
-@@ -9684,8 +9983,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
+@@ -9684,8 +9987,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
    let right;
    // make sure that parent is redone
    if (parentItem !== null && parentItem.deleted === true) {
@@ -582,7 +599,7 @@ index 5b5690eb2f172cd99d244ff33394ff59f44fe103..02a3e61dd5b02c24803ccdc83807c9f0
      }
      while (parentItem.redone !== null) {
 diff --git a/dist/yjs.mjs b/dist/yjs.mjs
-index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334bd7e3d39a 100644
+index 10d633d8e71171b2702c45376553832504921877..4c00df8273abef4746e8a6769f893308ef785f56 100644
 --- a/dist/yjs.mjs
 +++ b/dist/yjs.mjs
 @@ -313,6 +313,10 @@ const readAndApplyDeleteSet = (decoder, transaction, store) => {
@@ -929,7 +946,24 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
    callEventHandlerListeners(changedType._eH, event, transaction);
  };
  
-@@ -8833,7 +9031,7 @@ class ContentDoc {
+@@ -8700,11 +8898,15 @@ class ContentDeleted {
+  */
+ const readContentDeleted = decoder => new ContentDeleted(decoder.readLen());
+ 
++// Only what the ContentDoc constructor writes, because the rest is a peer's to fill in. Spread over
++// the arguments of `new Doc`, their options replaced the guid the item had just read, and an item
++// whose guid is null or an array integrates and then throws whenever it is written, which starts
++// inside the cleanup of its own transaction. Nothing that encodes this document works after that.
+ /**
+  * @param {string} guid
+  * @param {Object<string, any>} opts
+  */
+-const createDocFromOpts = (guid, opts) => new Doc({ guid, ...opts, shouldLoad: opts.shouldLoad || opts.autoLoad || false });
++const createDocFromOpts = (guid, opts) => new Doc({ guid, gc: opts.gc, autoLoad: opts.autoLoad, meta: opts.meta, shouldLoad: opts.autoLoad || false });
+ 
+ /**
+  * @private
+@@ -8833,7 +9035,7 @@ class ContentDoc {
   * @param {UpdateDecoderV1 | UpdateDecoderV2} decoder
   * @return {ContentDoc}
   */
@@ -938,7 +972,7 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
  
  /**
   * @private
-@@ -9135,7 +9333,7 @@ const readContentJSON = decoder => {
+@@ -9135,7 +9337,7 @@ const readContentJSON = decoder => {
      if (c === 'undefined') {
        cs.push(undefined);
      } else {
@@ -947,7 +981,7 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
      }
    }
    return new ContentJSON(cs)
-@@ -9380,6 +9578,74 @@ const YXmlFragmentRefID = 4;
+@@ -9380,6 +9582,74 @@ const YXmlFragmentRefID = 4;
  const YXmlHookRefID = 5;
  const YXmlTextRefID = 6;
  
@@ -1022,7 +1056,7 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
  /**
   * @private
   */
-@@ -9450,47 +9716,36 @@ class ContentType {
+@@ -9450,47 +9720,36 @@ class ContentType {
     * @param {Transaction} transaction
     */
    delete (transaction) {
@@ -1090,7 +1124,7 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
    }
  
    /**
-@@ -9615,9 +9870,17 @@ const splitItem = (transaction, leftItem, diff) => {
+@@ -9615,9 +9874,17 @@ const splitItem = (transaction, leftItem, diff) => {
  const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id));
  
  /**
@@ -1110,7 +1144,7 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
   * @param {Item} item
   * @param {Set<Item>} redoitems
   * @param {DeleteSet} itemsToDelete
-@@ -9629,6 +9892,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
+@@ -9629,6 +9896,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
   * @private
   */
  const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
@@ -1153,7 +1187,7 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
    const doc = transaction.doc;
    const store = doc.store;
    const ownClientID = doc.clientID;
-@@ -9647,8 +9946,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
+@@ -9647,8 +9950,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
    let right;
    // make sure that parent is redone
    if (parentItem !== null && parentItem.deleted === true) {
@@ -1165,10 +1199,27 @@ index 10d633d8e71171b2702c45376553832504921877..515d6b7f9a73a07b8143af22bd88334b
      }
      while (parentItem.redone !== null) {
 diff --git a/src/structs/ContentDoc.js b/src/structs/ContentDoc.js
-index 15836f5155c00f0147fc64acf770d7ab72340aa5..a57f92ce1f0d2fcbe548bd8df466a163078e0e62 100644
+index 15836f5155c00f0147fc64acf770d7ab72340aa5..9f4a56deb917a68bd2d58081d6bc882b0fd255ac 100644
 --- a/src/structs/ContentDoc.js
 +++ b/src/structs/ContentDoc.js
-@@ -137,4 +137,4 @@ export class ContentDoc {
+@@ -4,11 +4,15 @@ import {
+ 
+ import * as error from 'lib0/error'
+ 
++// Only what the ContentDoc constructor writes, because the rest is a peer's to fill in. Spread over
++// the arguments of `new Doc`, their options replaced the guid the item had just read, and an item
++// whose guid is null or an array integrates and then throws whenever it is written, which starts
++// inside the cleanup of its own transaction. Nothing that encodes this document works after that.
+ /**
+  * @param {string} guid
+  * @param {Object<string, any>} opts
+  */
+-const createDocFromOpts = (guid, opts) => new Doc({ guid, ...opts, shouldLoad: opts.shouldLoad || opts.autoLoad || false })
++const createDocFromOpts = (guid, opts) => new Doc({ guid, gc: opts.gc, autoLoad: opts.autoLoad, meta: opts.meta, shouldLoad: opts.autoLoad || false })
+ 
+ /**
+  * @private
+@@ -137,4 +141,4 @@ export class ContentDoc {
   * @param {UpdateDecoderV1 | UpdateDecoderV2} decoder
   * @return {ContentDoc}
   */
