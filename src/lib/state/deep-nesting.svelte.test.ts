@@ -10,6 +10,7 @@ import { getIssuesMap } from '$lib/sync/doc.js';
 import {
 	VALUE_CONTENT,
 	chainUnder,
+	everyLevelTouched,
 	handWrittenItem,
 	nestMaps,
 	nestedJson,
@@ -228,6 +229,24 @@ describe('a store undoing the delete of a chain split across clients', () => {
 			expect(second.store.get(REAL_ID)?.description).toBe('Written by the first client');
 		}
 	);
+});
+
+describe('a store receiving one update that touches every level of a chain', () => {
+	it('tells its listeners once, about the one issue', async () => {
+		const first = await open();
+		const depth = 6_000;
+		const { chain, touch } = everyLevelTouched(depth);
+		Y.applyUpdate(first.doc, chain, first.provider);
+		const deltas: Array<{ upserted: string[]; removed: readonly string[] }> = [];
+		first.store.onChange((delta) => {
+			deltas.push({ upserted: delta.upserted.map((issue) => issue.id), removed: delta.removed });
+		});
+
+		Y.applyUpdate(first.doc, touch, first.provider);
+
+		expect(deltas).toEqual([{ upserted: [REAL_ID], removed: [] }]);
+		expect(titles(first.store)).toEqual(['Innocent']);
+	});
 });
 
 describe('a store handed a plain value nested too deep to write out again', () => {

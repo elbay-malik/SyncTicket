@@ -69,3 +69,49 @@ export function getYIssue(map: IssuesMap, id: string): YIssue | undefined {
 export function* yIssues(map: IssuesMap): Generator<[id: string, yIssue: YIssue]> {
 	for (const [id, value] of map) if (isIssueEntry(id, value)) yield [id, value];
 }
+
+/** The entries under `issues` that a batch of deep events touched, and the event that said so. */
+export interface TouchedEntry {
+	id: string;
+	event: Y.YEvent<Y.AbstractType<unknown>>;
+}
+
+/**
+ * Each entry under `issues` that `events` touched, once, with the first event to touch it. Yjs
+ * delivers them shallowest first, so that is the event nearest the entry.
+ *
+ * Not `event.path[0]`: a path is worked out from the event's target every time it is asked for, so
+ * a peer who touches every level of a deep chain made reading them quadratic at best, for one id.
+ * Walking up instead, and remembering each type passed on the way, visits each type once.
+ */
+export function touchedEntries(
+	map: IssuesMap,
+	events: ReadonlyArray<Y.YEvent<Y.AbstractType<unknown>>>
+): TouchedEntry[] {
+	const touched = new Map<string, TouchedEntry>();
+	const touch = (id: string, event: TouchedEntry['event']) => {
+		if (!touched.has(id)) touched.set(id, { id, event });
+	};
+	const owners = new Map<Y.AbstractType<unknown>, string>();
+	for (const event of events) {
+		if (event.target === map) {
+			for (const key of event.changes.keys.keys()) touch(key, event);
+			continue;
+		}
+		const walked: Array<Y.AbstractType<unknown>> = [];
+		let current = event.target;
+		let id = owners.get(current);
+		while (id === undefined) {
+			walked.push(current);
+			const item = current._item as Y.Item;
+			if (item.parent === map) id = item.parentSub as string;
+			else {
+				current = item.parent as Y.AbstractType<unknown>;
+				id = owners.get(current);
+			}
+		}
+		for (const type of walked) owners.set(type, id);
+		touch(id, event);
+	}
+	return [...touched.values()];
+}

@@ -20,6 +20,7 @@ import {
 	createUndoManager,
 	getIssuesMap,
 	getYIssue,
+	touchedEntries,
 	type IssuesMap,
 	type YIssue
 } from '$lib/sync/doc.js';
@@ -496,7 +497,7 @@ export class IssueStore {
 	}
 
 	// Incrementally patches only the issues each Y event touches. Top-level events carry
-	// whole-issue adds/deletes; nested events carry a field change whose path[0] is the id.
+	// whole-issue adds/deletes; nested events carry a field change somewhere under an issue.
 	//
 	// It is also where a peer's change is recognised, because only here are the issue's
 	// before and after both in hand: `before` is read from the projection before it is
@@ -526,16 +527,14 @@ export class IssueStore {
 			upserted.push(issue);
 			if (live) changes.push({ before, after: issue, client: client(yIssue) });
 		};
-		for (const event of events) {
-			if (event.path.length === 0) {
-				for (const key of event.changes.keys.keys()) {
-					project(key, () => authorClient(this.#map, key));
-				}
+		// Once per entry however many events touched it, so one update touching every level of a
+		// deep chain doesn't read the issue once for each. A second pass could only have found the
+		// row already up to date. An edit inside a Y.Text or Y.Array stored as junk lands here too,
+		// naming the junk entry.
+		for (const { id, event } of touchedEntries(this.#map, events)) {
+			if (event.target === this.#map) {
+				project(id, () => authorClient(this.#map, id));
 			} else {
-				// An edit inside a Y.Text or Y.Array stored as junk lands here too, with path[0]
-				// naming the junk entry.
-				const id = event.path[0];
-				if (typeof id !== 'string') continue;
 				project(id, (yIssue) => {
 					const key = event.changes.keys.keys().next().value;
 					return key === undefined ? undefined : authorClient(yIssue, key);

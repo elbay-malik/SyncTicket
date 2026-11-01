@@ -226,3 +226,65 @@ for (const depth of [5_118, 5_300, 20_000]) {
 		expect(visitorErrors).toEqual([]);
 	});
 }
+
+/** How long the page's main thread went without running a timer, since `watchStalls`. */
+async function watchStalls(page: Page): Promise<() => Promise<number>> {
+	await page.evaluate(() => {
+		const watch = { last: performance.now(), longest: 0 };
+		setInterval(() => {
+			const now = performance.now();
+			watch.longest = Math.max(watch.longest, now - watch.last);
+			watch.last = now;
+		}, 50);
+		(window as unknown as { stallWatch: typeof watch }).stallWatch = watch;
+	});
+	return () =>
+		page.evaluate(
+			() => (window as unknown as { stallWatch: { longest: number } }).stallWatch.longest
+		);
+}
+
+/** Stock Yjs stalled the page 18 s at 12,000 and took the local relay's memory by 24,000. */
+for (const depth of [12_000, 24_000]) {
+	test(`one update touching all ${depth} levels of a chain leaves the tab responsive`, async ({
+		page,
+		workspaceId
+	}) => {
+		test.setTimeout(120_000);
+		const errors = collectErrors(page);
+		await openSynced(page);
+		await asPeer(workspaceId, (doc) => {
+			const yIssue = peerIssue('Innocent', 'a1');
+			doc.getMap<unknown>('issues').set(crypto.randomUUID(), yIssue);
+			doc.transact(() => {
+				let current = new Y.Map<unknown>();
+				yIssue.set('zzz', current);
+				for (let level = 1; level < depth; level += 1) {
+					const next = new Y.Map<unknown>();
+					current.set('n', next);
+					current = next;
+				}
+			});
+		});
+		await expect(page.getByRole('link', { name: 'Innocent' })).toBeVisible({ timeout: 30_000 });
+		const longestStall = await watchStalls(page);
+
+		await asPeer(workspaceId, (doc) => {
+			const issues = doc.getMap<unknown>('issues');
+			doc.transact(() => {
+				for (const entry of issues.values()) {
+					let level = (entry as Y.Map<unknown>).get('zzz');
+					while (level instanceof Y.Map) {
+						level.set('x', 1);
+						level = level.get('n');
+					}
+				}
+			});
+			issues.set(crypto.randomUUID(), peerIssue('Marker', 'a2'));
+		});
+
+		await expect(page.getByRole('link', { name: 'Marker' })).toBeVisible({ timeout: 30_000 });
+		expect(await longestStall()).toBeLessThan(5_000);
+		expect(errors).toEqual([]);
+	});
+}

@@ -146,6 +146,28 @@ export function splitChain(
 	Y.applyUpdate(target, Y.encodeStateAsUpdate(first, Y.encodeStateVector(target)), origin);
 }
 
+/**
+ * What a peer sends to make every level of a chain produce an event: the chain, under an issue, and
+ * then one transaction setting a key on each level. Types made in the transaction that made them
+ * raise no event of their own, which is why it takes the second update.
+ */
+export function everyLevelTouched(depth: number): { chain: Uint8Array; touch: Uint8Array } {
+	const peer = new Y.Doc();
+	const yIssue = wellFormedIssue({ title: 'Innocent' });
+	peer.getMap<unknown>(ISSUES_KEY).set(REAL_ID, yIssue);
+	nestMaps(yIssue, 'zzz', depth);
+	const chain = Y.encodeStateAsUpdate(peer);
+	const since = Y.encodeStateVector(peer);
+	peer.transact(() => {
+		let level = yIssue.get('zzz');
+		while (level instanceof Y.Map) {
+			level.set('x', 1);
+			level = level.get('n');
+		}
+	});
+	return { chain, touch: Y.encodeStateAsUpdate(peer, since) };
+}
+
 /** How many maps hang under `zzz`, walked by hand, and what the last of them holds. */
 export function chainUnder(yIssue: Y.Map<unknown>): { depth: number; leaf: unknown } {
 	let depth = 0;
