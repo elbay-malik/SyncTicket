@@ -2,7 +2,7 @@
 
 **A local-first, real-time collaborative issue tracker.**
 
-[![CI](https://github.com/EleoXDA/SyncTicket/actions/workflows/ci.yml/badge.svg)](https://github.com/EleoXDA/SyncTicket/actions/workflows/ci.yml)
+[![CI](https://github.com/elbay-malik/SyncTicket/actions/workflows/ci.yml/badge.svg)](https://github.com/elbay-malik/SyncTicket/actions/workflows/ci.yml)
 
 **Live demo: <https://syncticket.eleo-666.workers.dev>** — open it in two browsers and press
 **Share**. No sign-up; the link itself is the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)).
