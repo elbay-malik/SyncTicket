@@ -85,6 +85,15 @@ async function tabsTo(target: HTMLElement, limit = 10): Promise<number> {
 	return Infinity;
 }
 
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+/** Focus is on the new retry, and still is once a focus trap has had its say about the old one. */
+async function expectFocusToStayOnRetry() {
+	await vi.waitFor(() => expect(document.activeElement).toBe(retry().element()));
+	await settle();
+	expect(document.activeElement).toBe(retry().element());
+}
+
 /** Runs the layout's own afterNavigate handler, as closing the sheet on `cameFrom` would. */
 async function returnFromSheet(cameFrom: string) {
 	const handler = vi.mocked(afterNavigate).mock.lastCall?.[0] as (
@@ -209,11 +218,52 @@ describe('the list', () => {
 		await expect.element(retry()).toBeVisible();
 		(retry().element() as HTMLElement).focus();
 
+		const before = logged.mock.calls.length;
 		peerTouches(store, id);
 		await userEvent.keyboard('{Enter}');
+		await vi.waitFor(() => expect(logged.mock.calls.length).toBe(before + 1));
 		await expect.element(retry()).toBeVisible();
 
-		expect(await tabsTo(retry().element() as HTMLElement)).toBe(1);
+		await expectFocusToStayOnRetry();
+	});
+
+	it('leaves focus alone when a retry that did not have it fails', async () => {
+		const { store, id } = await renderList();
+		const other = page.getByRole('button', { name: 'New issue' }).element() as HTMLElement;
+		trap.rows = true;
+		peerTouches(store, id);
+		await expect.element(retry()).toBeVisible();
+		other.focus();
+		const before = logged.mock.calls.length;
+
+		peerTouches(store, id);
+		(retry().element() as HTMLElement).click();
+		await vi.waitFor(() => expect(logged.mock.calls.length).toBe(before + 1));
+		await expect.element(retry()).toBeVisible();
+		await settle();
+
+		expect(document.activeElement).toBe(other);
+	});
+
+	it('does not save the focus up for a failure long after a retry that worked', async () => {
+		const { store, id } = await renderList();
+		trap.rows = true;
+		peerTouches(store, id);
+		await expect.element(retry()).toBeVisible();
+		(retry().element() as HTMLElement).focus();
+		trap.rows = false;
+		await userEvent.keyboard('{Enter}');
+		await expect.element(page.getByRole('link', { name: 'Fix login' })).toBeVisible();
+		await settle();
+
+		const elsewhere = page.getByRole('button', { name: 'New issue' }).element() as HTMLElement;
+		elsewhere.focus();
+		trap.rows = true;
+		peerTouches(store, id);
+		await expect.element(retry()).toBeVisible();
+		await settle();
+
+		expect(document.activeElement).toBe(elsewhere);
 	});
 
 	it('lets a keyboard user reach the retry from the row that broke', async () => {
@@ -420,6 +470,28 @@ describe('the issue sheet', () => {
 		trap.editor = false;
 		await userEvent.keyboard('{Enter}');
 		await expect.element(dialog.getByRole('textbox', { name: 'Title' })).toBeVisible();
+	});
+
+	it('keeps the keyboard on the retry when pressing it fails again, rather than on Delete', async () => {
+		const { dialog, id, store } = await renderSheet();
+		trap.editor = true;
+		store.update(id, { description: 'Touched' });
+		await expect.element(retry()).toBeVisible();
+		(retry().element() as HTMLElement).focus();
+
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			const before = logged.mock.calls.length;
+			await userEvent.keyboard('{Enter}');
+			await vi.waitFor(() => expect(logged.mock.calls.length).toBe(before + 1));
+			await expect.element(retry()).toBeVisible();
+			await expectFocusToStayOnRetry();
+			expect(page.getByRole('alertdialog').query()).toBeNull();
+		}
+
+		trap.editor = false;
+		await userEvent.keyboard('{Enter}');
+		await expect.element(dialog.getByRole('textbox', { name: 'Title' })).toBeVisible();
+		expect(dialog.element().contains(document.activeElement)).toBe(true);
 	});
 
 	it('saves what was typed before the failure', async () => {
