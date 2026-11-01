@@ -422,6 +422,17 @@ describe('the issue sheet', () => {
 		await expect.element(dialog.getByRole('textbox', { name: 'Title' })).toBeVisible();
 	});
 
+	it('takes the issue out of the tab title when it goes while holding a draft', async () => {
+		const { dialog, id, store } = await renderSheet();
+		await expect.poll(() => document.title).toContain('Fix login');
+		await dialog.getByRole('textbox', { name: 'Title' }).fill('Half typed');
+
+		store.remove(id);
+
+		await expect.element(dialog.getByRole('button', { name: 'Back to issues' })).toBeVisible();
+		await expect.poll(() => document.title).toBe('Issues · SyncTicket');
+	});
+
 	it('saves what was typed before the failure', async () => {
 		const { dialog, id, store } = await renderSheet();
 		await dialog.getByRole('textbox', { name: 'Description' }).fill('Typed before it broke');

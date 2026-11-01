@@ -29,7 +29,7 @@
 	//   the value the field had when the run began. `revertEdit` does that by undoing the run's
 	//   own step, which also means ⌘⇧Z brings back what Escape threw away.
 
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import type { Issue, IssuePriority, IssueStatus } from '$lib/model/issue.js';
 	import { formatLabels, parseLabels } from '$lib/model/labels.js';
 	import { isoTime, relativeTime } from '$lib/format.js';
@@ -52,6 +52,12 @@
 
 <script lang="ts">
 	let { issue, store }: { issue: Issue; store: IssueStore } = $props();
+
+	// The issue this editor was created for, and the only thing a write may go by. `issue` is a live
+	// getter on the parent, and blur and onDestroy both run as the editor is being taken down, by
+	// when it may be undefined (a peer deleted the issue, or overwrote its entry) or already the
+	// next issue (the sheet moved on, and the draft would land on that one).
+	const id = untrack(() => issue.id);
 
 	type LiveField = 'title' | 'description';
 
@@ -101,7 +107,7 @@
 		run.timer = null;
 		// A blank title is dropped by patchIssue (a stored '' would render forever), so an idle
 		// commit of an emptied field writes nothing and the field keeps showing the blank draft.
-		store.update(issue.id, { [field]: next }, run.group);
+		store.update(id, { [field]: next }, run.group);
 	}
 
 	/**
@@ -138,7 +144,7 @@
 		// The fallback only runs when the run's step is no longer on top of the undo stack —
 		// something else was undone or done in between — and then writing the old value is the
 		// only way back. It is an ordinary write, so it is its own undo step.
-		if (!store.revertEdit(run.group)) store.update(issue.id, { [field]: run.original });
+		if (!store.revertEdit(run.group)) store.update(id, { [field]: run.original });
 	}
 
 	const commitTitle = () => commit('title');
@@ -147,13 +153,13 @@
 	function commitAssignee() {
 		const next = assigneeDraft;
 		assigneeDraft = null;
-		if (next !== null) store.update(issue.id, { assignee: next.trim() || null });
+		if (next !== null) store.update(id, { assignee: next.trim() || null });
 	}
 
 	function commitLabels() {
 		const next = labelsDraft;
 		labelsDraft = null;
-		if (next !== null) store.update(issue.id, { labels: parseLabels(next) });
+		if (next !== null) store.update(id, { labels: parseLabels(next) });
 	}
 
 	/**
@@ -178,8 +184,8 @@
 		else write('title');
 		write('description');
 		for (const run of Object.values(runs)) if (run?.timer != null) clearTimeout(run.timer);
-		if (assigneeDraft !== null) store.update(issue.id, { assignee: assigneeDraft.trim() || null });
-		if (labelsDraft !== null) store.update(issue.id, { labels: parseLabels(labelsDraft) });
+		if (assigneeDraft !== null) store.update(id, { assignee: assigneeDraft.trim() || null });
+		if (labelsDraft !== null) store.update(id, { labels: parseLabels(labelsDraft) });
 	});
 </script>
 
@@ -241,7 +247,7 @@
 			<StatusPicker
 				value={issue.status}
 				showLabel
-				onchange={(status: IssueStatus) => store.update(issue.id, { status })}
+				onchange={(status: IssueStatus) => store.update(id, { status })}
 			/>
 		</div>
 
@@ -250,7 +256,7 @@
 			<PriorityPicker
 				value={issue.priority}
 				showLabel
-				onchange={(priority: IssuePriority) => store.update(issue.id, { priority })}
+				onchange={(priority: IssuePriority) => store.update(id, { priority })}
 			/>
 		</div>
 
