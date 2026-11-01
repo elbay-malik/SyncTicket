@@ -176,19 +176,19 @@
 		const index = entryIndex.get(id);
 		if (index === undefined) return;
 		pendingReveal = null;
-		// Two scrolls, because two different things can be out of view. `scrollToIndex` moves
-		// virtua's own scroller so the row enters the rendered window. That is not enough on its
-		// own: on a screen too short for the list and the controls above it, `<main>` scrolls as
-		// well, so a row can be in view of the list and still below the fold. The row is in the
-		// DOM either way (`keepMounted` pins the cursor's row), so asking the element itself to
-		// come into view scrolls whichever ancestors need it.
 		virtualizer?.scrollToIndex(index, { align: 'nearest' });
-		requestAnimationFrame(() => {
-			scroller
-				?.querySelector(`[data-issue-link="${CSS.escape(id)}"]`)
-				?.scrollIntoView({ block: 'nearest' });
-		});
+		requestAnimationFrame(() => linkOf(id)?.scrollIntoView({ block: 'nearest' }));
 	});
+
+	// A row takes two scrolls to see, because two different things can be out of view.
+	// `scrollToIndex` moves virtua's own scroller so the row enters the rendered window. That is
+	// not enough on its own: on a screen too short for the list and the controls above it, `<main>`
+	// scrolls as well, so a row can be in view of the list and still below the fold. The row is in
+	// the DOM either way (`keepMounted` pins the cursor's row), so asking the element itself to come
+	// into view scrolls whichever ancestors need it. Both `reveal` and `moveCursor` do this.
+	function linkOf(id: string): HTMLElement | null {
+		return scroller?.querySelector<HTMLElement>(`[data-issue-link="${CSS.escape(id)}"]`) ?? null;
+	}
 
 	export function moveCursor(delta: number) {
 		if (shown.length === 0) return;
@@ -223,9 +223,10 @@
 			const target = pendingFocusId;
 			pendingFocusId = null;
 			if (target === null) return;
-			scroller
-				?.querySelector<HTMLElement>(`[data-issue-link="${CSS.escape(target)}"]`)
-				?.focus({ preventScroll: true });
+			const link = linkOf(target);
+			// Not plain `focus()`, which is free to centre the row and jumps on every keypress.
+			link?.focus({ preventScroll: true });
+			link?.scrollIntoView({ block: 'nearest' });
 		});
 	}
 

@@ -94,6 +94,7 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
   - **Derive `keepMounted` from whichever index is tabbable**, not from `selectedId`. They were computed separately once, so with no cursor placed the fallback row was tabbable but not pinned — scrolling away from the top left the list with _zero_ tab stops and no keyboard way in at all.
   - **Never mirror focus into state.** Read `document.activeElement` at the moment of a move. A remembered "column" written from an arbitrary `focusin` survives a mouse click on a picker, after which `j` moved down a row and left focus on that row's picker, so Enter opened a dropdown instead of the issue.
   - **A move reads its origin from focus, but moves focus a frame later**, so a second move arriving before the paint must fall back to the index rather than re-reading a stale `activeElement`. Key auto-repeat (15–30 ms against a 16.7 ms frame) is exactly this case: without the guard, holding `j` advanced one row in ten.
+  - **Moving the cursor takes two scrolls.** `scrollToIndex` only moves the list's own scroller, and on a short screen `<main>` scrolls too, so a focused row sat below the fold with nothing on screen to say where the cursor was. `focus({ preventScroll: true })` keeps it that way, so follow it with `scrollIntoView({ block: 'nearest' })`, as `reveal` does.
 - Single-letter shortcuts are correctly inert while typing, so any text field the keyboard can get stuck in needs an escape hatch (the quick-add field blurs on Escape).
 
 ## Virtualization (Phase 6)

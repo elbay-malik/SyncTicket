@@ -95,6 +95,45 @@ test('stays usable on a screen too short for it, by scrolling the page around it
 	await expect(page.getByRole('link', { name: 'Planted 0', exact: true })).toBeInViewport();
 });
 
+// A row can be in view of the list and still below the fold of `<main>`, which scrolls as well on a
+// screen this short. Focus is the cursor, so a cursor nobody can see is no cursor at all.
+for (const viewport of [
+	{ width: 320, height: 256 },
+	{ width: 844, height: 390 },
+	{ width: 1280, height: 400 }
+]) {
+	test(`keeps the cursor on screen at ${viewport.width}x${viewport.height}`, async ({
+		page,
+		workspaceId
+	}) => {
+		await page.setViewportSize(viewport);
+		await openPlanted(page, workspaceId);
+		const cursor = page.locator('[data-issue-link]:focus');
+
+		for (const expected of [0, 1, 2, 3, 4, 5]) {
+			await page.keyboard.press('j');
+			await expect(cursor).toHaveText(new RegExp(`Planted ${expected}\\b`));
+			await expect(cursor).toBeInViewport({ ratio: 1 });
+		}
+
+		// Far enough down that the list has to move as well, at the pace a held key repeats.
+		const hold = async (key: string, presses: number) => {
+			for (let press = 0; press < presses; press += 1) {
+				await page.keyboard.press(key);
+				await page.waitForTimeout(25);
+			}
+		};
+		await hold('j', 30);
+		await expect(cursor).toHaveText(/Planted 35\b/);
+		await expect(cursor).toBeInViewport({ ratio: 1 });
+		expect(await rows(page).count()).toBeLessThan(60);
+
+		await hold('k', 35);
+		await expect(cursor).toHaveText(/Planted 0\b/);
+		await expect(cursor).toBeInViewport({ ratio: 1 });
+	});
+}
+
 test('leaves the board reachable to its last card on a short screen', async ({
 	page,
 	workspaceId
