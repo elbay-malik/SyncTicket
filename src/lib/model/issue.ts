@@ -66,3 +66,29 @@ export function isIssueStatus(value: unknown): value is IssueStatus {
 export function isIssuePriority(value: unknown): value is IssuePriority {
 	return typeof value === 'string' && (ISSUE_PRIORITIES as readonly string[]).includes(value);
 }
+
+const ISSUE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Whether a value is an issue id this app could have minted: the lowercase form that
+ * `crypto.randomUUID()` produces, which is how every issue has been created from the start.
+ *
+ * Ids are Y.Map keys, so a peer chooses them, and they end up in links. Only the shape is
+ * checked, not the version nibble: nothing depends on it, and a UUID is already harmless.
+ */
+export function isIssueId(value: unknown): value is string {
+	return typeof value === 'string' && ISSUE_ID.test(value);
+}
+
+/**
+ * An issue id as `resolve('/issues/[id]', ...)` needs it.
+ *
+ * `resolve` pastes a parameter into the path as it is, so a `/` or a `?` in the id would change
+ * where the link goes. SvelteKit decodes the segment again for `page.params.id`, and a real id
+ * has nothing to encode, so its link is unchanged. Reads filter out anything else (`sync/doc.ts`)
+ * and this is the second layer behind that: it does nothing for `''` or `..`, which only the
+ * filter can stop, because a browser treats an encoded dot segment as a dot segment too.
+ */
+export function issueIdParam(id: string): string {
+	return encodeURIComponent(id);
+}

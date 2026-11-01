@@ -17,6 +17,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { resetMode, setMode } from 'mode-watcher';
+	import { issueIdParam } from '$lib/model/issue.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getSearchClient } from '$lib/search/client.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
@@ -136,7 +137,8 @@
 						     equal a command's label. -->
 						<Command.Item
 							value={`issue:${issue.id}`}
-							onSelect={() => run(() => goto(resolve('/issues/[id]', { id: issue.id })))}
+							onSelect={() =>
+								run(() => goto(resolve('/issues/[id]', { id: issueIdParam(issue.id) })))}
 						>
 							<StatusBadge value={issue.status} showLabel={false} />
 							<span class="truncate">{issue.title}</span>

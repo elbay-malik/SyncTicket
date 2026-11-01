@@ -5,11 +5,12 @@
 // of a Y.Map is only a cast: it checks nothing that arrives over the wire. So `IssuesMap` says
 // `unknown`, which leaves the compiler insisting that every read go through the helpers below.
 //
-// An entry that is not a Y.Map is ignored, not repaired, and it stays in the document: a CRDT
+// An entry that is not an issue is ignored, not repaired, and it stays in the document: a CRDT
 // has no way to drop it short of writing a delete, and nobody asked for that write. A peer can
-// replace it later by writing a real issue over the same key.
+// replace it later by writing a real issue over the same key, if the key is a real id.
 
 import * as Y from 'yjs';
+import { isIssueId } from '$lib/model/issue.js';
 
 export const ISSUES_KEY = 'issues';
 
@@ -28,23 +29,27 @@ export function getIssuesMap(doc: Y.Doc): IssuesMap {
 }
 
 /**
- * Whether a value under `issues` is an issue at all.
+ * Whether an entry under `issues` is an issue at all: a Y.Map, under a key that is an issue id.
  *
  * Duck-typing on `.get` is not enough: Y.Array, Y.XmlFragment and a sub-document all have a
  * `.get` that takes a read of `title` without complaint, which is a ghost row rather than a
  * crash, and it only throws once someone edits it.
+ *
+ * The key is checked here as well because it is a peer's string that becomes the issue's id and
+ * then a link: `../issues?ws=...` is a row whose title sends whoever clicks it to another
+ * workspace, and `''` or `/x` make `resolve()` throw while the list renders.
  */
-export function isYIssue(value: unknown): value is YIssue {
-	return value instanceof Y.Map;
+function isIssueEntry(id: string, value: unknown): value is YIssue {
+	return isIssueId(id) && value instanceof Y.Map;
 }
 
 /** The issue under `id`, or undefined when there is none or the entry is not an issue. */
 export function getYIssue(map: IssuesMap, id: string): YIssue | undefined {
 	const value = map.get(id);
-	return isYIssue(value) ? value : undefined;
+	return isIssueEntry(id, value) ? value : undefined;
 }
 
 /** Every entry under `issues` that is an issue, skipping the rest. */
 export function* yIssues(map: IssuesMap): Generator<[id: string, yIssue: YIssue]> {
-	for (const [id, value] of map) if (isYIssue(value)) yield [id, value];
+	for (const [id, value] of map) if (isIssueEntry(id, value)) yield [id, value];
 }

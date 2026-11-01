@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { Issue, IssuePriority, IssueStatus } from '$lib/model/issue.js';
+	import {
+		issueIdParam,
+		type Issue,
+		type IssuePriority,
+		type IssueStatus
+	} from '$lib/model/issue.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
 	import type { Peer } from '$lib/state/presence.svelte.js';
 	import { listNames } from '$lib/format.js';
@@ -92,7 +97,7 @@
 		and it keeps Enter as ordinary link activation instead of a global shortcut.
 	-->
 	<a
-		href={resolve('/issues/[id]', { id: issue.id })}
+		href={resolve('/issues/[id]', { id: issueIdParam(issue.id) })}
 		data-issue-link={issue.id}
 		tabindex={tabbable ? 0 : -1}
 		aria-current={selected ? 'true' : undefined}

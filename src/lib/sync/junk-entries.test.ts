@@ -12,7 +12,7 @@ import {
 	patchIssue,
 	readAllIssues
 } from './issues.js';
-import { JUNK_VALUES, peerWrites } from './junk-entries.fixture.js';
+import { JUNK_ID, JUNK_VALUES, peerWrites } from './junk-entries.fixture.js';
 import { seedDemoIssues, seedIssues } from './seed.js';
 
 function titles(doc: Y.Doc, status?: string): string[] {
@@ -36,14 +36,14 @@ describe.each(JUNK_VALUES)('$name under issues', ({ make }) => {
 		const doc = createDoc();
 		const map = getIssuesMap(doc);
 		const kept = createIssue(map, { title: 'Kept', status: 'todo' });
-		peerWrites(doc, (issues) => issues.set('junk', make()));
+		peerWrites(doc, (issues) => issues.set(JUNK_ID, make()));
 		return { doc, map, kept };
 	}
 
 	it('is not an issue, and stays in the document', () => {
 		const { doc, map } = workspace();
 		expect(titles(doc)).toEqual(['Kept']);
-		expect(map.has('junk')).toBe(true);
+		expect(map.has(JUNK_ID)).toBe(true);
 	});
 
 	it('does not stop new issues getting a key', () => {
@@ -63,11 +63,11 @@ describe.each(JUNK_VALUES)('$name under issues', ({ make }) => {
 	it('cannot be patched, moved or deleted, and asking writes nothing', () => {
 		const { doc, map } = workspace();
 		const writes = countWrites(doc);
-		patchIssue(map, 'junk', { title: 'Renamed', status: 'done' });
-		moveIssue(map, 'junk', 'done', ['junk']);
-		deleteIssue(map, 'junk');
+		patchIssue(map, JUNK_ID, { title: 'Renamed', status: 'done' });
+		moveIssue(map, JUNK_ID, 'done', [JUNK_ID]);
+		deleteIssue(map, JUNK_ID);
 		expect(writes()).toBe(0);
-		expect(map.has('junk')).toBe(true);
+		expect(map.has(JUNK_ID)).toBe(true);
 	});
 
 	it('is skipped as a sibling, without shifting where the card lands', () => {
@@ -76,7 +76,7 @@ describe.each(JUNK_VALUES)('$name under issues', ({ make }) => {
 		const last = createIssue(map, { title: 'Last', status: 'todo' });
 		// The junk id sits ahead of the moved card, so a position counted over the raw list is
 		// one too far along and the card ends up behind Last.
-		moveIssue(map, moved, 'todo', ['junk', kept, moved, last]);
+		moveIssue(map, moved, 'todo', [JUNK_ID, kept, moved, last]);
 		expect(titles(doc, 'todo')).toEqual(['Kept', 'Moved', 'Last']);
 	});
 
@@ -88,9 +88,9 @@ describe.each(JUNK_VALUES)('$name under issues', ({ make }) => {
 		peerWrites(doc, (issues) => {
 			for (const id of [kept, twin]) (issues.get(id) as Y.Map<unknown>).set('order', 'a0');
 		});
-		moveIssue(map, moved, 'todo', [kept, 'junk', moved, twin]);
+		moveIssue(map, moved, 'todo', [kept, JUNK_ID, moved, twin]);
 		expect(titles(doc, 'todo')).toEqual(['Kept', 'Moved', 'Twin']);
-		expect(map.has('junk')).toBe(true);
+		expect(map.has(JUNK_ID)).toBe(true);
 	});
 });
 

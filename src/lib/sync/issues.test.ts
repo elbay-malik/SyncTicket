@@ -108,13 +108,14 @@ describe('issue CRDT helpers', () => {
 		const doc = createDoc();
 		const map = getIssuesMap(doc);
 		const yIssue = new Y.Map<unknown>();
+		const id = crypto.randomUUID();
 		doc.transact(() => {
-			map.set('corrupt', yIssue);
+			map.set(id, yIssue);
 			yIssue.set('title', 123); // wrong type
 			yIssue.set('status', 'not-a-status');
 			yIssue.set('labels', ['ok', 7, 'fine']);
 		});
-		const issue = read(map, 'corrupt');
+		const issue = read(map, id);
 		expect(issue.title).toBe('Untitled');
 		expect(issue.status).toBe('backlog');
 		expect(issue.labels).toEqual(['ok', 'fine']);

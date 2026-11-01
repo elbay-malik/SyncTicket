@@ -1,6 +1,6 @@
 <script lang="ts" module>
 	import type { Options } from 'svelte-dnd-action';
-	import { STATUS_META, type Issue, type IssueStatus } from '$lib/model/issue.js';
+	import { STATUS_META, issueIdParam, type Issue, type IssueStatus } from '$lib/model/issue.js';
 
 	/**
 	 * How long a touch must hold still before it becomes a drag.
@@ -141,7 +141,7 @@
 		const at = performance.now();
 		if (lastOpened.id === id && at - lastOpened.at < 500) return;
 		lastOpened = { id, at };
-		void goto(resolve('/issues/[id]', { id }));
+		void goto(resolve('/issues/[id]', { id: issueIdParam(id) }));
 	}
 
 	/**
