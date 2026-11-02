@@ -32,6 +32,9 @@ function relayConstant(name: string): number {
 /** Encoded size of a workspace holding `count` generated issues, as the relay would store it. */
 function encodedBytes(count: number): number {
 	const doc = createDoc();
+	// Pinned: the random id is encoded as a varint in each item's origin, and one below 2^28 is a
+	// byte shorter, about 9 bytes per issue. That was 1 run in 16 falling out of the band below.
+	doc.clientID = 2 ** 30;
 	try {
 		// Fixed seed: this is a measurement, and a measurement that moves on its own is useless.
 		seedIssues(getIssuesMap(doc), count, { seed: 1 });
@@ -54,7 +57,7 @@ describe('snapshot capacity', () => {
 		// neither — it is worth knowing that a loose band here looks identical to a tight one
 		// until something actually changes.
 		//
-		// Yjs encodes deterministically for identical input, so there is no noise to absorb;
+		// Yjs encodes deterministically for identical input and a pinned clientID, so there is no noise to absorb;
 		// a failure here means the input changed, or the library's encoding did. Either way the
 		// right response is to re-measure and update ADR 0010, not to widen the band.
 		const perIssue = encodedBytes(4000) / 4000;
