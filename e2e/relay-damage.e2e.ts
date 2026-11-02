@@ -420,6 +420,77 @@ test('with the quarantine already taken, the first copy stays and so does the la
 	}
 });
 
+test('ADR recovery steps on a room with its quarantine taken end with the salvage stored', async () => {
+	const relay = new OwnRelay();
+	const firstCopy = Uint8Array.from([9, 9, 9]);
+	const laterCopy = Uint8Array.from([1, 2, 3]);
+	const salvage = new Y.Doc();
+	salvage.getMap<unknown>('issues').set('salvaged', 'recovered from the first copy');
+	try {
+		const room = freshRoom();
+		await relay.start();
+		await storedWorkspace(relay, room);
+		let database = relay.database();
+		database.prepare('UPDATE ydoc_snapshot SET doc = ? WHERE id = 1').run(firstCopy);
+		database.close();
+		await relay.start();
+		const opener = await Peer.join(relay.host, room);
+		await expect.poll(() => opener.notices.length).toBe(1);
+		// Healthy again by the time the second one turns up, or that wake has nothing new to say.
+		opener.doc.getMap<unknown>('issues').set('kept', 'from an honest peer');
+		await expect.poll(() => opener.notices.at(-1)?.state, { timeout: SAVE_WINDOW_MS }).toBe('ok');
+		opener.leave();
+		await relay.stop();
+		database = relay.database();
+		database.prepare('INSERT OR REPLACE INTO ydoc_snapshot (id, doc) VALUES (1, ?)').run(laterCopy);
+		database.close();
+		await relay.start();
+		const refused = await Peer.join(relay.host, room);
+		await expect.poll(() => relay.lines('quarantine-failed').length).toBe(1);
+		refused.leave();
+		await relay.stop();
+
+		// Step 4 of the ADR's recovery: both rows are dumped, so clear the table and let the instance
+		// go. Until then it refuses whatever is sent to it. The next wake moves the later row in.
+		database = relay.database();
+		database.exec('DELETE FROM ydoc_quarantine WHERE id = 1');
+		database.close();
+		await relay.start();
+		const waking = await Peer.join(relay.host, room);
+		await expect.poll(() => relay.lines('quarantined').length).toBe(2);
+		waking.leave();
+		await relay.stop();
+		const emptied = relay.storage();
+		expect(hex(emptied.quarantine)).toEqual(hex(laterCopy));
+		expect(emptied.snapshot).toBeUndefined();
+
+		// Step 5: put the salvage back as a client, and it is stored this time.
+		await relay.start();
+		const operator = await Peer.join(relay.host, room, salvage);
+		await expect.poll(() => operator.notices.at(-1)?.state, { timeout: SAVE_WINDOW_MS }).toBe('ok');
+		operator.leave();
+		await relay.stop();
+		const stored = relay.storage();
+		expect(entriesIn(stored.snapshot)).toEqual(['salvaged']);
+		expect(stored.health).toMatchObject({ state: 'ok' });
+		expect(hex(stored.quarantine)).toEqual(hex(laterCopy));
+
+		// Step 6: clear the table last, and a restart finds the salvage and nothing wrong.
+		database = relay.database();
+		database.exec('DELETE FROM ydoc_quarantine WHERE id = 1');
+		database.close();
+		await relay.start();
+		const visitor = await Peer.join(relay.host, room);
+		await expect.poll(() => visitor.entries()).toEqual(['salvaged']);
+		expect(visitor.notices).toEqual([]);
+		visitor.leave();
+		await relay.stop();
+		expect(relay.storage().quarantine).toBeUndefined();
+	} finally {
+		await relay.dispose();
+	}
+});
+
 test('when the quarantine cannot be written, saves are refused and the row survives', async () => {
 	const relay = new OwnRelay();
 	const damaged = Uint8Array.from([1, 2, 3]);

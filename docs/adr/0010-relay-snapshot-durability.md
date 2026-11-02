@@ -312,12 +312,22 @@ durable record, and it stays until someone clears it.
    bytes that do load. With the fixture it recovered all three entries, the real work included.
    `Y.decodeUpdate` lists every struct if you need to see what did not land. A row that stopped
    loading after a Yjs bump may load whole under the old version.
-4. **Put it back as a client.** Connect a plain Yjs provider to the room and apply the salvaged
+4. **If the table is what is refusing saves, make room first.** That is a room that logged
+   `reason=occupied`, or whose `ydoc_health` says `degraded` and `unreadable` with a row in both
+   tables and a `ydoc_snapshot` that fails step 3. Skip this step for any other room. This instance
+   refuses every save for as long as it lives, and says nothing about it, so step 5 would store
+   nothing and step 6 would then delete the first copy with no salvage on the relay. So with both
+   of step 2's dumps safe, run `DELETE FROM ydoc_quarantine WHERE id = 1` and let the instance go,
+   by leaving the room idle until it is evicted or by deploying the relay. The next connection
+   wakes it, moves the later row into the table and starts the room empty. Before going on, check
+   that `ydoc_quarantine` holds the later row and `ydoc_snapshot` is empty. If not, the old instance
+   is still there. The first copy now exists only in your dump, so step 5 puts back what you
+   salvaged from both.
+5. **Put it back as a client.** Connect a plain Yjs provider to the room and apply the salvaged
    update, as `e2e/relay-damage.e2e.ts` does. The relay merges it, verifies it and saves it, so a
    mistake here is refused and not stored. Do not write it into `ydoc_snapshot` by hand.
-5. **Clear the quarantine last.** `DELETE FROM ydoc_quarantine WHERE id = 1`. A room that was refusing
-   saves because the table was taken moves its later row in on its next wake, and that row has to
-   be recovered the same way.
+6. **Clear the quarantine last,** once `ydoc_health` says `ok` and `ydoc_snapshot` holds the work:
+   `DELETE FROM ydoc_quarantine WHERE id = 1`.
 
 ## Alternatives considered
 
