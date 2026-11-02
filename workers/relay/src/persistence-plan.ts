@@ -15,6 +15,7 @@ import {
 	approxWakeMs,
 	classifyWriteError,
 	encodePersistenceNotice,
+	UNREADABLE_REASON,
 	type PersistenceState,
 	type PersistFailure,
 	type SnapshotSize
@@ -30,6 +31,8 @@ export interface PersistPlan {
 	log: string | null;
 	/** Whether to write the health row — ONLY on a transition. */
 	recordHealth: boolean;
+	/** What the health row should store instead of `reason`, which is what goes on the wire. */
+	healthReason?: typeof UNREADABLE_REASON;
 	/** Set once the wake-cost line has been emitted, so the caller can latch it. */
 	wakeWarned?: boolean;
 }
@@ -50,6 +53,8 @@ function line(event: string, room: string, bytes: number, extra = ''): string {
 export function planSave(input: {
 	bytes: number;
 	size: SnapshotSize;
+	/** This save must not write: its bytes will not reload, or this instance is refusing saves. */
+	refused: boolean;
 	state: PersistenceState;
 	warned: boolean;
 	/** Structs in the document — the wake-cost axis, independent of `bytes`. */
@@ -59,7 +64,7 @@ export function planSave(input: {
 	room: string;
 	now: number;
 }): PersistPlan {
-	const { bytes, size, state, warned, structs, wakeWarned, room, now } = input;
+	const { bytes, size, refused, state, warned, structs, wakeWarned, room, now } = input;
 
 	// Reported before anything else and independently of everything else: a document can be
 	// expensive to wake while nowhere near the byte ceiling, and vice versa. `wakeLog` is
@@ -110,6 +115,30 @@ export function planSave(input: {
 			reason: 'too-big',
 			notice: encodePersistenceNotice({ state: 'degraded', reason: 'too-big', at: now }),
 			log: line('degraded', room, bytes, ' reason=too-big'),
+			recordHealth: true
+		});
+	}
+
+	// Silent while already failing, for the reason spelled out above. 'unknown' on the wire because
+	// the copy for it is true here and needs no client change (see `planLoad`).
+	if (refused) {
+		if (state !== 'ok') {
+			return withWake({
+				write: false,
+				next: state,
+				reason: 'unknown',
+				notice: null,
+				log: null,
+				recordHealth: false
+			});
+		}
+		return withWake({
+			write: false,
+			next: 'degraded',
+			reason: 'unknown',
+			healthReason: UNREADABLE_REASON,
+			notice: encodePersistenceNotice({ state: 'degraded', reason: 'unknown', at: now }),
+			log: line('degraded', room, bytes, ` reason=${UNREADABLE_REASON}`),
 			recordHealth: true
 		});
 	}
@@ -182,12 +211,28 @@ export function planLoad(input: { healthRow: unknown; bytes: number; room: strin
 	reason?: PersistFailure;
 	notice: string | null;
 	log: string | null;
+	/** The stored timestamp to carry to clients, on the one path that uses it so far. */
+	at?: number;
 } {
 	const { healthRow, bytes, room, now } = input;
 	const row = healthRow as { state?: unknown; at?: unknown; reason?: unknown } | null | undefined;
 	const state = typeof row?.state === 'string' ? row.state : null;
 	if (state !== 'degraded' && state !== 'stale') {
 		return { state: 'ok', notice: null, log: null };
+	}
+	// Reported as still failing rather than 'stale', whose copy says the relay ran out of room,
+	// which is not what happened here. 'degraded' with 'unknown' tells the reader the true part:
+	// the relay isn't storing this and their copy is safe. Silent, since this was announced when it
+	// happened and it would otherwise repeat on every hibernation wake.
+	if (row?.reason === UNREADABLE_REASON) {
+		const at = storedAt(row.at, now);
+		return {
+			state: 'degraded',
+			reason: 'unknown',
+			notice: encodePersistenceNotice({ state: 'degraded', reason: 'unknown', at }),
+			log: null,
+			at
+		};
 	}
 	// The stored reason is carried through when it is one we know; a row written by some
 	// future version is reported as 'unknown' rather than guessed at.
@@ -196,13 +241,79 @@ export function planLoad(input: { healthRow: unknown; bytes: number; room: strin
 	// against what the viewer has dismissed — so minting a fresh one on every hibernation wake
 	// would un-dismiss the banner for a condition that has not changed. A row written before
 	// `at` was trustworthy falls back to `now`, which is wrong only once.
-	const at = typeof row?.at === 'number' && Number.isFinite(row.at) ? row.at : now;
+	const at = storedAt(row?.at, now);
 	return {
 		state: 'stale',
 		reason,
 		notice: encodePersistenceNotice({ state: 'stale', reason, at }),
 		log: line('stale-load', room, bytes, ` since=${iso(row?.at, now)}`)
 	};
+}
+
+/**
+ * Decides what a wake that found a damaged snapshot should say, once `quarantineSnapshot` has run.
+ *
+ * Moving the row can only happen once, so that announces unconditionally. The other two outcomes
+ * leave the row in place to be found again on every wake, so they announce once and latch on the
+ * health row, which is also why `at` is the stored one after the first. If the health row cannot be
+ * written either, nothing can hold the latch: the room then announces on every wake, which is
+ * bounded by the wakes and is the honest report of a room that can write nothing at all.
+ *
+ * `refuseSaves` is for the life of this instance: the row is still in the way, and the next wake
+ * tries again.
+ */
+export function planDamagedLoad(input: {
+	outcome: 'quarantined' | 'occupied' | 'write-failed';
+	healthRow: unknown;
+	bytes: number;
+	room: string;
+	now: number;
+}): {
+	state: PersistenceState;
+	reason: PersistFailure;
+	at: number;
+	notice: string | null;
+	log: string | null;
+	recordHealth: boolean;
+	refuseSaves: boolean;
+} {
+	const { outcome, healthRow, bytes, room, now } = input;
+	const announce = (log: string, at: number) => ({
+		state: 'degraded' as const,
+		reason: 'unknown' as const,
+		at,
+		notice: encodePersistenceNotice({ state: 'degraded', reason: 'unknown', at }),
+		log
+	});
+	if (outcome === 'quarantined') {
+		// The transaction that moved the row wrote the health row with it.
+		return {
+			...announce(line('quarantined', room, bytes), now),
+			recordHealth: false,
+			refuseSaves: false
+		};
+	}
+	const row = healthRow as { state?: unknown; at?: unknown; reason?: unknown } | null | undefined;
+	if (row?.reason === UNREADABLE_REASON) {
+		return {
+			state: 'degraded',
+			reason: 'unknown',
+			at: storedAt(row.at, now),
+			notice: null,
+			log: null,
+			recordHealth: false,
+			refuseSaves: true
+		};
+	}
+	return {
+		...announce(line('quarantine-failed', room, bytes, ` reason=${outcome} saves=refused`), now),
+		recordHealth: true,
+		refuseSaves: true
+	};
+}
+
+function storedAt(at: unknown, fallback: number): number {
+	return typeof at === 'number' && Number.isFinite(at) ? at : fallback;
 }
 
 /**

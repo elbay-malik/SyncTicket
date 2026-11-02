@@ -73,19 +73,47 @@ nothing to read. The sentence is now a statement about the past rather than the 
 also means this freedom is spent. Any future change to the `ydoc_health` table or the snapshot
 key faces stored data and needs a migration path.
 
+**A row nobody can read (2026-11-02).** This ADR priced what a save that fails costs. It missed
+what a save that _succeeds_ can cost. `decodeSnapshot` caught a throw from `Y.applyUpdate` and
+returned an empty document, which `onLoad` handed to the room as if nothing had been stored, and
+the room's next save overwrote `id=1` with it. So one damaged row destroyed the stored workspace,
+with no log line and no notice. A save could also write exactly such a row. A 227-byte update,
+found by byte-mutating ordinary updates and reducing, applies to a live document, encodes, and
+leaves bytes that throw on reload (`workers/relay/src/unreloadable.fixture.ts`). Run through the
+real relay, the row was replaced and a restart brought back an empty room. Anyone with the link
+could do that to a workspace. And `onSave` left its encode outside any catch, on the reasoning that
+a throw there was a bug in this worker. A document's state is a peer's to write, so that reasoning
+was wrong, and the swallow above was still reachable.
+
 ## Decision
 
 Make the failure loud, durable and visible. Do not raise the ceiling.
 
 - **Nothing escapes `onSave`.** The encoded size is checked against `SNAPSHOT_MAX_BYTES`
   (1,900,000 — 5% under the documented cap, because SQLite row overhead is uncharacterised)
-  _before_ the write, and the write itself is wrapped. The library's swallow becomes unreachable.
+  _before_ the write, and the write itself is wrapped. So is the encode, along with everything else
+  in the method (2026-11-02). The library's swallow becomes unreachable.
+- **What a save writes has been reloaded first** (2026-11-02). `prepareSnapshot` applies the encoded
+  bytes to a fresh `Y.Doc` before the write, at every size below the ceiling. If that throws nothing
+  is written, the last good row stays, and the room goes `degraded` on the channels below. No size
+  cut-off and no sampling, because either one lets through the row this exists to stop.
+- **A damaged row is moved, not replaced** (2026-11-02). `decodeSnapshot` now reports `fresh` (no row,
+  or no bytes), `good`, or `damaged` (non-empty and it throws on decoding or re-encoding, or a value
+  of another type). `onLoad` cannot throw, because a room that cannot start cannot be recovered, so
+  for a damaged row it moves the stored value into the single-row `ydoc_quarantine` table, deletes
+  `id=1` and writes the health row, all in one `transactionSync`. Then it starts empty, and honest
+  clients re-seed it from IndexedDB on connect, which is the recovery route that already existed.
+- **The quarantine keeps the first copy** (2026-11-02). Its write is a plain `INSERT`, so nothing can
+  overwrite it. If it is already taken, or the write fails, the later row stays in `id=1` and this
+  instance refuses every save, so that row is not lost either. The next wake tries again.
 - **A snapshot over the threshold is not written at all**, rather than attempted and lost. The
   last good snapshot stays intact.
 - **A `ydoc_health` row records the failure**, written only on a state transition, with three
   states: `ok`, `degraded` (we cannot save right now) and `stale` (the snapshot you are reading is
   known-incomplete). `planLoad` maps a stored failure to `stale` on every wake, and `stale` is
-  cleared only by a successful save. This is what survives hibernation: without it a woken room
+  cleared only by a successful save. The exception is a failure stored with the reason `unreadable`,
+  which comes back as a silent `degraded` (see the consequences below). This is what survives
+  hibernation: without it a woken room
   reloads a known-incomplete snapshot, has no memory of why, and reports perfect health forever —
   while the first client holding a fuller copy helpfully re-uploads it and masks the bug.
 - **A versioned notice is pushed to clients** over y-partyserver's `__YPS:` custom-message
@@ -129,6 +157,75 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
   room's next life reports healthy. Accepted because the blob route is permanent while the budget
   route resets at 00:00 UTC — the permanent failure is the one worth persisting. The in-memory
   flag and the broadcast still work for as long as that room instance lives.
+- **A refused save and a damaged row reuse `degraded` and `unknown`, and the wire does not change.**
+  A new reason would change nothing a reader sees: `parsePersistenceNotice` drops a reason it does
+  not recognise and keeps the state, the `degraded` copy treats anything but `too-big` as `unknown`,
+  and the `stale` copy ignores the reason altogether. An old client would therefore say the same
+  thing as the current one. Saying more would take a new sentence in the client. `degraded` and
+  `unknown` read "The relay's last save failed, so it isn't storing this workspace right now. Your
+  work is still saved in this browser. Retrying automatically." That is true of a refused save and
+  of the wake after one. On a damaged wake "last save failed" is loose, since it is the stored copy
+  that failed, but the part a reader acts on is true, and the next good save does repair it. `stale`
+  would be false in both cases: it says the relay ran out of room, and that what you see is the
+  last copy it kept, while a damaged wake has kept nothing it can show. So the health row stores
+  `unreadable`, which never goes on the wire, and `planLoad` turns it back into `degraded`.
+- **A damaged wake announces once.** The move can only happen once. A row that could not be moved
+  latches on the health row instead, stays silent on later wakes, and reuses the stored `at`, so a
+  dismissed banner stays dismissed. If the health row cannot be written either, nothing can hold
+  that latch and the room announces on every wake. That is bounded by the wakes, and it is an accurate
+  report of a room that can write nothing. Unlike a stale wake this one broadcasts as well, because
+  sockets survive a hibernation and `onConnect` only runs for new ones. The new log lines are
+  `event=quarantined`, `event=quarantine-failed` and `event=quarantine-write-error`, using the same
+  8-character room tag, and a refused save logs `event=degraded reason=unreadable`.
+- **A refused room stays degraded until its memory goes.** The poisoned document stays in memory
+  after a refused save, every later save is refused too, and only an eviction clears it. After that
+  the room reloads the last good row and the next save that passes clears the state. Any client
+  holding the update can re-send it from IndexedDB and start this over, and so can whoever sent it,
+  for as long as they hold the link, so a room can stay degraded until someone intervenes. This
+  protects the data and does not repair the room. Measured with the fixture, honest clients did not
+  hold the poison: the room never broadcasts structs it could not integrate, a late joiner's apply
+  throws before integrating them, and a client reconnecting to the restarted relay took the room back
+  to `ok`. Another poisonous update may behave differently, so do not read that as a guarantee.
+- **A damaged wake can lose what only the relay held.** Clients re-seed what they have. Work that
+  only ever reached the relay's row, from a client that has since cleared its storage, stays in
+  quarantine until someone recovers it by hand, and a good save will report the room `ok` without it.
+- **Recovery does not spend the evidence.** A good save clears the state and leaves the quarantine
+  row, so an `ok` room can still hold one.
+- **The next wall has not moved, but a save now does about a wake's work again.** Local workerd, the
+  shape `createIssue` writes, first run then median of 9, whole milliseconds, one run of each:
+
+  | issues | structs | snapshot | encode (was the whole save) | reload (added) |
+  | ------ | ------- | -------- | --------------------------- | -------------- |
+  | 500    | 5,000   | 120 KB   | 3 / 1                       | 4 / 1          |
+  | 2,000  | 20,000  | 487 KB   | 6 / 3                       | 11 / 5         |
+  | 3,000  | 30,000  | 739 KB   | 5 / 4                       | 26 / 10        |
+  | 10,000 | 100,000 | 2.50 MB  | 17 / 13                     | 76 / 54 if run |
+
+  Node's medians agree: 1.5, 5.4, 10.0 and 39.9 ms. The reload is the cost `WAKE_WARN_STRUCTS`
+  describes, 0.2–0.9 microseconds per struct here against the 0.465–0.665 measured there, and it
+  now runs on every debounced save. At 10,000 issues it does not run, because that snapshot is over
+  the ceiling and is not going to be written. Under the 30-second reading of the unresolved limit
+  this is nothing. Under the 10 ms reading, a save alone now passes 10 ms at around 2,000 issues,
+  where encoding alone did not at 3,000. The first failure does not move, because a wake already
+  does more than this (two applies and two encodes: about 28 ms warm at 3,000 against 14 for the
+  save), so a room that can wake can save. But it runs on every save, it is not free, and the
+  check to run against a deployed account is the same one. The reloaded copy also adds about 15 MB
+  of heap at 3,000 issues until the next collection.
+
+- **The reloaded state vector is not compared with the live one.** It would have stopped honest rooms
+  saving. In an honest fuzz (random edits, deletes, undo and redo, gc on and off on each side,
+  shuffled, duplicated, held-back and merged delivery, sync-step-2 diffs, rebuilds from the room's
+  own snapshot), the two differed on 101 of 1,117,089 saves, always with the reload ahead:
+  it integrated structs the live document still held pending. No reload threw on honest data. Checking
+  only that a reload is not behind the live document had no false positives, and also found nothing
+  in 1,050,000 byte-mutated hostile updates, of which 32,866 left bytes that throw on reload, so it
+  would add a risk and buy nothing.
+- **One hop is still unguarded.** y-partyserver encodes the document `onLoad` returns and applies it
+  to the room's own, outside any catch of ours, so that is a second load. Of the 1,017,134 states in
+  that hostile fuzz whose first load passed, none failed the second. Most of those updates had been
+  refused part-way when they arrived, so about 147,000 applied cleanly, and that is evidence rather
+  than proof. Re-encoding is part of `decodeSnapshot` because of it, and it is a place to look if a
+  room ever stops starting.
 - **`reason: 'unknown'` is a real outcome with vague copy.** The error shape for budget exhaustion
   is undocumented and may be indistinguishable from any other SQL failure by anything but text.
   `classifyWriteError` matches a message substring, which is a brittle contract on undocumented
@@ -177,10 +274,39 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
   error.
 - **No telemetry.** The owner learns about a wedged room by opening the demo, or by reading
   `wrangler tail` within three days. Right for a portfolio demo, wrong for a product.
-- `CREATE TABLE IF NOT EXISTS` now runs twice per wake instead of once. Whether a no-op DDL
+- `CREATE TABLE IF NOT EXISTS` now runs three times per wake instead of once. Whether a no-op DDL
   statement is billed as a row written is not documented; the pre-existing snapshot table already
   established the pattern, so this is at worst the same order of cost rather than a new class of
   it.
+
+## Recovering a quarantined row
+
+An operator has to do this; nothing in the app reads the table. A `relay.persistence
+event=quarantined` or `event=quarantine-failed` line in `wrangler tail` or Workers Logs names the
+room by its first 8 characters, retained for three days on the free plan. The table itself is the
+durable record, and it stays until someone clears it.
+
+1. **Open the room's storage.** You need the full room name, which is the `?ws=` value in the
+   workspace's link, because 8 characters cannot address an object. In the Cloudflare dashboard open
+   the `YDocRoom` namespace, then **Data Studio**, and give it that name. It needs at least Editor
+   access to the Worker, its queries are recorded in the audit log and billed as usage, and they run
+   against the live object. Locally, the file is under the persist directory at
+   `v3/do/<script>-YDocRoom/`, and is plain SQLite once `wrangler dev` has stopped.
+2. **Copy the bytes out before changing anything:** `SELECT hex(doc), at, error FROM ydoc_quarantine`.
+   A room reporting `reason=occupied` also holds a later row, which has to be saved the same way:
+   `SELECT hex(doc) FROM ydoc_snapshot`.
+3. **Salvage what landed.** Apply the bytes to a fresh `Y.Doc` in a `try`, with this repo's patched
+   Yjs. Everything integrated before the throw stays in the document, which is why the relay will
+   not start from one, and is why this works here: `Y.encodeStateAsUpdate` on that document gives
+   bytes that do load. With the fixture it recovered all three entries, the real work included.
+   `Y.decodeUpdate` lists every struct if you need to see what did not land. A row that stopped
+   loading after a Yjs bump may load whole under the old version.
+4. **Put it back as a client.** Connect a plain Yjs provider to the room and apply the salvaged
+   update, as `e2e/relay-damage.e2e.ts` does. The relay merges it, verifies it and saves it, so a
+   mistake here is refused and not stored. Do not write it into `ydoc_snapshot` by hand.
+5. **Clear the quarantine last.** `DELETE FROM ydoc_quarantine WHERE id = 1`. A room that was refusing
+   saves because the table was taken moves its later row in on its next wake, and that row has to
+   be recovered the same way.
 
 ## Alternatives considered
 
@@ -218,6 +344,20 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
   correct mid-rebase failure path. Several times the risk, for a benefit the one-line debounce
   change already delivers on the axis that matters. If the demo ever runs hot, build this — on top
   of the honest-failure path, not instead of it.
+- **Leaving a damaged row in `id=1` until a save replaces it**, with the quarantine as a copy. One
+  row write fewer, but every wake before that save finds it again, so telling a new failure from
+  an old one would need a byte comparison against the quarantine.
+- **Overwriting the quarantine with the later damaged row.** The later row is not obviously worth
+  more: the first was probably the workspace as last saved, and later ones are what came after a
+  re-seed. **Dropping the later one**, which is what a single-row table implies, would lose a row
+  to keep a table tidy. Refusing saves costs a room that does not persist until someone comes, and
+  it takes a second independent corruption to get there, because a hostile save can no longer
+  write one.
+- **Applying the row straight to the room's document in `onLoad`**, which would remove the unguarded
+  hop above and save a wake an encode. Not needed by anything found, and the fix should
+  not move how every healthy room loads.
+- **A new wire reason, with its own sentence in the client.** The honest long-term copy for a damaged
+  wake, and three more files with nothing to act on that the existing sentence does not already say.
 - **Refusing writes, closing sockets, or a read-only room at the ceiling.** Incoherent in a CRDT
   relay: the client has already applied and locally persisted the update before it arrives, and
   refusing would close the one recovery path that exists, which is a client holding newer state

@@ -16,7 +16,8 @@
 // deletion churn needs on the order of 90,000 field edits to get there on tombstones alone.
 // Every alternative that raises the ceiling trades a loud limit for a quiet one, so what
 // this module provides instead is a size classification, a durable health row, and one
-// encoded notice the client can render.
+// encoded notice the client can render. A row can also be readable by nothing, so this module
+// tells a damaged snapshot from an empty one, and keeps the damaged one (ADR 0010).
 
 import * as Y from 'yjs';
 
@@ -156,29 +157,171 @@ export function readHealthSql(): string {
 	return `SELECT state, bytes, at, reason FROM ${HEALTH_TABLE} WHERE id = 1`;
 }
 
+/**
+ * The health row's `reason` for a room whose bytes will not reload: a stored row that would not
+ * decode, or a save refused because what it encoded would not. It stays in the row and never goes
+ * on the wire, where it reads as 'unknown' (ADR 0010 says why). `planLoad` is what reads it.
+ */
+export const UNREADABLE_REASON = 'unreadable';
+
+/**
+ * The one row keeping a snapshot this room could not read, for someone to recover by hand.
+ *
+ * Only an operator ever reads it (ADR 0010 has the steps). `error` is whatever the decoder threw.
+ */
+export const QUARANTINE_TABLE = 'ydoc_quarantine';
+
+export function createQuarantineTableSql(): string {
+	return `CREATE TABLE IF NOT EXISTS ${QUARANTINE_TABLE} (id INTEGER PRIMARY KEY, doc BLOB NOT NULL, at INTEGER NOT NULL, error TEXT)`;
+}
+
+/** A plain INSERT and not the OR REPLACE the other tables use: it cannot overwrite a row. */
+export function writeQuarantineSql(): string {
+	return `INSERT INTO ${QUARANTINE_TABLE} (id, doc, at, error) VALUES (1, ?, ?, ?)`;
+}
+
+export function readQuarantineSql(): string {
+	return `SELECT at FROM ${QUARANTINE_TABLE} WHERE id = 1`;
+}
+
+export function deleteSnapshotSql(): string {
+	return `DELETE FROM ${SNAPSHOT_TABLE} WHERE id = 1`;
+}
+
+/** The part of `DurableObjectStorage` that a quarantine needs, which SQLite in Node can stand in for. */
+export interface QuarantineStorage {
+	sql: { exec(query: string, ...bindings: never[]): Iterable<unknown> };
+	transactionSync<T>(closure: () => T): T;
+}
+
+/**
+ * Moves a damaged snapshot out of the row a later save would overwrite.
+ *
+ * One transaction: the copy, the delete and the health row land together or not at all, so there
+ * is no moment when the bytes are in neither table and a damaged row is only ever announced once.
+ * With the quarantine taken nothing is moved, and the row stays where it is: the first copy is
+ * kept and so is this one, at the cost of a room that refuses to save until someone clears it.
+ *
+ * A failed write throws, with everything rolled back, and the caller must then refuse every save.
+ */
+export function quarantineSnapshot(
+	storage: QuarantineStorage,
+	damaged: { stored: unknown; byteLength: number; error: string },
+	now: number
+): 'quarantined' | 'occupied' {
+	const exec = storage.sql.exec.bind(storage.sql) as (
+		query: string,
+		...bindings: unknown[]
+	) => Iterable<unknown>;
+	return storage.transactionSync(() => {
+		if ([...exec(readQuarantineSql())].length > 0) return 'occupied';
+		exec(writeQuarantineSql(), damaged.stored, now, damaged.error);
+		exec(deleteSnapshotSql());
+		exec(writeHealthSql(), 'degraded', damaged.byteLength, now, UNREADABLE_REASON);
+		return 'quarantined';
+	});
+}
+
 /** The whole document as a single update, ready to store. */
 export function encodeSnapshot(doc: Y.Doc): Uint8Array {
 	return Y.encodeStateAsUpdate(doc);
 }
 
 /**
- * Rebuilds a document from a stored snapshot.
+ * What a save may write, encoded and proven to load, or the reason it may not.
  *
- * SQLite hands blobs back as `ArrayBuffer`, so accept either that or a view; anything else
- * means the row is missing or damaged, and an empty document is the right answer — the room
- * then re-syncs from whichever client connects, rather than refusing to start.
+ * A hostile update can apply to a live document, and encode, and still produce bytes that throw
+ * when loaded into a fresh one. So every save loads what it is about to write, at whatever size,
+ * since a room that skipped this would lose its last good row to exactly the update that passed.
+ * The exception is a snapshot over the ceiling, which is not going to be written at all.
+ *
+ * Reloading doubles the work of a save, and ADR 0010 has what that costs. Only a throw counts. The
+ * reloaded state vector is deliberately not compared with the live one, because they can honestly
+ * differ: a reload can integrate structs the live document still holds pending. That was 101
+ * saves in 1,117,089 of an honest fuzz, and it would have stopped those rooms saving.
+ *
+ * Total, because it runs where a throw lands in y-partyserver's swallow, and a document can also
+ * be in a state that will not encode at all.
  */
-export function decodeSnapshot(stored: unknown): Y.Doc {
-	const doc = new Y.Doc();
-	const bytes = toBytes(stored);
-	if (bytes && bytes.byteLength > 0) {
-		try {
-			Y.applyUpdate(doc, bytes);
-		} catch {
-			return new Y.Doc();
-		}
+export function prepareSnapshot(doc: Y.Doc): {
+	bytes: Uint8Array;
+	size: SnapshotSize;
+	unreadable: boolean;
+} {
+	let bytes: Uint8Array;
+	try {
+		bytes = encodeSnapshot(doc);
+	} catch {
+		return { bytes: new Uint8Array(), size: 'ok', unreadable: true };
 	}
-	return doc;
+	const size = classifySnapshot(bytes.byteLength);
+	if (size === 'over') return { bytes, size, unreadable: false };
+	try {
+		Y.applyUpdate(new Y.Doc(), bytes);
+		return { bytes, size, unreadable: false };
+	} catch {
+		return { bytes, size, unreadable: true };
+	}
+}
+
+/** What a stored snapshot turned out to be. `doc` is always safe to start a room from. */
+export type StoredSnapshot =
+	/** Nothing has ever been saved here, or nothing worth keeping. */
+	| { status: 'fresh'; doc: Y.Doc; byteLength: 0 }
+	| { status: 'good'; doc: Y.Doc; byteLength: number }
+	/** `doc` is empty, and `stored` is the value exactly as it was read, which must not be lost. */
+	| { status: 'damaged'; doc: Y.Doc; stored: unknown; byteLength: number; error: string };
+
+/**
+ * Rebuilds a document from a stored snapshot, and says which of three things it found.
+ *
+ * SQLite hands blobs back as `ArrayBuffer`, so accept either that or a view. The empty document it
+ * gives for a damaged row is still the right one to start from, because a room that cannot start
+ * cannot be recovered, and the clients re-sync the workspace on connect. What matters is that the
+ * caller moves the row out of the way first (`quarantineSnapshot`), since the room's next save
+ * would otherwise replace it, and a room that treated these two empties as one lost the workspace
+ * to a single bad row, in silence.
+ *
+ * Encoding counts as loading: y-partyserver encodes the document `onLoad` returns, outside any
+ * catch, so one that decodes and will not encode would stop the room starting at all.
+ */
+export function decodeSnapshot(stored: unknown): StoredSnapshot {
+	if (stored === undefined || stored === null) {
+		return { status: 'fresh', doc: new Y.Doc(), byteLength: 0 };
+	}
+	const bytes = toBytes(stored);
+	if (bytes === null) {
+		return {
+			status: 'damaged',
+			doc: new Y.Doc(),
+			stored,
+			byteLength: typeof stored === 'string' ? stored.length : 0,
+			error: `a stored value of type ${typeof stored}`
+		};
+	}
+	if (bytes.byteLength === 0) return { status: 'fresh', doc: new Y.Doc(), byteLength: 0 };
+	const doc = new Y.Doc();
+	try {
+		Y.applyUpdate(doc, bytes);
+		return { status: 'good', doc, byteLength: encodeSnapshot(doc).byteLength };
+	} catch (err) {
+		return {
+			status: 'damaged',
+			doc: new Y.Doc(),
+			stored,
+			byteLength: bytes.byteLength,
+			error: errorText(err)
+		};
+	}
+}
+
+/** An error as a short string, for a row or a log line. Total, as `classifyWriteError` is. */
+export function errorText(err: unknown): string {
+	try {
+		return String((err as { message?: unknown })?.message ?? err).slice(0, 200);
+	} catch {
+		return 'unknown';
+	}
 }
 
 function toBytes(stored: unknown): Uint8Array | null {

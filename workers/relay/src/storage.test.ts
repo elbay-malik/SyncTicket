@@ -1,3 +1,5 @@
+// @ts-expect-error -- this package has no Node types: its program is the worker's, not its tests'.
+import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import {
@@ -6,13 +8,25 @@ import {
 	SNAPSHOT_WARN_BYTES,
 	classifySnapshot,
 	classifyWriteError,
+	createHealthTableSql,
+	createQuarantineTableSql,
+	createTableSql,
 	decodeSnapshot,
 	encodePersistenceNotice,
 	encodeSnapshot,
+	errorText,
+	prepareSnapshot,
+	quarantineSnapshot,
+	readHealthSql,
+	UNREADABLE_REASON,
 	WAKE_WARN_STRUCTS,
 	approxWakeMs,
-	countStructs
+	countStructs,
+	writeQuarantineSql,
+	writeSnapshotSql,
+	type QuarantineStorage
 } from './storage.js';
+import { UNRELOADABLE_BASE, UNRELOADABLE_UPDATE } from './unreloadable.fixture.js';
 
 function docWith(entries: Record<string, string>): Y.Doc {
 	const doc = new Y.Doc();
@@ -28,14 +42,14 @@ const contents = (doc: Y.Doc) => Object.fromEntries(doc.getMap<string>('issues')
 describe('snapshot round trip', () => {
 	it('restores a document exactly', () => {
 		const original = docWith({ a: 'one', b: 'two' });
-		const restored = decodeSnapshot(encodeSnapshot(original));
+		const restored = decodeSnapshot(encodeSnapshot(original)).doc;
 		expect(contents(restored)).toEqual({ a: 'one', b: 'two' });
 	});
 
 	it('accepts the ArrayBuffer that SQLite actually returns', () => {
 		const bytes = encodeSnapshot(docWith({ a: 'one' }));
 		const asArrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-		expect(contents(decodeSnapshot(asArrayBuffer))).toEqual({ a: 'one' });
+		expect(contents(decodeSnapshot(asArrayBuffer).doc)).toEqual({ a: 'one' });
 	});
 
 	it('starts empty rather than refusing to start when there is nothing usable', () => {
@@ -48,7 +62,7 @@ describe('snapshot round trip', () => {
 			new Uint8Array(),
 			new Uint8Array([1, 2, 3])
 		]) {
-			expect(contents(decodeSnapshot(input))).toEqual({});
+			expect(contents(decodeSnapshot(input).doc)).toEqual({});
 		}
 	});
 
@@ -56,7 +70,7 @@ describe('snapshot round trip', () => {
 		const a = docWith({ a: 'from A' });
 		const b = docWith({ b: 'from B' });
 		Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
-		expect(contents(decodeSnapshot(encodeSnapshot(a)))).toEqual({ a: 'from A', b: 'from B' });
+		expect(contents(decodeSnapshot(encodeSnapshot(a)).doc)).toEqual({ a: 'from A', b: 'from B' });
 	});
 
 	it('keeps the workspace when the snapshot holds a struct of no length', () => {
@@ -78,7 +92,7 @@ describe('snapshot round trip', () => {
 			0,
 			0
 		]);
-		expect(contents(decodeSnapshot(poisoned))).toEqual({ a: 'one', b: 'two' });
+		expect(contents(decodeSnapshot(poisoned).doc)).toEqual({ a: 'one', b: 'two' });
 	});
 
 	it('keeps the workspace when a peer has nested types deeper than the stack and deleted them', () => {
@@ -99,7 +113,282 @@ describe('snapshot round trip', () => {
 		});
 		map.delete('deep');
 
-		expect(contents(decodeSnapshot(encodeSnapshot(doc)))).toEqual({ kept: 'still here' });
+		expect(contents(decodeSnapshot(encodeSnapshot(doc)).doc)).toEqual({ kept: 'still here' });
+	});
+});
+
+describe('what a stored snapshot turned out to be', () => {
+	it('calls no row, and a row of no bytes, fresh', () => {
+		for (const stored of [undefined, null, new Uint8Array(), new ArrayBuffer(0)]) {
+			const read = decodeSnapshot(stored);
+			expect(read.status).toBe('fresh');
+			expect(contents(read.doc)).toEqual({});
+		}
+	});
+
+	it('calls an empty document good, which is two bytes and not nothing', () => {
+		const bytes = encodeSnapshot(new Y.Doc());
+		expect(bytes.byteLength).toBeGreaterThan(0);
+		expect(decodeSnapshot(bytes).status).toBe('good');
+	});
+
+	it('calls a row that decodes good, and measures it', () => {
+		const bytes = encodeSnapshot(docWith({ a: 'one' }));
+		const read = decodeSnapshot(bytes);
+		expect(read.status).toBe('good');
+		expect(read.byteLength).toBe(bytes.byteLength);
+		expect(contents(read.doc)).toEqual({ a: 'one' });
+	});
+
+	it('calls non-empty bytes that throw damaged, and hands them back untouched', () => {
+		const bytes = new Uint8Array([1, 2, 3]);
+		const read = decodeSnapshot(bytes);
+		if (read.status !== 'damaged') throw new Error(`expected damaged, got ${read.status}`);
+		expect(read.stored).toBe(bytes);
+		expect(read.byteLength).toBe(3);
+		expect(read.error).not.toBe('');
+		expect(contents(read.doc)).toEqual({});
+	});
+
+	it('calls a value of any other type damaged, rather than nothing', () => {
+		for (const stored of ['not bytes', '', 42, 0, {}, true]) {
+			const read = decodeSnapshot(stored);
+			if (read.status !== 'damaged') throw new Error(`expected damaged for ${String(stored)}`);
+			expect(read.stored).toBe(stored);
+			expect(contents(read.doc)).toEqual({});
+		}
+	});
+
+	it('does not start a room from a half-applied document', () => {
+		// Real bytes, with something in them that integrates before the part that throws.
+		const read = decodeSnapshot(poisonedLiveDoc().encoded);
+		expect(read.status).toBe('damaged');
+		expect(contents(read.doc)).toEqual({});
+		expect(countStructs(read.doc)).toBe(0);
+	});
+});
+
+/**
+ * A room holding real work when the real update arrives. It stays usable, as a live room does:
+ * nothing throws until the bytes it encodes are loaded into something new.
+ */
+function poisonedLiveDoc(): { live: Y.Doc; encoded: Uint8Array } {
+	const live = docWith({ kept: 'real work' });
+	Y.applyUpdate(live, UNRELOADABLE_BASE);
+	Y.applyUpdate(live, UNRELOADABLE_UPDATE);
+	return { live, encoded: Y.encodeStateAsUpdate(live) };
+}
+
+describe('the 227-byte update', () => {
+	it('is the real thing: it applies live, encodes, and throws on reload', () => {
+		expect(UNRELOADABLE_UPDATE.byteLength).toBe(227);
+		const { live, encoded } = poisonedLiveDoc();
+		expect(live.getMap('issues').get('kept')).toBe('real work');
+		expect(() => Y.applyUpdate(new Y.Doc(), encoded)).toThrow();
+	});
+
+	it('is harmless without the document it was reduced against, in either direction', () => {
+		const alone = new Y.Doc();
+		Y.applyUpdate(alone, UNRELOADABLE_UPDATE);
+		expect(decodeSnapshot(encodeSnapshot(alone)).status).toBe('good');
+		expect(prepareSnapshot(alone).unreadable).toBe(false);
+
+		const base = new Y.Doc();
+		Y.applyUpdate(base, UNRELOADABLE_BASE);
+		expect(prepareSnapshot(base).unreadable).toBe(false);
+	});
+});
+
+describe('prepareSnapshot', () => {
+	it('passes an ordinary document, with the bytes to write', () => {
+		const doc = docWith({ a: 'one' });
+		const { bytes, size, unreadable } = prepareSnapshot(doc);
+		expect(unreadable).toBe(false);
+		expect(size).toBe('ok');
+		expect(contents(decodeSnapshot(bytes).doc)).toEqual({ a: 'one' });
+	});
+
+	it('refuses what will not reload', () => {
+		expect(prepareSnapshot(poisonedLiveDoc().live).unreadable).toBe(true);
+	});
+
+	it('does not throw when the document will not even encode', () => {
+		// onSave calling this is all that stands between a hostile state and y-partyserver's swallow.
+		const doc = docWith({ a: 'one' });
+		(doc as unknown as { store: unknown }).store = null;
+		expect(() => Y.encodeStateAsUpdate(doc)).toThrow();
+		expect(prepareSnapshot(doc)).toEqual({ bytes: new Uint8Array(), size: 'ok', unreadable: true });
+	});
+
+	it('does not spend a reload on a snapshot that is not going to be written', () => {
+		// Poisoned as well as oversized, so a reload would have thrown and said so.
+		const { live } = poisonedLiveDoc();
+		live.getMap<string>('issues').set('large', 'x'.repeat(SNAPSHOT_MAX_BYTES + 1));
+		const { size, unreadable } = prepareSnapshot(live);
+		expect(size).toBe('over');
+		expect(unreadable).toBe(false);
+	});
+
+	it('passes a document holding pending structs and deletes, which honest rooms do', () => {
+		// Out-of-order delivery. A check that disagreed here would stop an honest room saving.
+		const writer = new Y.Doc();
+		const updates: Uint8Array[] = [];
+		writer.on('update', (update: Uint8Array) => updates.push(update));
+		const map = writer.getMap<string>('issues');
+		map.set('a', 'one');
+		map.set('b', 'two');
+		map.delete('a');
+		map.set('c', 'three');
+
+		const room = new Y.Doc();
+		for (const update of updates.slice(1)) Y.applyUpdate(room, update);
+		expect(room.store.pendingStructs).not.toBeNull();
+		expect(room.store.pendingDs).not.toBeNull();
+		expect(prepareSnapshot(room).unreadable).toBe(false);
+
+		// And nothing was lost by going through a save: the missing update completes the reload.
+		const reloaded = decodeSnapshot(prepareSnapshot(room).bytes).doc;
+		Y.applyUpdate(reloaded, updates[0] as Uint8Array);
+		expect(contents(reloaded)).toEqual({ b: 'two', c: 'three' });
+	});
+});
+
+describe('errorText', () => {
+	it('is short, and total', () => {
+		expect(errorText(new Error('x'.repeat(1_000)))).toHaveLength(200);
+		expect(errorText('plain')).toBe('plain');
+		expect(errorText(undefined)).toBe('undefined');
+		expect(
+			errorText({
+				get message(): string {
+					throw new Error('nope');
+				}
+			})
+		).toBe('unknown');
+	});
+});
+
+describe('quarantineSnapshot', () => {
+	/** The room's own tables in real SQLite, with what the Durable Object API gives on top. */
+	function room(): { storage: QuarantineStorage; database: DatabaseSync } {
+		const database = new DatabaseSync(':memory:');
+		const exec = (query: string, ...bindings: unknown[]) => {
+			const statement = database.prepare(query);
+			return statement.columns().length > 0
+				? statement.all(...bindings)
+				: (statement.run(...bindings), []);
+		};
+		const storage = {
+			sql: { exec },
+			transactionSync<T>(closure: () => T): T {
+				database.exec('BEGIN');
+				try {
+					const result = closure();
+					database.exec('COMMIT');
+					return result;
+				} catch (err) {
+					database.exec('ROLLBACK');
+					throw err;
+				}
+			}
+		} as unknown as QuarantineStorage;
+		for (const sql of [createTableSql(), createHealthTableSql(), createQuarantineTableSql()]) {
+			exec(sql);
+		}
+		return { storage, database };
+	}
+
+	const store = (database: DatabaseSync, value: unknown) =>
+		database.prepare(writeSnapshotSql()).run(value);
+	const one = (database: DatabaseSync, sql: string) => database.prepare(sql).get();
+	const snapshotRow = (database: DatabaseSync) =>
+		one(database, 'SELECT doc FROM ydoc_snapshot WHERE id = 1');
+	const quarantineRow = (database: DatabaseSync) =>
+		one(database, 'SELECT doc, at, error FROM ydoc_quarantine WHERE id = 1');
+	const damaged = (stored: unknown) => {
+		const read = decodeSnapshot(stored);
+		if (read.status !== 'damaged') throw new Error('expected damaged');
+		return read;
+	};
+
+	it('moves the row, and records why, in one step', () => {
+		const { storage, database } = room();
+		const bytes = new Uint8Array([1, 2, 3]);
+		store(database, bytes);
+
+		expect(quarantineSnapshot(storage, damaged(bytes), 1_000)).toBe('quarantined');
+
+		expect(snapshotRow(database)).toBeUndefined();
+		const kept = quarantineRow(database);
+		expect(new Uint8Array(kept.doc)).toEqual(bytes);
+		expect(kept.at).toBe(1_000);
+		expect(kept.error).not.toBe('');
+		expect(one(database, readHealthSql())).toMatchObject({
+			state: 'degraded',
+			bytes: 3,
+			at: 1_000,
+			reason: UNREADABLE_REASON
+		});
+	});
+
+	it('keeps a value that was not bytes, as what it was', () => {
+		const { storage, database } = room();
+		store(database, 'not bytes');
+		expect(quarantineSnapshot(storage, damaged('not bytes'), 1_000)).toBe('quarantined');
+		expect(quarantineRow(database).doc).toBe('not bytes');
+		expect(snapshotRow(database)).toBeUndefined();
+	});
+
+	it('never overwrites the first copy, and leaves the later one where it is', () => {
+		const { storage, database } = room();
+		const first = new Uint8Array([1, 2, 3]);
+		const later = new Uint8Array([4, 5, 6]);
+		store(database, first);
+		quarantineSnapshot(storage, damaged(first), 1_000);
+		store(database, later);
+
+		expect(quarantineSnapshot(storage, damaged(later), 2_000)).toBe('occupied');
+
+		expect(new Uint8Array(quarantineRow(database).doc)).toEqual(first);
+		expect(quarantineRow(database).at).toBe(1_000);
+		expect(new Uint8Array(snapshotRow(database).doc)).toEqual(later);
+	});
+
+	it('cannot overwrite the first copy even if asked to directly', () => {
+		const { database } = room();
+		const write = database.prepare(writeQuarantineSql());
+		write.run(new Uint8Array([1]), 1, null);
+		expect(() => write.run(new Uint8Array([2]), 2, null)).toThrow(/UNIQUE|constraint/i);
+		expect(new Uint8Array(quarantineRow(database).doc)).toEqual(new Uint8Array([1]));
+	});
+
+	it('throws with nothing changed when the copy cannot be written', () => {
+		const { storage, database } = room();
+		database.exec('DROP TABLE ydoc_quarantine');
+		database.exec(
+			'CREATE TABLE ydoc_quarantine (id INTEGER PRIMARY KEY, doc BLOB NOT NULL CHECK (0), at INTEGER NOT NULL, error TEXT)'
+		);
+		const bytes = new Uint8Array([1, 2, 3]);
+		store(database, bytes);
+
+		expect(() => quarantineSnapshot(storage, damaged(bytes), 1_000)).toThrow();
+
+		expect(new Uint8Array(snapshotRow(database).doc)).toEqual(bytes);
+		expect(quarantineRow(database)).toBeUndefined();
+		expect(one(database, readHealthSql())).toBeUndefined();
+	});
+
+	it('throws with nothing changed when a later step in the transaction fails', () => {
+		// The copy goes in first, so this is the case a missing rollback would get wrong.
+		const { storage, database } = room();
+		database.exec('DROP TABLE ydoc_health');
+		const bytes = new Uint8Array([1, 2, 3]);
+		store(database, bytes);
+
+		expect(() => quarantineSnapshot(storage, damaged(bytes), 1_000)).toThrow();
+
+		expect(new Uint8Array(snapshotRow(database).doc)).toEqual(bytes);
+		expect(quarantineRow(database)).toBeUndefined();
 	});
 });
 

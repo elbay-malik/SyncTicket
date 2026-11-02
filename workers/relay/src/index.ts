@@ -9,22 +9,32 @@ import { routePartykitRequest, type Connection, type ConnectionContext } from 'p
 import type * as Y from 'yjs';
 import { YServer } from 'y-partyserver';
 import {
-	classifySnapshot,
 	countStructs,
 	createHealthTableSql,
+	createQuarantineTableSql,
 	createTableSql,
 	decodeSnapshot,
 	encodePersistenceNotice,
-	encodeSnapshot,
+	errorText,
+	prepareSnapshot,
+	quarantineSnapshot,
 	readHealthSql,
 	readSnapshotSql,
+	UNREADABLE_REASON,
 	writeHealthSql,
 	writeSnapshotSql,
 	type PersistenceState,
 	type PersistFailure,
-	type SnapshotSize
+	type SnapshotSize,
+	type StoredSnapshot
 } from './storage.js';
-import { planLoad, planSave, planWriteError, type PersistPlan } from './persistence-plan.js';
+import {
+	planDamagedLoad,
+	planLoad,
+	planSave,
+	planWriteError,
+	type PersistPlan
+} from './persistence-plan.js';
 import { isRoutableRoom } from './rooms.js';
 import { connectKey, refuseConnect } from './limits.js';
 
@@ -54,72 +64,144 @@ export class YDocRoom extends YServer<Env> {
 	/** Latches the wake-cost line, which is on its own axis and has its own excursion. */
 	#wakeWarned = false;
 	#noticeAt = 0;
+	/** A damaged row is still in the way of id=1, so no save may overwrite it. See `onLoad`. */
+	#refuseSaves = false;
 
 	override async onLoad(): Promise<Y.Doc | void> {
 		this.ctx.storage.sql.exec(createTableSql());
 		this.ctx.storage.sql.exec(createHealthTableSql());
+		this.ctx.storage.sql.exec(createQuarantineTableSql());
 		const row = [...this.ctx.storage.sql.exec(readSnapshotSql())][0];
-		const doc = decodeSnapshot(row?.doc);
+		const snapshot = decodeSnapshot(row?.doc);
 		const health = [...this.ctx.storage.sql.exec(readHealthSql())][0];
 		const now = Date.now();
+		if (snapshot.status === 'damaged') {
+			this.#setAsideDamaged(snapshot, health, now);
+			return snapshot.doc;
+		}
 		const loaded = planLoad({
 			healthRow: health,
-			bytes: encodeSnapshot(doc).byteLength,
+			bytes: snapshot.byteLength,
 			room: this.#roomTag(),
 			now
 		});
 		this.#persist = loaded.state;
 		this.#reason = loaded.reason;
-		this.#noticeAt = now;
+		this.#noticeAt = loaded.at ?? now;
 		if (loaded.log) console.error(loaded.log);
-		// No broadcast here: there are no connections yet. `onConnect` carries it.
-		return doc;
+		// No broadcast: this repeats on every wake, and a socket that lived through the hibernation
+		// has already been told. `onConnect` carries it to anyone arriving.
+		return snapshot.doc;
+	}
+
+	/**
+	 * Keeps a damaged row from the save that would otherwise replace it.
+	 *
+	 * The room still starts, empty, because throwing from `onLoad` would leave it unable to serve
+	 * and the clients re-seed it from IndexedDB on connect. If the row could not be moved, it stays
+	 * where it is and no save this instance makes may write over it.
+	 */
+	#setAsideDamaged(
+		snapshot: Extract<StoredSnapshot, { status: 'damaged' }>,
+		health: unknown,
+		now: number
+	): void {
+		let outcome: ReturnType<typeof quarantineSnapshot> | 'write-failed';
+		try {
+			outcome = quarantineSnapshot(this.ctx.storage, snapshot, now);
+		} catch (err) {
+			outcome = 'write-failed';
+			console.error(
+				`relay.persistence event=quarantine-write-error room=${this.#roomTag()}`,
+				errorText(err)
+			);
+		}
+		const plan = planDamagedLoad({
+			outcome,
+			healthRow: health,
+			bytes: snapshot.byteLength,
+			room: this.#roomTag(),
+			now
+		});
+		this.#persist = plan.state;
+		this.#reason = plan.reason;
+		this.#noticeAt = plan.at;
+		this.#refuseSaves = plan.refuseSaves;
+		if (plan.recordHealth) {
+			this.#writeHealth(plan.state, snapshot.byteLength, now, UNREADABLE_REASON);
+		}
+		// Unlike a stale wake this is news, and sockets that lived through the hibernation are
+		// open already: `onConnect` only runs for new ones.
+		if (plan.notice) this.broadcastCustomMessage(plan.notice);
+		if (plan.log) console.error(plan.log);
 	}
 
 	/**
 	 * Writes the snapshot, or decides not to and says so.
 	 *
-	 * Nothing below can throw, which makes y-partyserver's `onSave().catch(…)` swallow
-	 * (`dist/server/index.js:185-195`) unreachable — the whole point, since that swallow is
-	 * what made the 2 MB ceiling silent.
+	 * Nothing may get out of here, because y-partyserver's `onSave().catch(…)`
+	 * (`dist/server/index.js:185-195`) would swallow it, which is what made the 2 MB ceiling
+	 * silent. That includes encoding. It looks like it could only fail on a bug in this worker, but
+	 * the document's state belongs to whoever holds the link, so a throw there is exactly a room
+	 * that can no longer be saved, and it gets reported like any other.
 	 */
 	override async onSave(): Promise<void> {
-		// Outside any try: a throw from encoding is a bug in this worker, not a storage
-		// failure, and must not be reported to users as degraded persistence.
-		const bytes = encodeSnapshot(this.document);
-		const size = classifySnapshot(bytes.byteLength);
-		// A second, unrelated measurement: what a cold wake would cost. Cheap — the state
-		// vector is one clock per client — and not derivable from `bytes`, which is the whole
-		// point of measuring it separately.
-		const structs = countStructs(this.document);
 		// One clock reading for the whole attempt, so the timestamp inside a broadcast notice
 		// and the one `onConnect` later re-encodes for a late joiner are the same instant.
 		const now = Date.now();
-		const plan = planSave({
-			bytes: bytes.byteLength,
-			size,
-			state: this.#persist,
-			warned: this.#warned,
-			structs,
-			wakeWarned: this.#wakeWarned,
-			room: this.#roomTag(),
-			now
-		});
-		let applied = plan;
-		if (plan.write) {
+		try {
+			const { bytes, size, unreadable } = prepareSnapshot(this.document);
+			// A second, unrelated measurement: what a cold wake would cost. Cheap — the state
+			// vector is one clock per client — and not derivable from `bytes`, which is the whole
+			// point of measuring it separately.
+			const structs = countStructs(this.document);
+			const plan = planSave({
+				bytes: bytes.byteLength,
+				size,
+				refused: unreadable || this.#refuseSaves,
+				state: this.#persist,
+				warned: this.#warned,
+				structs,
+				wakeWarned: this.#wakeWarned,
+				room: this.#roomTag(),
+				now
+			});
+			let applied = plan;
+			if (plan.write) {
+				try {
+					this.ctx.storage.sql.exec(writeSnapshotSql(), bytes);
+				} catch (err) {
+					applied = planWriteError({
+						err,
+						bytes: bytes.byteLength,
+						state: this.#persist,
+						room: this.#roomTag(),
+						now
+					});
+				}
+			}
+			this.#apply(applied, bytes.byteLength, size, now);
+		} catch (err) {
+			// Nothing known reaches this. It keeps the promise above if something ever does, and
+			// the inner catch keeps it if reporting was the part that broke.
+			console.error('relay.persistence event=save-crashed', errorText(err));
 			try {
-				this.ctx.storage.sql.exec(writeSnapshotSql(), bytes);
-			} catch (err) {
-				applied = planWriteError({
-					err,
-					bytes: bytes.byteLength,
+				const plan = planSave({
+					bytes: 0,
+					size: 'ok',
+					refused: true,
 					state: this.#persist,
+					warned: this.#warned,
+					structs: 0,
+					wakeWarned: this.#wakeWarned,
 					room: this.#roomTag(),
 					now
 				});
+				this.#apply(plan, 0, 'ok', now);
+			} catch (reporting) {
+				console.error('relay.persistence event=save-crashed', errorText(reporting));
 			}
 		}
-		this.#apply(applied, bytes.byteLength, size, now);
 	}
 
 	/**
@@ -143,19 +225,23 @@ export class YDocRoom extends YServer<Env> {
 		// never decrease.
 		if (plan.wakeWarned) this.#wakeWarned = true;
 		if (plan.recordHealth) {
-			try {
-				this.ctx.storage.sql.exec(writeHealthSql(), plan.next, bytes, now, plan.reason ?? null);
-			} catch (err) {
-				// The rows-per-day exhaustion that kills the snapshot write kills this one too.
-				// Losing the marker must not cost us the broadcast below.
-				console.error('relay.persistence event=health-write-failed', err);
-			}
+			this.#writeHealth(plan.next, bytes, now, plan.healthReason ?? plan.reason ?? null);
 		}
 		if (plan.notice) {
 			this.#noticeAt = now;
 			this.broadcastCustomMessage(plan.notice);
 		}
 		if (plan.log) console.error(plan.log);
+	}
+
+	#writeHealth(state: PersistenceState, bytes: number, now: number, reason: string | null): void {
+		try {
+			this.ctx.storage.sql.exec(writeHealthSql(), state, bytes, now, reason);
+		} catch (err) {
+			// The rows-per-day exhaustion that kills the snapshot write kills this one too.
+			// Losing the marker must not cost us the broadcast that follows.
+			console.error('relay.persistence event=health-write-failed', err);
+		}
 	}
 
 	/**

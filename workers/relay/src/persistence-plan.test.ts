@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planLoad, planSave, planWriteError } from './persistence-plan.js';
+import { planDamagedLoad, planLoad, planSave, planWriteError } from './persistence-plan.js';
 import type { PersistenceState, SnapshotSize } from './storage.js';
 
 const ROOM = 'a1b2c3d4';
@@ -9,6 +9,7 @@ function save(
 	over: Partial<{
 		bytes: number;
 		size: SnapshotSize;
+		refused: boolean;
 		state: PersistenceState;
 		warned: boolean;
 		structs: number;
@@ -18,6 +19,7 @@ function save(
 	return planSave({
 		bytes: 1_000_000,
 		size: 'ok',
+		refused: false,
 		state: 'ok',
 		warned: false,
 		// Well under WAKE_WARN_STRUCTS, so the wake axis stays out of every test that is not
@@ -111,6 +113,59 @@ describe('planSave — under the ceiling', () => {
 
 	it('recovers from a warn-sized snapshot too — only "over" blocks the write', () => {
 		expect(save({ size: 'warn', state: 'degraded' }).next).toBe('ok');
+	});
+});
+
+describe('planSave — a save whose bytes will not reload', () => {
+	it('refuses the write and announces the transition once', () => {
+		expect(save({ bytes: 337, refused: true })).toEqual({
+			write: false,
+			next: 'degraded',
+			reason: 'unknown',
+			healthReason: 'unreadable',
+			notice:
+				'{"v":1,"type":"persistence","state":"degraded","reason":"unknown","at":1700000000000}',
+			log: 'relay.persistence event=degraded room=a1b2c3d4 bytes=337 reason=unreadable',
+			recordHealth: true
+		});
+	});
+
+	for (const state of ['degraded', 'stale'] as const) {
+		it(`is silent while already '${state}', and does not weaken it`, () => {
+			// A poisoned room is refused on every edit for as long as it stays in memory.
+			expect(save({ bytes: 337, refused: true, state })).toEqual({
+				write: false,
+				next: state,
+				reason: 'unknown',
+				notice: null,
+				log: null,
+				recordHealth: false
+			});
+		});
+	}
+
+	it('does not write however small the snapshot or healthy the room looks', () => {
+		for (const size of ['ok', 'warn'] as const) {
+			expect(save({ size, refused: true }).write).toBe(false);
+		}
+	});
+
+	it('still reports too-big over the ceiling, where the reload never ran', () => {
+		expect(save({ size: 'over', refused: true }).reason).toBe('too-big');
+	});
+
+	it('still reports the wake cost, on its own axis', () => {
+		const plan = save({ bytes: 337, refused: true, state: 'degraded', structs: 30_000 });
+		expect(plan.log).toContain('event=wake-cost');
+		expect(plan.wakeWarned).toBe(true);
+	});
+
+	it('is what a later good save recovers from', () => {
+		expect(save({ bytes: 1_000, state: 'degraded' })).toMatchObject({
+			write: true,
+			next: 'ok',
+			recordHealth: true
+		});
 	});
 });
 
@@ -303,9 +358,112 @@ describe('planLoad', () => {
 		);
 	});
 
+	describe('after a refusal, or a row set aside', () => {
+		const at = Date.UTC(2026, 0, 2, 3, 4, 5);
+
+		it("reports 'degraded' and not 'stale', whose copy says the relay ran out of room", () => {
+			expect(load({ state: 'degraded', at, reason: 'unreadable' })).toEqual({
+				state: 'degraded',
+				reason: 'unknown',
+				at,
+				notice: `{"v":1,"type":"persistence","state":"degraded","reason":"unknown","at":${at}}`,
+				log: null
+			});
+		});
+
+		it('says nothing in the log, or this line repeats on every hibernation wake', () => {
+			expect(load({ state: 'degraded', at, reason: 'unreadable' }).log).toBeNull();
+		});
+
+		it('carries the stored timestamp, so a dismissed banner stays dismissed', () => {
+			expect(load({ state: 'degraded', at: 7, reason: 'unreadable' }).at).toBe(7);
+			expect(load({ state: 'degraded', at: 'junk', reason: 'unreadable' }).at).toBe(NOW);
+		});
+
+		it("does not resurrect a row a good save has since rewritten to 'ok'", () => {
+			expect(load({ state: 'ok', at, reason: null })).toEqual({
+				state: 'ok',
+				notice: null,
+				log: null
+			});
+		});
+	});
+
 	it('falls back to its own clock when the stored timestamp is unusable', () => {
 		for (const at of [Number.NaN, Number.POSITIVE_INFINITY, 1e300, 'yesterday', null]) {
 			expect(load({ state: 'degraded', at })?.log).toContain('since=2023-11-14T22:13:20.000Z');
+		}
+	});
+});
+
+describe('planDamagedLoad', () => {
+	const load = (
+		outcome: 'quarantined' | 'occupied' | 'write-failed',
+		healthRow: unknown = undefined
+	) => planDamagedLoad({ outcome, healthRow, bytes: 227, room: ROOM, now: NOW });
+	const latched = { state: 'degraded', at: 1_600_000_000_000, reason: 'unreadable' };
+
+	it('announces a row it moved, whatever the health row said before', () => {
+		for (const row of [undefined, latched, { state: 'stale', reason: 'too-big', at: 1 }]) {
+			expect(load('quarantined', row)).toEqual({
+				state: 'degraded',
+				reason: 'unknown',
+				at: NOW,
+				notice:
+					'{"v":1,"type":"persistence","state":"degraded","reason":"unknown","at":1700000000000}',
+				log: 'relay.persistence event=quarantined room=a1b2c3d4 bytes=227',
+				// The transaction that moved the row has already written it.
+				recordHealth: false,
+				refuseSaves: false
+			});
+		}
+	});
+
+	for (const outcome of ['occupied', 'write-failed'] as const) {
+		it(`refuses saves and says so the first time the row could not be moved: ${outcome}`, () => {
+			expect(load(outcome)).toEqual({
+				state: 'degraded',
+				reason: 'unknown',
+				at: NOW,
+				notice:
+					'{"v":1,"type":"persistence","state":"degraded","reason":"unknown","at":1700000000000}',
+				log: `relay.persistence event=quarantine-failed room=a1b2c3d4 bytes=227 reason=${outcome} saves=refused`,
+				recordHealth: true,
+				refuseSaves: true
+			});
+		});
+
+		it(`stays silent and still refuses on every wake after that: ${outcome}`, () => {
+			// The row is still there to be found, so this is the wake that would otherwise repeat.
+			expect(load(outcome, latched)).toEqual({
+				state: 'degraded',
+				reason: 'unknown',
+				at: latched.at,
+				notice: null,
+				log: null,
+				recordHealth: false,
+				refuseSaves: true
+			});
+		});
+
+		it(`takes over from an older failure on another reason: ${outcome}`, () => {
+			const plan = load(outcome, { state: 'stale', reason: 'too-big', at: 1 });
+			expect(plan.notice).not.toBeNull();
+			expect(plan.recordHealth).toBe(true);
+			expect(plan.refuseSaves).toBe(true);
+		});
+	}
+
+	it('does not turn a damaged wake into a repeating transition', () => {
+		// The whole life of a room with one bad row and no client to re-seed it, wake after wake.
+		const first = load('quarantined');
+		const healthAfter = { state: 'degraded', at: first.at, reason: 'unreadable' };
+		const wakes = [1, 2, 3].map((n) =>
+			planLoad({ healthRow: healthAfter, bytes: 0, room: ROOM, now: NOW + n * 60_000 })
+		);
+		for (const wake of wakes) {
+			expect(wake.at).toBe(first.at);
+			expect(wake.log).toBeNull();
 		}
 	});
 });
