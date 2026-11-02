@@ -383,4 +383,88 @@ describe('what iterating the redo must not change', () => {
 		expect(outer.has('middle')).toBe(false);
 		expect(yIssue.get('title')).toBe('Nested');
 	});
+
+	/**
+	 * Three honest clients. The undo covers both `k`'s map and the value the second client wrote over
+	 * it, and the map's client comes first, so the map is tried while that value still stands in its
+	 * way, and refused. The value then comes back, which clears the way for the third client's item
+	 * under the map to try the map again. `nest` hangs whatever that client writes.
+	 */
+	function parentRefusedAtFirst(nest: (map: Y.Map<unknown>) => void, leaf?: unknown) {
+		const a = new Y.Doc();
+		a.clientID = 1;
+		const b = new Y.Doc();
+		b.clientID = 2;
+		const c = new Y.Doc();
+		c.clientID = 3;
+		const sync = () => {
+			for (const from of [a, b, c]) {
+				for (const to of [a, b, c]) {
+					if (from !== to) Y.applyUpdate(to, Y.encodeStateAsUpdate(from, Y.encodeStateVector(to)));
+				}
+			}
+		};
+		const mine = a.getMap<unknown>('m');
+		const origin = {};
+		// A timeout this long makes both deletes below one step.
+		const undo = new Y.UndoManager(mine, {
+			captureTimeout: 1e9,
+			trackedOrigins: new Set([origin])
+		});
+		const refused = new Y.Map<unknown>();
+		a.transact(() => {
+			mine.set('first', 'f');
+			mine.set('k', refused);
+			refused.set('byA', 1);
+		});
+		sync();
+		b.getMap<unknown>('m').set('other', 'o');
+		sync();
+		const theirs = c.getMap<unknown>('m').get('k') as Y.Map<unknown>;
+		c.transact(() => nest(theirs));
+		sync();
+		if (leaf !== undefined) {
+			let deepest = refused;
+			for (let next = deepest.get('n'); next instanceof Y.Map; next = deepest.get('n')) {
+				deepest = next;
+			}
+			deepest.set('leaf', leaf);
+			sync();
+		}
+		b.getMap<unknown>('m').set('k', 'written over');
+		a.transact(() => {
+			mine.delete('first');
+			mine.delete('other');
+			mine.delete('k');
+		}, origin);
+		sync();
+		a.transact(() => mine.delete('k'), origin);
+		undo.undo();
+		sync();
+		return { mine, onPeer: b.getMap<unknown>('m') };
+	}
+
+	it('tries a refused parent again once what stood in its way has come back', () => {
+		const { mine, onPeer } = parentRefusedAtFirst((map) => map.set('byC', 3));
+
+		// byA was tried while the map was refused and has had its turn; byC comes after the way clears.
+		expect(mine.toJSON()).toEqual({ first: 'f', k: { byC: 3 }, other: 'o' });
+		expect(onPeer.toJSON()).toEqual(mine.toJSON());
+		expect(mine.get('k')).toBeInstanceOf(Y.Map);
+	});
+
+	it('tries it again under a chain deeper than the stack too', { timeout: 60_000 }, () => {
+		const depth = 10_000;
+		const { mine } = parentRefusedAtFirst((map) => nestMaps(map, 'n', depth), 'from the first');
+
+		let levels = 0;
+		let level = mine.get('k') as Y.Map<unknown>;
+		for (let next = level.get('n'); next instanceof Y.Map; next = level.get('n')) {
+			level = next;
+			levels++;
+		}
+		expect(levels).toBe(depth);
+		// The leaf came before the way cleared: it asked the whole chain, and got the map's refusal.
+		expect(level.has('leaf')).toBe(false);
+	});
 });

@@ -1,5 +1,5 @@
 diff --git a/dist/yjs.mjs b/dist/yjs.mjs
-index 10d633d8e71171b2702c45376553832504921877..9e2b4ed593232358fa56b011cccce4565749775c 100644
+index 10d633d8e71171b2702c45376553832504921877..a39cfa3bfc0c21581ea3db407cf949e91442efda 100644
 --- a/dist/yjs.mjs
 +++ b/dist/yjs.mjs
 @@ -313,6 +313,10 @@ const readAndApplyDeleteSet = (decoder, transaction, store) => {
@@ -526,7 +526,7 @@ index 10d633d8e71171b2702c45376553832504921877..9e2b4ed593232358fa56b011cccce456
    }
  
    /**
-@@ -9615,9 +9876,17 @@ const splitItem = (transaction, leftItem, diff) => {
+@@ -9615,9 +9876,19 @@ const splitItem = (transaction, leftItem, diff) => {
  const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id));
  
  /**
@@ -539,14 +539,16 @@ index 10d633d8e71171b2702c45376553832504921877..9e2b4ed593232358fa56b011cccce456
 + * last item of a chain another client finished is met before everything above it, and a peer can
 + * make that deeper than the stack goes. The walk up is a loop, for the same reason as ContentType.
 + *
-+ * A type that cannot come back leaves `redoitems` along with what was waiting on it, or the next
-+ * item down would walk all the way up again to find the same answer.
++ * It asks what the recursion asked, in the same order, and nothing here remembers the answer: a type
++ * refused now can come back later in the same undo, once the value that stood in its way has. So
++ * every item walks up for itself, as it did under the recursion. The scope check popStackItem has just
++ * made for the same item covers the same levels, so that is no new order of cost.
 + *
 + * @param {Transaction} transaction
   * @param {Item} item
   * @param {Set<Item>} redoitems
   * @param {DeleteSet} itemsToDelete
-@@ -9629,6 +9898,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
+@@ -9629,6 +9900,40 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
   * @private
   */
  const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
@@ -564,8 +566,6 @@ index 10d633d8e71171b2702c45376553832504921877..9e2b4ed593232358fa56b011cccce456
 +  while (waiting.length > 0) {
 +    redone = redoItemAfterParents(transaction, /** @type {Item} */ (waiting.pop()), itemsToDelete, ignoreRemoteMapChanges, um);
 +    if (redone === null) {
-+      redoitems.delete(item);
-+      waiting.forEach(below => redoitems.delete(below));
 +      return null
 +    }
 +  }
@@ -815,10 +815,10 @@ index 630efeb36105262cee3d99826f9eb5b056eabc6a..f1d881922f12a7f735e615b5c7d86569
  
    /**
 diff --git a/src/structs/Item.js b/src/structs/Item.js
-index fca5827090ca1b0fd6fdff1b74d260308e6c9196..07084109d9f33338150feaea3bd00a0c681b581b 100644
+index fca5827090ca1b0fd6fdff1b74d260308e6c9196..871d912139f6ab66063197032c71b7dd8cebda87 100644
 --- a/src/structs/Item.js
 +++ b/src/structs/Item.js
-@@ -127,9 +127,17 @@ export const splitItem = (transaction, leftItem, diff) => {
+@@ -127,9 +127,19 @@ export const splitItem = (transaction, leftItem, diff) => {
  const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id))
  
  /**
@@ -831,14 +831,16 @@ index fca5827090ca1b0fd6fdff1b74d260308e6c9196..07084109d9f33338150feaea3bd00a0c
 + * last item of a chain another client finished is met before everything above it, and a peer can
 + * make that deeper than the stack goes. The walk up is a loop, for the same reason as ContentType.
 + *
-+ * A type that cannot come back leaves `redoitems` along with what was waiting on it, or the next
-+ * item down would walk all the way up again to find the same answer.
++ * It asks what the recursion asked, in the same order, and nothing here remembers the answer: a type
++ * refused now can come back later in the same undo, once the value that stood in its way has. So
++ * every item walks up for itself, as it did under the recursion. The scope check popStackItem has just
++ * made for the same item covers the same levels, so that is no new order of cost.
 + *
 + * @param {Transaction} transaction
   * @param {Item} item
   * @param {Set<Item>} redoitems
   * @param {DeleteSet} itemsToDelete
-@@ -141,6 +149,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
+@@ -141,6 +151,40 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
   * @private
   */
  export const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
@@ -856,8 +858,6 @@ index fca5827090ca1b0fd6fdff1b74d260308e6c9196..07084109d9f33338150feaea3bd00a0c
 +  while (waiting.length > 0) {
 +    redone = redoItemAfterParents(transaction, /** @type {Item} */ (waiting.pop()), itemsToDelete, ignoreRemoteMapChanges, um)
 +    if (redone === null) {
-+      redoitems.delete(item)
-+      waiting.forEach(below => redoitems.delete(below))
 +      return null
 +    }
 +  }
