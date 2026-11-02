@@ -1,5 +1,5 @@
 diff --git a/dist/yjs.mjs b/dist/yjs.mjs
-index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9adaa74c48c 100644
+index 10d633d8e71171b2702c45376553832504921877..9e2b4ed593232358fa56b011cccce4565749775c 100644
 --- a/dist/yjs.mjs
 +++ b/dist/yjs.mjs
 @@ -313,6 +313,10 @@ const readAndApplyDeleteSet = (decoder, transaction, store) => {
@@ -381,7 +381,7 @@ index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9ad
      }
    }
    return new ContentJSON(cs)
-@@ -9380,6 +9582,74 @@ const YXmlFragmentRefID = 4;
+@@ -9380,6 +9582,76 @@ const YXmlFragmentRefID = 4;
  const YXmlHookRefID = 5;
  const YXmlTextRefID = 6;
  
@@ -391,9 +391,11 @@ index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9ad
 + * An item and its content call each other once per nesting level, and any peer can nest a type
 + * deeper than the stack goes for a few bytes a level. A throw from there leaves the document half
 + * deleted and escapes Y.applyUpdate, on every replica that receives or loads the result. So a walk
-+ * that is already running takes a nested type as work for later instead of descending into it:
-+ * nothing between one level and the next depends on the order, and the outermost call does not
-+ * return until the list is empty, so to its caller the walk is exactly as complete as before.
++ * that is already running takes a nested type as work for later instead of descending into it. The
++ * outermost call does not return until the list is empty, so to its caller the walk is exactly as
++ * complete as before. It does visit types in another order than stock Yjs, and that shows: the order
++ * of a delete decides which client's items an undo of it brings back first, and so the clocks they
++ * get. Replicas still converge, because they receive those items like any other new ones.
 + *
 + * @type {Array<AbstractType<any>> | null}
 + */
@@ -456,7 +458,7 @@ index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9ad
  /**
   * @private
   */
-@@ -9450,47 +9720,36 @@ class ContentType {
+@@ -9450,47 +9722,36 @@ class ContentType {
     * @param {Transaction} transaction
     */
    delete (transaction) {
@@ -524,7 +526,7 @@ index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9ad
    }
  
    /**
-@@ -9615,9 +9874,17 @@ const splitItem = (transaction, leftItem, diff) => {
+@@ -9615,9 +9876,17 @@ const splitItem = (transaction, leftItem, diff) => {
  const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackItem} s */ s => isDeleted(s.deletions, id));
  
  /**
@@ -544,7 +546,7 @@ index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9ad
   * @param {Item} item
   * @param {Set<Item>} redoitems
   * @param {DeleteSet} itemsToDelete
-@@ -9629,6 +9896,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
+@@ -9629,6 +9898,42 @@ const isDeletedByUndoStack = (stack, id) => array.some(stack, /** @param {StackI
   * @private
   */
  const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapChanges, um) => {
@@ -587,7 +589,7 @@ index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9ad
    const doc = transaction.doc;
    const store = doc.store;
    const ownClientID = doc.clientID;
-@@ -9647,8 +9950,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
+@@ -9647,8 +9952,8 @@ const redoItem = (transaction, item, redoitems, itemsToDelete, ignoreRemoteMapCh
    let right;
    // make sure that parent is redone
    if (parentItem !== null && parentItem.deleted === true) {
@@ -598,7 +600,7 @@ index 10d633d8e71171b2702c45376553832504921877..3b12a4a3a54e3e22423b7dfc19ccb9ad
        return null
      }
      while (parentItem.redone !== null) {
-@@ -9878,7 +10181,16 @@ class Item extends AbstractStruct {
+@@ -9878,7 +10183,16 @@ class Item extends AbstractStruct {
        this.right = getItemCleanStart(transaction, this.rightOrigin);
        this.rightOrigin = this.right.id;
      }
@@ -664,10 +666,10 @@ index 29b2f754042e4489e44b632cdab3e4f7733f8179..5c8c3e22276b37369dcb21c28f9eba79
    }
    return new ContentJSON(cs)
 diff --git a/src/structs/ContentType.js b/src/structs/ContentType.js
-index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b45dab80e 100644
+index 630efeb36105262cee3d99826f9eb5b056eabc6a..f1d881922f12a7f735e615b5c7d865697ded0d1f 100644
 --- a/src/structs/ContentType.js
 +++ b/src/structs/ContentType.js
-@@ -33,6 +33,74 @@ export const YXmlFragmentRefID = 4
+@@ -33,6 +33,76 @@ export const YXmlFragmentRefID = 4
  export const YXmlHookRefID = 5
  export const YXmlTextRefID = 6
  
@@ -677,9 +679,11 @@ index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b
 + * An item and its content call each other once per nesting level, and any peer can nest a type
 + * deeper than the stack goes for a few bytes a level. A throw from there leaves the document half
 + * deleted and escapes Y.applyUpdate, on every replica that receives or loads the result. So a walk
-+ * that is already running takes a nested type as work for later instead of descending into it:
-+ * nothing between one level and the next depends on the order, and the outermost call does not
-+ * return until the list is empty, so to its caller the walk is exactly as complete as before.
++ * that is already running takes a nested type as work for later instead of descending into it. The
++ * outermost call does not return until the list is empty, so to its caller the walk is exactly as
++ * complete as before. It does visit types in another order than stock Yjs, and that shows: the order
++ * of a delete decides which client's items an undo of it brings back first, and so the clocks they
++ * get. Replicas still converge, because they receive those items like any other new ones.
 + *
 + * @type {Array<AbstractType<any>> | null}
 + */
@@ -742,7 +746,7 @@ index 630efeb36105262cee3d99826f9eb5b056eabc6a..246b45fe6d4c745be0cf519b9c09a42b
  /**
   * @private
   */
-@@ -103,47 +171,36 @@ export class ContentType {
+@@ -103,47 +173,36 @@ export class ContentType {
     * @param {Transaction} transaction
     */
    delete (transaction) {
