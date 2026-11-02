@@ -178,8 +178,8 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
   that latch and the room announces on every wake. That is bounded by the wakes, and it is an accurate
   report of a room that can write nothing. Unlike a stale wake this one broadcasts as well, because
   sockets survive a hibernation and `onConnect` only runs for new ones. The new log lines are
-  `event=quarantined`, `event=quarantine-failed` and `event=quarantine-write-error`, using the same
-  8-character room tag, and a refused save logs `event=degraded reason=unreadable`. For a room with
+  `event=quarantined`, `event=quarantine-failed`, `event=quarantine-write-error` and
+  `event=quarantine-table-failed`, using the same 8-character room tag, and a refused save logs `event=degraded reason=unreadable`. For a room with
   its quarantine taken, the one `event=quarantine-failed` line is the only thing an operator is ever
   sent, and it is retained for three days. After that the room stays refused without a word, and only
   `ydoc_health` and the two tables show why.
@@ -283,7 +283,12 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
 - `CREATE TABLE IF NOT EXISTS` now runs three times per wake instead of once. Whether a no-op DDL
   statement is billed as a row written is not documented; the pre-existing snapshot table already
   established the pattern, so this is at worst the same order of cost rather than a new class of
-  it.
+  it. For a room that was already deployed, the third is a real schema write once, on its first wake
+  after the table was added, and whether an exhausted budget refuses DDL is not documented either.
+  So that one may fail: `onLoad` logs `event=quarantine-table-failed` on each wake it fails, a healthy
+  room starts without the table, and a damaged row stays where it is with saves refused until a wake
+  can create it. The first two are not guarded, so a brand-new room inside an exhausted budget may
+  still fail to start.
 
 ## Recovering a quarantined row
 

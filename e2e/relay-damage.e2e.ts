@@ -112,7 +112,7 @@ class OwnRelay {
 			const row = (sql: string) =>
 				database.prepare(sql).get() as Record<string, unknown> | undefined;
 			const hasQuarantine = row(
-				`SELECT 1 AS yes FROM sqlite_master WHERE name = 'ydoc_quarantine'`
+				`SELECT 1 AS yes FROM sqlite_master WHERE type = 'table' AND name = 'ydoc_quarantine'`
 			);
 			return {
 				snapshot: row('SELECT doc FROM ydoc_snapshot WHERE id = 1')?.doc,
@@ -448,6 +448,53 @@ test('when the quarantine cannot be written, saves are refused and the row survi
 		const stored = relay.storage();
 		expect(hex(stored.snapshot)).toEqual(hex(damaged));
 		expect(stored.quarantine).toBeUndefined();
+		expect(relay.lines('quarantine-failed').join('')).toContain('reason=write-failed');
+	} finally {
+		await relay.dispose();
+	}
+});
+
+test('a room whose quarantine table cannot be created still starts, and keeps its row', async () => {
+	const relay = new OwnRelay();
+	const damaged = Uint8Array.from([1, 2, 3]);
+	try {
+		const room = freshRoom();
+		await relay.start();
+		await storedWorkspace(relay, room);
+		// A room from before the table, whose first CREATE of it fails for real inside real workerd:
+		// an index holding the name is the one thing IF NOT EXISTS does not step around.
+		let database = relay.database();
+		database.exec('DROP TABLE IF EXISTS ydoc_quarantine');
+		database.exec('CREATE INDEX ydoc_quarantine ON ydoc_snapshot (id)');
+		database.close();
+
+		await relay.start();
+		const visitor = new Peer(relay.host, room);
+		await expect.poll(() => visitor.entries(), { timeout: 15_000 }).toEqual(['kept']);
+		await expect.poll(() => relay.lines('quarantine-table-failed').length).toBe(1);
+		expect(relay.lines('quarantine-table-failed')[0]).not.toContain(room);
+		// Nothing is wrong with the room, and its saves still land.
+		visitor.doc.getMap<unknown>('issues').set('after', 'an honest edit');
+		await pause(SAVE_WINDOW_MS);
+		expect(visitor.notices).toEqual([]);
+		visitor.leave();
+		await relay.stop();
+		expect(entriesIn(relay.storage().snapshot)).toEqual(['after', 'kept']);
+
+		// Without the table a damaged row has nowhere to go, so it stays and saves are refused.
+		database = relay.database();
+		database.prepare('UPDATE ydoc_snapshot SET doc = ? WHERE id = 1').run(damaged);
+		database.close();
+		await relay.start();
+		const peer = new Peer(relay.host, room);
+		await expect
+			.poll(() => peer.notices.at(-1), { timeout: 15_000 })
+			.toMatchObject({ state: 'degraded', reason: 'unknown' });
+		peer.doc.getMap<unknown>('issues').set('written', 'while it cannot be stored');
+		await pause(SAVE_WINDOW_MS);
+		peer.leave();
+		await relay.stop();
+		expect(hex(relay.storage().snapshot)).toEqual(hex(damaged));
 		expect(relay.lines('quarantine-failed').join('')).toContain('reason=write-failed');
 	} finally {
 		await relay.dispose();

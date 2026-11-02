@@ -70,7 +70,7 @@ export class YDocRoom extends YServer<Env> {
 	override async onLoad(): Promise<Y.Doc | void> {
 		this.ctx.storage.sql.exec(createTableSql());
 		this.ctx.storage.sql.exec(createHealthTableSql());
-		this.ctx.storage.sql.exec(createQuarantineTableSql());
+		this.#createQuarantineTable();
 		const row = [...this.ctx.storage.sql.exec(readSnapshotSql())][0];
 		const snapshot = decodeSnapshot(row?.doc);
 		const health = [...this.ctx.storage.sql.exec(readHealthSql())][0];
@@ -92,6 +92,26 @@ export class YDocRoom extends YServer<Env> {
 		// No broadcast: this repeats on every wake, and a socket that lived through the hibernation
 		// has already been told. `onConnect` carries it to anyone arriving.
 		return snapshot.doc;
+	}
+
+	/**
+	 * Allowed to fail, unlike the two CREATEs before it.
+	 *
+	 * For a room that already has a snapshot this is a real schema write on its first wake after the
+	 * deploy that added the table, where theirs are no-ops, and that wake may fall inside an exhausted
+	 * write budget. A healthy room does not need the table to start, and without it a damaged row is
+	 * refused by `quarantineSnapshot` like any other failed move, so the row stays and the next wake
+	 * tries again.
+	 */
+	#createQuarantineTable(): void {
+		try {
+			this.ctx.storage.sql.exec(createQuarantineTableSql());
+		} catch (err) {
+			console.error(
+				`relay.persistence event=quarantine-table-failed room=${this.#roomTag()}`,
+				errorText(err)
+			);
+		}
 	}
 
 	/**
