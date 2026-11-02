@@ -30,7 +30,9 @@ patchedDependencies:
   # linear time, drops structs of no length, reads only the sub-document options Yjs writes, and
   # collects an item whose neighbours are in different parents. Stock Yjs recurses once per nesting
   # level, so a few KB from a peer overflows the stack inside Y.applyUpdate, before any of this repo's
-  # code runs. See the Data layer section of AGENTS.md. Redo it when bumping yjs: in src/lib/sync/,
+  # code runs. See the Data layer section of AGENTS.md. It changes src/ and dist/yjs.mjs, the file the
+  # client, SSR, the relay and Vitest all load. dist/yjs.cjs is deliberately stock, so a future
+  # require('yjs') gets unpatched code. Redo it when bumping yjs: in src/lib/sync/,
   # deep-nesting.test.ts, deep-values.test.ts, deep-touch.test.ts, empty-structs.test.ts,
   # subdoc-options.test.ts and crossed-origins.test.ts fail without it.
   yjs@13.6.31: patches/yjs@13.6.31.patch
