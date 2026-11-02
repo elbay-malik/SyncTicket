@@ -156,12 +156,12 @@ describe('connectionCopy durability sentence', () => {
 		);
 	});
 
-	it('promises a retry only for the failure that actually retries', () => {
+	it('promises no retry, because a room refusing saves cannot make one succeed', () => {
 		expect(
 			connectionCopy({ ...base, relayPersistence: 'degraded', relayPersistenceReason: 'unknown' })
 				.durable
 		).toBe(
-			"The relay's last save failed, so it isn't storing this workspace right now. Your work is still saved in this browser. Retrying automatically."
+			"The relay's last save failed, so it isn't storing this workspace right now. Your work is still saved in this browser."
 		);
 	});
 

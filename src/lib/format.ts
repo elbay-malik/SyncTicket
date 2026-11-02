@@ -137,13 +137,14 @@ export function connectionCopy(input: {
 				if (!input.persisted) {
 					return "The relay has stopped saving this workspace, and this browser can't save locally either. Nothing here will survive closing the tab.";
 				}
-				// 'too-big' is terminal and 'unknown' is not, so they get different endings:
-				// one is a ceiling that will still be there on the next attempt, the other is
-				// a failure the relay's own debounced save will retry on the next edit. No
-				// byte counts and no error codes — neither is anything the reader can act on.
+				// 'too-big' is a ceiling that will still be there on the next attempt. 'unknown' is
+				// often a failure the relay's own debounced save clears on the next edit, but it
+				// also covers a room refusing saves until an operator steps in, and no client can
+				// tell the two apart, so it promises no retry (ADR 0010). No byte counts and no
+				// error codes — neither is anything the reader can act on.
 				return input.relayPersistenceReason === 'too-big'
 					? "The relay has stopped saving this workspace — it's full. Your work is still saved in this browser, but other people's copies may fall behind."
-					: "The relay's last save failed, so it isn't storing this workspace right now. Your work is still saved in this browser. Retrying automatically.";
+					: "The relay's last save failed, so it isn't storing this workspace right now. Your work is still saved in this browser.";
 			case 'stale':
 				// Past tense, because by the time this is known the loss has already happened:
 				// the room was evicted while a save was failing. Nothing the reader does now

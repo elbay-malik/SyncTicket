@@ -163,11 +163,14 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
   and the `stale` copy ignores the reason altogether. An old client would therefore say the same
   thing as the current one. Saying more would take a new sentence in the client. `degraded` and
   `unknown` read "The relay's last save failed, so it isn't storing this workspace right now. Your
-  work is still saved in this browser. Retrying automatically." That is true of a refused save and
-  of the wake after one. On a damaged wake "last save failed" is loose, since it is the stored copy
-  that failed, but the part a reader acts on is true, and the next good save does repair it. `stale`
-  would be false in both cases: it says the relay ran out of room, and that what you see is the
-  last copy it kept, while a damaged wake has kept nothing it can show. So the health row stores
+  work is still saved in this browser." That is true of a refused save and of the wake after one. It
+  used to end "Retrying automatically", which a room with its quarantine taken cannot honour: every
+  wake reads the table, finds it occupied and refuses again, until an operator clears it. A client
+  cannot tell that room from a failure that does clear, so the copy promises neither, and a reader
+  of a passing failure gives up the reassurance. On a damaged wake "last save failed" is loose, since
+  it is the stored copy that failed, but the part a reader acts on is true, and after an ordinary
+  quarantine the next good save does repair it. `stale` would be false in both cases: it says the
+  relay ran out of room, and that what you see is the last copy it kept, while a damaged wake has kept nothing it can show. So the health row stores
   `unreadable`, which never goes on the wire, and `planLoad` turns it back into `degraded`.
 - **A damaged wake announces once.** The move can only happen once. A row that could not be moved
   latches on the health row instead, stays silent on later wakes, and reuses the stored `at`, so a
@@ -176,7 +179,10 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
   report of a room that can write nothing. Unlike a stale wake this one broadcasts as well, because
   sockets survive a hibernation and `onConnect` only runs for new ones. The new log lines are
   `event=quarantined`, `event=quarantine-failed` and `event=quarantine-write-error`, using the same
-  8-character room tag, and a refused save logs `event=degraded reason=unreadable`.
+  8-character room tag, and a refused save logs `event=degraded reason=unreadable`. For a room with
+  its quarantine taken, the one `event=quarantine-failed` line is the only thing an operator is ever
+  sent, and it is retained for three days. After that the room stays refused without a word, and only
+  `ydoc_health` and the two tables show why.
 - **A refused room stays degraded until its memory goes.** The poisoned document stays in memory
   after a refused save, every later save is refused too, and only an eviction clears it. After that
   the room reloads the last good row and the next save that passes clears the state. Any client
