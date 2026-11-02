@@ -9,7 +9,7 @@ overrides:
 
 patchedDependencies:
   virtua@0.51.0: 045ed8120159ba67de2b948749a899e43d3279dc12367ad080ea5ddcedc5186a
-  yjs@13.6.31: 40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493
+  yjs@13.6.31: dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442
 
 importers:
 
@@ -23,16 +23,16 @@ importers:
         version: 1.1.0(svelte@5.57.2(@typescript-eslint/types@8.63.0))
       y-indexeddb:
         specifier: 9.0.12
-        version: 9.0.12(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493))
+        version: 9.0.12(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442))
       y-partyserver:
         specifier: 2.2.0
-        version: 2.2.0(@cloudflare/workers-types@4.20260702.1)(partyserver@0.5.10(@cloudflare/workers-types@4.20260702.1))(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493))
+        version: 2.2.0(@cloudflare/workers-types@4.20260702.1)(partyserver@0.5.10(@cloudflare/workers-types@4.20260702.1))(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442))
       y-protocols:
         specifier: 1.0.7
-        version: 1.0.7(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493))
+        version: 1.0.7(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442))
       yjs:
         specifier: 13.6.31
-        version: 13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)
+        version: 13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -162,10 +162,10 @@ importers:
         version: 0.5.10(@cloudflare/workers-types@4.20260702.1)
       y-partyserver:
         specifier: 2.2.0
-        version: 2.2.0(@cloudflare/workers-types@4.20260702.1)(partyserver@0.5.10(@cloudflare/workers-types@4.20260702.1))(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493))
+        version: 2.2.0(@cloudflare/workers-types@4.20260702.1)(partyserver@0.5.10(@cloudflare/workers-types@4.20260702.1))(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442))
       yjs:
         specifier: 13.6.31
-        version: 13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)
+        version: 13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260424.1
@@ -4117,25 +4117,25 @@ snapshots:
 
   ws@8.21.0: {}
 
-  y-indexeddb@9.0.12(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)):
+  y-indexeddb@9.0.12(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)):
     dependencies:
       lib0: 0.2.117
-      yjs: 13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)
+      yjs: 13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)
 
-  y-partyserver@2.2.0(@cloudflare/workers-types@4.20260702.1)(partyserver@0.5.10(@cloudflare/workers-types@4.20260702.1))(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)):
+  y-partyserver@2.2.0(@cloudflare/workers-types@4.20260702.1)(partyserver@0.5.10(@cloudflare/workers-types@4.20260702.1))(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)):
     dependencies:
       '@cloudflare/workers-types': 4.20260702.1
       lib0: 0.2.117
       lodash.debounce: 4.0.8
       nanoid: 5.1.16
       partyserver: 0.5.10(@cloudflare/workers-types@4.20260702.1)
-      y-protocols: 1.0.7(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493))
-      yjs: 13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)
+      y-protocols: 1.0.7(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442))
+      yjs: 13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)
 
-  y-protocols@1.0.7(yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)):
+  y-protocols@1.0.7(yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)):
     dependencies:
       lib0: 0.2.117
-      yjs: 13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493)
+      yjs: 13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442)
 
   y18n@5.0.8: {}
 
@@ -4152,7 +4152,7 @@ snapshots:
       y18n: 5.0.8
       yargs-parser: 22.0.0
 
-  yjs@13.6.31(patch_hash=40923e1d9bb72517405e025d04f62b181a7d5790dca2f374627fd7784d0c5493):
+  yjs@13.6.31(patch_hash=dd62c1fce4cb8ff3b6160989d8857ea728ac073087a227801e8c8c2ec9fb2442):
     dependencies:
       lib0: 0.2.117
 

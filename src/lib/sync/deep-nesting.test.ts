@@ -468,3 +468,64 @@ describe('what iterating the redo must not change', () => {
 		expect(level.has('leaf')).toBe(false);
 	});
 });
+
+describe('what iterating the delete walk does change', () => {
+	/**
+	 * Three honest clients, public API only. One undo step covers `t`, which holds a nested map and
+	 * a plain value from different clients, and both clients' values at `k`. Stock Yjs descends into
+	 * the nested map as it meets it, so it lists the second client first, and that client's `k` is
+	 * refused while the third's still stands, which then comes back and stays. The patch's work list
+	 * reaches the nested map last, so the third client's `k` comes back first and clears the way for
+	 * the second's, which wins. If this starts failing, the walk is back in stock's order and the
+	 * comment on `deleteQueue` in the patch has stopped being true.
+	 */
+	it('can restore a different value from stock, and every replica still agrees on it', () => {
+		const [a, p, q] = [1, 2, 3].map((clientID) => {
+			const doc = new Y.Doc();
+			doc.clientID = clientID;
+			return doc;
+		}) as [Y.Doc, Y.Doc, Y.Doc];
+		const sync = () => {
+			for (const from of [a, p, q]) {
+				for (const to of [a, p, q]) {
+					if (from !== to) Y.applyUpdate(to, Y.encodeStateAsUpdate(from, Y.encodeStateVector(to)));
+				}
+			}
+		};
+		const root = a.getMap<unknown>('m');
+		const origin = {};
+		// A timeout this long makes both deletes below one step.
+		const undo = new Y.UndoManager(root, {
+			captureTimeout: 1e9,
+			trackedOrigins: new Set([origin])
+		});
+		const t = new Y.Map<unknown>();
+		a.transact(() => {
+			root.set('t', t);
+			t.set('x', new Y.Map<unknown>());
+		});
+		sync();
+		const onP = p.getMap<unknown>('m').get('t') as Y.Map<unknown>;
+		(onP.get('x') as Y.Map<unknown>).set('inX', 'from p');
+		sync();
+		(q.getMap<unknown>('m').get('t') as Y.Map<unknown>).set('y', 'from q');
+		sync();
+		p.getMap<unknown>('m').set('k', 'valueP');
+		sync();
+		// Concurrent: q overwrites `k` while a, unaware, deletes it along with `t`.
+		q.getMap<unknown>('m').set('k', 'valueQ');
+		a.transact(() => {
+			root.delete('t');
+			root.delete('k');
+		}, origin);
+		sync();
+		a.transact(() => root.delete('k'), origin);
+
+		undo.undo();
+		sync();
+
+		expect(root.get('k')).toBe('valueP');
+		expect(p.getMap<unknown>('m').toJSON()).toEqual(root.toJSON());
+		expect(q.getMap<unknown>('m').toJSON()).toEqual(root.toJSON());
+	});
+});

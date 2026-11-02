@@ -394,8 +394,8 @@ index 10d633d8e71171b2702c45376553832504921877..a39cfa3bfc0c21581ea3db407cf949e9
 + * that is already running takes a nested type as work for later instead of descending into it. The
 + * outermost call does not return until the list is empty, so to its caller the walk is exactly as
 + * complete as before. It does visit types in another order than stock Yjs, and that shows: the order
-+ * of a delete decides which client's items an undo of it brings back first, and so the clocks they
-+ * get. Replicas still converge, because they receive those items like any other new ones.
++ * of a delete decides which client's items an undo brings back first, so their clocks and, where two
++ * want one key, which value wins. Replicas still converge: they get those items like any new ones.
 + *
 + * @type {Array<AbstractType<any>> | null}
 + */
@@ -682,8 +682,8 @@ index 630efeb36105262cee3d99826f9eb5b056eabc6a..f1d881922f12a7f735e615b5c7d86569
 + * that is already running takes a nested type as work for later instead of descending into it. The
 + * outermost call does not return until the list is empty, so to its caller the walk is exactly as
 + * complete as before. It does visit types in another order than stock Yjs, and that shows: the order
-+ * of a delete decides which client's items an undo of it brings back first, and so the clocks they
-+ * get. Replicas still converge, because they receive those items like any other new ones.
++ * of a delete decides which client's items an undo brings back first, so their clocks and, where two
++ * want one key, which value wins. Replicas still converge: they get those items like any new ones.
 + *
 + * @type {Array<AbstractType<any>> | null}
 + */
