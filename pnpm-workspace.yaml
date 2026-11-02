@@ -34,7 +34,9 @@ patchedDependencies:
   # client, SSR, the relay and Vitest all load. dist/yjs.cjs is deliberately stock, so a future
   # require('yjs') gets unpatched code. Redo it when bumping yjs: in src/lib/sync/,
   # deep-nesting.test.ts, deep-values.test.ts, deep-touch.test.ts, empty-structs.test.ts,
-  # subdoc-options.test.ts and crossed-origins.test.ts fail without it.
+  # subdoc-options.test.ts and crossed-origins.test.ts fail without it. Bump the root and
+  # workers/relay together and move this key with them: pnpm refuses a key nothing uses but says
+  # nothing when one package misses it, and that package gets stock Yjs. yjs-pin.test.ts fails then.
   yjs@13.6.31: patches/yjs@13.6.31.patch
   # Adds `cancelScroll` to Virtualizer's handle, which stock virtua has inside but does not offer. A
   # scroll it was asked for keeps being corrected for 150 ms after the last row is measured, and a
