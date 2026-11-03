@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/elbay-malik/SyncTicket/actions/workflows/ci.yml/badge.svg)](https://github.com/elbay-malik/SyncTicket/actions/workflows/ci.yml)
 
-**Live demo: <https://syncticket.eleo-666.workers.dev>** — open it in two browsers and press
+**Live demo: <https://syncticket.elbaymalik.com>** — open it in two browsers and press
 **Share**. No sign-up; the link itself is the access ([ADR 0004](docs/adr/0004-no-auth-workspace-id-demo-mode.md)).
 
 ## Why this exists
@@ -15,7 +15,7 @@ SyncTicket is a portfolio project that takes the hard parts of a Linear-class is
 
 **All 13 phases done, and deployed.** Every engineering decision below is complete, tested, and
 current. Both workers run on the Cloudflare free plan — the app at
-`syncticket.eleo-666.workers.dev` and the relay at `syncticket-relay.eleo-666.workers.dev` — and
+`syncticket.elbaymalik.com` and the relay at `syncticket-relay.eleo-666.workers.dev` — and
 the deploy was verified the way [docs/DEPLOY.md](docs/DEPLOY.md) insists on rather than by the
 absence of an error: the connection popover settles on "Ready to share", and an issue created in
 a second, separate browser given only the share link appears in the first immediately. See
