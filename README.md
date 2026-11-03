@@ -258,10 +258,7 @@ Two lexical engines, measured over 10,000 generated issues in Node before choosi
 
 ## Acknowledgements
 
-SyncTicket was built together with Claude, Anthropic's AI model, working through
-[Claude Code](https://claude.com/claude-code): every commit in this history was co-authored with
-it, across the Claude Opus, Fable and Sonnet models. The commit messages carry no per-commit
-co-author lines, so this section is the credit for all of them.
+Claude, Anthropic's AI model, was also used for building DevSprint. Claude worked on some commits in this repository.
 
 ## License
 
