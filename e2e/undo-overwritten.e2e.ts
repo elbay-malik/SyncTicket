@@ -64,9 +64,8 @@ test('Escape keeps an issue a colleague has renamed since', async ({ browser }) 
 	const workspaceId = room();
 	const { ada, grace } = await bothOpenANewIssue(browser, workspaceId);
 	await graceOverwritesAda(ada, grace);
-	// Ada's own field shows her draft until she leaves it, so the rename has to be seen arriving
-	// somewhere she can see it: the row behind the sheet.
-	await expect(ada.getByRole('link', { name: /Grace's edit/ }).first()).toBeVisible({
+	// Ada typed nothing after her edit was stored, so her own field shows the rename too.
+	await expect(ada.getByRole('dialog').getByLabel('Title')).toHaveValue("Grace's edit", {
 		timeout: 10_000
 	});
 
