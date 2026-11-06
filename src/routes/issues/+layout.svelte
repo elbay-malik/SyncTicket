@@ -12,7 +12,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
 	import type { Snapshot } from '@sveltejs/kit';
-	import { afterNavigate, preloadCode } from '$app/navigation';
+	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { connectionCopy } from '$lib/format.js';
 	import { ISSUE_STATUSES, STATUS_META } from '$lib/model/issue.js';
@@ -159,13 +159,6 @@
 			})
 		];
 		return () => off.forEach((unregister) => unregister());
-	});
-
-	// The detail route is a separate lazily-imported chunk. Fetching it as soon as the list
-	// mounts is what makes opening an issue work offline — otherwise the first navigation
-	// after losing connectivity has no code to load and lands on an error page.
-	onMount(() => {
-		void preloadCode('/issues/*');
 	});
 
 	// Closing the sheet unmounts it, and bits-ui hands focus back to whatever opened it —

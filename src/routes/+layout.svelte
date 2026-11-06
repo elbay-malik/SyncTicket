@@ -4,7 +4,7 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import { onMount } from 'svelte';
 	import type { Snapshot } from '@sveltejs/kit';
-	import { afterNavigate, goto } from '$app/navigation';
+	import { afterNavigate, goto, preloadCode } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
@@ -86,8 +86,13 @@
 	onMount(() => {
 		// Started here rather than on first search: the worker and its index chunk are fetched
 		// when it is constructed, and a user who has already gone offline could never fetch
-		// them. Same reasoning as the issues layout preloading the detail route.
+		// them. Same reasoning as preloading every route below.
 		getSearchClient().start(store);
+		// Each route is a lazily imported chunk. Fetching them all now, wherever the visit
+		// started, is what lets every page open offline: a chunk first requested offline fails,
+		// and Chromium remembers the failed import for the life of the page, so even once the
+		// network is back that route kept showing an error until a reload.
+		for (const path of ['/issues', '/issues/*', '/board']) void preloadCode(path);
 		shortcuts.setApple(isApple(navigator.platform || navigator.userAgent));
 		const off = [
 			shortcuts.register({
