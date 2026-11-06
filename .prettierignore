@@ -16,3 +16,7 @@ workers/**/worker-configuration.d.ts
 # Tool-written and tool-read: formatting them is churn, and the hook cache is rewritten on
 # every UI edit, so policing it would fail `pnpm lint` on a file no human touches.
 .impeccable/
+
+# Claude Code's per-machine settings, rewritten by the tool when a permission is granted, and
+# gitignored globally, so CI never sees it; checking it only fails the local gate.
+.claude/settings.local.json
