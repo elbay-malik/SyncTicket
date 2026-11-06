@@ -9,8 +9,9 @@
 	// Editing model: each field holds a *nullable draft*. Null means "not editing" and the
 	// input shows the live CRDT value, so remote changes (Phase 9) flow straight through.
 	// The first keystroke makes the draft non-null; commit writes it back and returns to
-	// null. Deliberately no `$effect` — drafts are set from DOM events only, so there is no
-	// state-syncing loop to get wrong.
+	// null. Drafts are set from DOM events only, never from an effect, so there is no
+	// state-syncing loop to get wrong. (The one pair of effects, `keepSelection`, touches
+	// only the DOM selection.)
 	//
 	// Title and description also commit while you type, after `IDLE_COMMIT_MS` without a
 	// keystroke. Committing only on blur meant a peer watching saw nothing at all until you
@@ -19,6 +20,16 @@
 	// commits, so the input keeps showing exactly what was typed (patchIssue trims a title,
 	// and swapping to the trimmed live value would eat the space you just typed before the
 	// next word) and a remote change cannot rewrite the field under the caret.
+	//
+	// Only while there is something new in it, though. Once an idle commit has stored the
+	// draft and nothing has been typed since, the draft says nothing the document does not
+	// already have. If a peer then changes the field, the input shows their value, and leaving
+	// the field writes nothing. Otherwise the field went on showing your older text, and
+	// blurring wrote it back over the peer's newer one, without a keystroke.
+	//
+	// A value that lands while the field is focused also keeps the selection. Assigning
+	// `value` puts the caret at the end, so someone who had selected the title to type over
+	// it typed onto the end of the peer's text instead ("Alice's editBob's edit").
 	//
 	// That turns one edit into several writes, which changes two things that used to be free:
 	// - **Undo.** The UndoManager groups by time, so every pause would be its own step. Each
@@ -40,6 +51,7 @@
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import PriorityPicker from './priority-picker.svelte';
 	import StatusPicker from './status-picker.svelte';
+	import { mapSelection } from './keep-selection.js';
 
 	/**
 	 * Idle time before a text field commits what has been typed so far.
@@ -60,6 +72,7 @@
 	const id = untrack(() => issue.id);
 
 	type LiveField = 'title' | 'description';
+	type Direction = 'forward' | 'backward' | 'none';
 
 	let titleDraft = $state<string | null>(null);
 	let descriptionDraft = $state<string | null>(null);
@@ -77,6 +90,32 @@
 	}
 	const runs: Record<LiveField, Run | null> = { title: null, description: null };
 
+	/**
+	 * Per field: what this run's last write stored (after patchIssue's trim), and whether
+	 * anything has been typed since. Rendered through `shown`, so `$state`.
+	 */
+	const stored = $state<Record<LiveField, string | null>>({ title: null, description: null });
+	const typedSinceWrite = $state<Record<LiveField, boolean>>({ title: false, description: false });
+
+	/**
+	 * What a text field shows: the draft, unless the draft is already stored and a peer has
+	 * changed the field since, in which case the peer's value.
+	 */
+	function shown(field: LiveField): string {
+		const draft = draftOf(field);
+		if (draft === null) return issue[field];
+		const superseded =
+			!typedSinceWrite[field] && stored[field] !== null && issue[field] !== stored[field];
+		return superseded ? issue[field] : draft;
+	}
+
+	function endRun(field: LiveField) {
+		runs[field] = null;
+		setDraft(field, null);
+		stored[field] = null;
+		typedSinceWrite[field] = false;
+	}
+
 	function draftOf(field: LiveField): string | null {
 		return field === 'title' ? titleDraft : descriptionDraft;
 	}
@@ -89,6 +128,7 @@
 	/** A keystroke: keep the draft, open a run if none is open, and restart the idle clock. */
 	function type(field: LiveField, value: string) {
 		setDraft(field, value);
+		typedSinceWrite[field] = true;
 		let run = runs[field];
 		if (!run) {
 			run = { group: store.beginEdit(), original: issue[field], timer: null };
@@ -105,9 +145,15 @@
 		if (!run || next === null) return;
 		if (run.timer !== null) clearTimeout(run.timer);
 		run.timer = null;
+		// Nothing typed since the last write: writing again would put this older text back
+		// over whatever a peer has written since.
+		if (!typedSinceWrite[field]) return;
 		// A blank title is dropped by patchIssue (a stored '' would render forever), so an idle
 		// commit of an emptied field writes nothing and the field keeps showing the blank draft.
+		if (dropped(field)) return;
 		store.update(id, { [field]: next }, run.group);
+		stored[field] = field === 'title' ? next.trim() : next;
+		typedSinceWrite[field] = false;
 	}
 
 	/**
@@ -127,8 +173,7 @@
 		// run started from, with any fragment the run already stored taken back out.
 		if (dropped(field)) return revert(field);
 		write(field);
-		runs[field] = null;
-		setDraft(field, null);
+		endRun(field);
 	}
 
 	/**
@@ -137,8 +182,7 @@
 	 */
 	function revert(field: LiveField) {
 		const run = runs[field];
-		runs[field] = null;
-		setDraft(field, null);
+		endRun(field);
 		if (!run) return;
 		if (run.timer !== null) clearTimeout(run.timer);
 		// The fallback only runs when the run's step is no longer on top of the undo stack —
@@ -167,6 +211,67 @@
 	 * sheet stays open. bits-ui listens for Escape on the document in the bubble phase, so
 	 * a second Escape — with the draft now null — reaches it and closes the sheet.
 	 */
+	let titleInput = $state<HTMLInputElement | null>(null);
+	let descriptionInput = $state<HTMLTextAreaElement | null>(null);
+	let assigneeInput = $state<HTMLInputElement | null>(null);
+	let labelsInput = $state<HTMLInputElement | null>(null);
+
+	const titleShown = $derived(shown('title'));
+	const descriptionShown = $derived(shown('description'));
+	const assigneeShown = $derived(assigneeDraft ?? issue.assignee ?? '');
+	const labelsShown = $derived(labelsDraft ?? formatLabels(issue.labels));
+
+	/**
+	 * Keeps a focused field's selection when a new value is put into it: the pre-effect runs
+	 * before the DOM update and notes the selection, the effect puts it back afterwards, moved
+	 * along with the text around it (see `mapSelection`).
+	 */
+	function keepSelection(
+		element: () => HTMLInputElement | HTMLTextAreaElement | null,
+		value: () => string
+	) {
+		let saved: { text: string; start: number; end: number; direction: Direction } | null = null;
+		$effect.pre(() => {
+			value();
+			const el = untrack(element);
+			saved = null;
+			if (!el || document.activeElement !== el) return;
+			const start = el.selectionStart ?? 0;
+			saved = {
+				text: el.value,
+				start,
+				end: el.selectionEnd ?? start,
+				direction: el.selectionDirection ?? 'none'
+			};
+		});
+		$effect(() => {
+			value();
+			const el = untrack(element);
+			const before = saved;
+			saved = null;
+			if (!el || !before || el.value === before.text || document.activeElement !== el) return;
+			const { start, end } = mapSelection(before.text, el.value, before);
+			el.setSelectionRange(start, end, before.direction);
+		});
+	}
+
+	keepSelection(
+		() => titleInput,
+		() => titleShown
+	);
+	keepSelection(
+		() => descriptionInput,
+		() => descriptionShown
+	);
+	keepSelection(
+		() => assigneeInput,
+		() => assigneeShown
+	);
+	keepSelection(
+		() => labelsInput,
+		() => labelsShown
+	);
+
 	function cancelOnEscape(event: KeyboardEvent, isEditing: boolean, revert: () => void) {
 		if (event.key !== 'Escape' || !isEditing) return;
 		revert();
@@ -198,7 +303,8 @@
 		<Input
 			id="issue-title"
 			aria-label="Title"
-			value={titleDraft ?? issue.title}
+			bind:ref={titleInput}
+			value={titleShown}
 			oninput={(event) => type('title', event.currentTarget.value)}
 			onblur={commitTitle}
 			onkeydown={(event) => {
@@ -219,7 +325,8 @@
 			aria-label="Description"
 			rows={6}
 			placeholder="Add a description…"
-			value={descriptionDraft ?? issue.description}
+			bind:ref={descriptionInput}
+			value={descriptionShown}
 			oninput={(event) => type('description', event.currentTarget.value)}
 			onblur={commitDescription}
 			onkeydown={(event) => {
@@ -265,7 +372,8 @@
 			id="issue-assignee"
 			aria-label="Assignee"
 			placeholder="Unassigned"
-			value={assigneeDraft ?? issue.assignee ?? ''}
+			bind:ref={assigneeInput}
+			value={assigneeShown}
 			oninput={(event) => (assigneeDraft = event.currentTarget.value)}
 			onblur={commitAssignee}
 			onkeydown={(event) => {
@@ -282,7 +390,8 @@
 			id="issue-labels"
 			aria-label="Labels"
 			placeholder="comma, separated"
-			value={labelsDraft ?? formatLabels(issue.labels)}
+			bind:ref={labelsInput}
+			value={labelsShown}
 			oninput={(event) => (labelsDraft = event.currentTarget.value)}
 			onblur={commitLabels}
 			onkeydown={(event) => {
