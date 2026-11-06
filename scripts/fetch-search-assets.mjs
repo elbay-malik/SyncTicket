@@ -24,6 +24,7 @@ import { createRequire } from 'node:module';
 import { mkdir, copyFile, writeFile, stat } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MODEL_FILES, MODEL_ID, ORT_VARIANT } from './search-assets.mjs';
 
 const require = createRequire(import.meta.url);
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -48,30 +49,15 @@ function findOnnxRuntimeWebRoot() {
 	return ortEntry.slice(0, index + marker.length);
 }
 
-const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const MODEL_DIR = join(root, 'static', 'models', MODEL_ID);
 const ORT_DIR = join(root, 'static', 'ort');
 const LICENSE_DIR = join(root, 'licenses');
 
-// Must match src/lib/search/worker.ts's `pipeline('feature-extraction', ..., { dtype: 'q8' })`
-// call exactly — a different dtype resolves to a different filename on Hugging Face's side.
-const MODEL_FILES = [
-	'config.json',
-	'tokenizer_config.json',
-	'tokenizer.json',
-	'onnx/model_quantized.onnx'
-];
-
-// The one ONNX Runtime Web variant this app's bundle actually resolves to (asyncify — the
-// build without native WebAssembly threading, which Vite's worker output confirms is the
-// only .wasm it emits). If a dependency bump ever changes which variant gets bundled, the
-// mismatch shows up immediately: search would try to fetch a filename that isn't there.
-const ORT_VARIANT = 'ort-wasm-simd-threaded.asyncify';
-
 async function exists(path) {
 	try {
-		await stat(path);
-		return true;
+		// An empty file is what an interrupted download leaves, and check-search-assets.mjs refuses
+		// one, so calling it present here would make its advice to run this script a dead end.
+		return (await stat(path)).size > 0;
 	} catch {
 		return false;
 	}

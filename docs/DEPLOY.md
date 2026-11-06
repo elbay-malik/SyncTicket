@@ -13,9 +13,9 @@ authorized account to do it.
 pnpm install
 pnpm exec wrangler login          # opens a browser; needs a Cloudflare account
 pnpm fetch:search-assets          # vendors the embedding model + ONNX runtime (~46 MB,
-                                   # gitignored — see ADR 0009). Skip this only if you plan
-                                   # to never click "Add meaning search"; lexical search
-                                   # works either way.
+                                   # gitignored — see ADR 0009). Needed once per checkout,
+                                   # including every fresh clone or worktree: deploying
+                                   # refuses to run without these files.
 ```
 
 `wrangler whoami` confirms you're logged in, and is the **only** check worth trusting: on the
@@ -93,6 +93,8 @@ migration that did not apply). Confirm, in order:
 2. Click **Share**, open the copied link in a different browser or a private window, and
    create an issue in one — it should appear in the other within a second.
 3. `docs/DEMO.md`'s script, start to finish, in the deployed app rather than local dev.
+4. Press ⌘K or Ctrl+K and click **Add meaning search**. The footer should settle on "Searching
+   words and meaning". "Meaning search unavailable" means the deploy has no model files.
 
 If step 1 settles on anything else, the popover tells you which mistake you made:
 
@@ -112,12 +114,18 @@ PUBLIC_RELAY_HOST=syncticket-relay.<your-subdomain>.workers.dev pnpm run deploy
 That script deploys the relay, rebuilds the app with the host baked in, and deploys the app.
 It **refuses to run** if `PUBLIC_RELAY_HOST` is unset rather than quietly shipping a
 local-only build — which is the one mistake that produces an app that looks deployed and
-silently never syncs. The long form is the same thing spelled out:
+silently never syncs. It also refuses to run without the search assets, before it touches the
+relay. The long form is the same thing spelled out:
 
 ```sh
 cd workers/relay && pnpm run deploy && cd ../..   # not `wrangler deploy` — see step 1
 PUBLIC_RELAY_HOST=syncticket-relay.<your-subdomain>.workers.dev pnpm build && pnpm exec wrangler deploy
 ```
+
+Both forms get the search-asset check, because `wrangler.jsonc` runs
+`scripts/check-search-assets.mjs` as a custom build ahead of any `wrangler deploy` or
+`versions upload` of the app. It reads `.svelte-kit/cloudflare`, the directory that gets uploaded,
+and stays out of the way for `wrangler dev` and `wrangler types`.
 
 The relay's `wrangler.jsonc` migration (`new_sqlite_classes`) only runs once, on the first
 deploy that introduces it — redeploying does not re-run it or touch existing rooms' data.

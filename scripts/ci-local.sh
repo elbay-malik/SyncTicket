@@ -114,14 +114,11 @@ check_node() {
 # CI re-fetches; we only insist the assets are here, because e2e and the component tests
 # both load them and their absence is a confusing failure three steps later.
 check_assets() {
-	local missing=0
-	[ -f static/models/Xenova/all-MiniLM-L6-v2/onnx/model_quantized.onnx ] || missing=1
-	[ -f static/ort/ort-wasm-simd-threaded.asyncify.wasm ] || missing=1
-	if [ $missing -eq 1 ]; then
+	if ! node scripts/check-search-assets.mjs static; then
 		printf '%sSelf-hosted search assets are missing. Run: pnpm fetch:search-assets%s\n' "$red" "$off" >&2
 		return 1
 	fi
-	printf 'search assets present %s(not re-fetched — CI does; use --fetch-assets)%s\n' "$dim" "$off"
+	printf '%s(not re-fetched — CI does; use --fetch-assets)%s\n' "$dim" "$off"
 }
 
 summary() {
