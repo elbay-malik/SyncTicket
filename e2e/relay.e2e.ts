@@ -218,6 +218,61 @@ test('a socket cut mid-session recovers on its own, and both sides converge with
 	await Promise.all([aliceContext.close(), bob.context().close()]);
 });
 
+test('a relay outage longer than the reconnect breaker allowed still recovers on its own', async ({
+	browser
+}) => {
+	// An open, synced tab whose relay then refuses every connection for 16 seconds. Every
+	// refused attempt used to count towards the breaker meant for a relay that accepts and
+	// then closes, so after about 13 seconds the tab stopped trying for good and stayed
+	// "Offline" until a reload. See guardReconnects in src/lib/sync/provider.ts.
+	test.setTimeout(120_000);
+	const workspaceId = room();
+	const bob = await openPeer(browser, workspaceId);
+
+	let relayReachable = true;
+	let attempts = 0;
+	const aliceContext = await browser.newContext();
+	let currentWs: Parameters<Parameters<typeof aliceContext.routeWebSocket>[1]>[0] | null = null;
+	await aliceContext.routeWebSocket(/\/parties\//, (ws) => {
+		currentWs = ws;
+		attempts += 1;
+		if (relayReachable) ws.connectToServer();
+		else ws.close();
+	});
+	await aliceContext.addInitScript(
+		([key, id]) => window.localStorage.setItem(key as string, id as string),
+		[WORKSPACE_STORAGE_KEY, workspaceId]
+	);
+	const alice = await aliceContext.newPage();
+	await alice.goto('/issues');
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+		timeout: 30_000
+	});
+
+	relayReachable = false;
+	const before = attempts;
+	await currentWs?.close();
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-connection', 'offline', {
+		timeout: 5_000
+	});
+	const aliceInput = alice.getByPlaceholder('Add an issue…');
+	await aliceInput.fill('Written during a long relay outage');
+	await aliceInput.press('Enter');
+	await alice.waitForTimeout(16_000);
+	// The old breaker tripped at eight closes: the cut, then seven refused attempts by 12.7s.
+	expect(attempts - before).toBeGreaterThanOrEqual(7);
+
+	relayReachable = true;
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+		timeout: 40_000
+	});
+	await expect(bob.getByRole('link', { name: 'Written during a long relay outage' })).toBeVisible({
+		timeout: 15_000
+	});
+
+	await Promise.all([aliceContext.close(), bob.context().close()]);
+});
+
 test('editing the same field on both sides while apart converges to one value, not two', async ({
 	browser
 }) => {

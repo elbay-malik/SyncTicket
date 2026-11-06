@@ -21,9 +21,15 @@ import { parsePersistenceNotice, type PersistenceNotice } from './relay-notice.j
  */
 export const RELAY_PARTY = 'y-doc-room';
 
-/** How many closes inside {@link CLOSE_BURST_WINDOW_MS} count as a relay that is refusing us. */
-const CLOSE_BURST_LIMIT = 8;
-const CLOSE_BURST_WINDOW_MS = 20_000;
+/**
+ * How many sockets that opened and then closed, inside {@link CLOSE_BURST_WINDOW_MS}, count as
+ * a relay that accepts us and then refuses us.
+ */
+export const CLOSE_BURST_LIMIT = 8;
+export const CLOSE_BURST_WINDOW_MS = 20_000;
+/** The first pause after the breaker trips, doubled on each trip up to the maximum. */
+export const BREAKER_COOLDOWN_MS = 30_000;
+export const BREAKER_MAX_COOLDOWN_MS = 15 * 60_000;
 
 export type { ConnectionState };
 
@@ -129,28 +135,8 @@ export function attachRelay(
 	// `status` alone can never report a relay that was never reachable: it only emits
 	// `disconnected` for a socket that had previously opened, so an unreachable relay would
 	// sit on 'connecting' forever.
-	//
-	// The close handler also trips a breaker. y-partyserver resets its backoff counter on the
-	// socket's `open` event rather than on a working session, so a relay that accepts the
-	// upgrade and then immediately closes — what partyserver does if `onStart`/`onConnect`
-	// throws — never backs off at all: it retries flat out at 100ms, ~864,000 requests a day
-	// from a single tab, against an account-wide free-plan budget of 100,000. Stopping after
-	// a burst costs nothing, because `nudge()` calls `connect()` (which sets `shouldConnect`
-	// back to true) the moment the browser reports a real change — coming back online, or the
-	// tab being looked at again.
-	const closes: number[] = [];
-	provider.on('connection-close', () => {
-		handlers.onConnection('offline');
-		const now = Date.now();
-		closes.push(now);
-		while (closes.length > 0 && now - (closes[0] as number) > CLOSE_BURST_WINDOW_MS) {
-			closes.shift();
-		}
-		if (closes.length >= CLOSE_BURST_LIMIT) {
-			closes.length = 0;
-			provider.shouldConnect = false;
-		}
-	});
+	provider.on('connection-close', () => handlers.onConnection('offline'));
+	const releaseBreaker = guardReconnects(provider);
 	provider.on('connection-error', () => handlers.onConnection('offline'));
 	provider.on('synced', (synced: boolean) => handlers.onSynced(synced));
 	// The relay's storage health, pushed as a string frame over y-partyserver's custom
@@ -183,10 +169,79 @@ export function attachRelay(
 		awareness,
 		destroy() {
 			unwatch();
+			releaseBreaker();
 			// Before the doc is destroyed, not after: the provider only registers a `doc.update`
 			// handler and does not tear itself down on `doc.destroy()`, so a socket left open
 			// would apply an inbound sync message to a destroyed document.
 			provider.destroy();
 		}
+	};
+}
+
+/** The parts of the provider the breaker uses, so a test can drive it without a socket. */
+export interface Reconnecting {
+	wsconnected: boolean;
+	shouldConnect: boolean;
+	connect(): void;
+	on(event: 'connection-close', listener: () => void): void;
+	on(event: 'synced', listener: (synced: boolean) => void): void;
+	off(event: 'connection-close', listener: () => void): void;
+	off(event: 'synced', listener: (synced: boolean) => void): void;
+}
+
+/**
+ * Stops a relay that accepts the socket and then closes it from being retried flat out, and
+ * tries it again later. Returns the teardown.
+ *
+ * y-partyserver resets its backoff when a socket opens rather than when a session works, so a
+ * relay that accepts the upgrade and then immediately closes (what partyserver does if
+ * `onStart` or `onConnect` throws) never backs off: it is retried every 100ms, about 864,000
+ * requests a day from one tab, against an account-wide free-plan budget of 100,000.
+ *
+ * Only sockets that opened are counted. An attempt that never connects (the relay is down,
+ * refused, or blocked) already backs off in the library, doubling up to `maxBackoffTime`.
+ * Counting those too tripped the breaker on any outage longer than about 13 seconds, and a
+ * tripped breaker used to stop for good: only the browser reporting it was back online could
+ * restart it, and a relay outage never makes the browser say that, so open tabs stayed
+ * offline until a reload.
+ *
+ * A trip now waits and then tries again, 30 seconds the first time and twice as long each
+ * time after, up to 15 minutes: a few requests per tab per quarter of an hour against a
+ * broken relay, and a tab that comes back by itself once it is fixed. A sync resets the wait.
+ * `nudge()` (connection.svelte.ts) still reconnects at once when the browser reports a change.
+ */
+export function guardReconnects(provider: Reconnecting): () => void {
+	const closes: number[] = [];
+	let cooldown = BREAKER_COOLDOWN_MS;
+	let retry: ReturnType<typeof setTimeout> | null = null;
+
+	const onClose = () => {
+		// Read before the library's own close handler, which runs after this and clears it.
+		if (!provider.wsconnected) return;
+		const now = Date.now();
+		closes.push(now);
+		while (closes.length > 0 && now - (closes[0] as number) > CLOSE_BURST_WINDOW_MS) {
+			closes.shift();
+		}
+		if (closes.length < CLOSE_BURST_LIMIT) return;
+		closes.length = 0;
+		provider.shouldConnect = false;
+		if (retry !== null) clearTimeout(retry);
+		retry = setTimeout(() => {
+			retry = null;
+			provider.connect();
+		}, cooldown);
+		cooldown = Math.min(cooldown * 2, BREAKER_MAX_COOLDOWN_MS);
+	};
+	const onSynced = (synced: boolean) => {
+		if (synced) cooldown = BREAKER_COOLDOWN_MS;
+	};
+
+	provider.on('connection-close', onClose);
+	provider.on('synced', onSynced);
+	return () => {
+		if (retry !== null) clearTimeout(retry);
+		provider.off('connection-close', onClose);
+		provider.off('synced', onSynced);
 	};
 }
