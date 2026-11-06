@@ -108,4 +108,4 @@ export async function waitForCommitAbove(page: Page, DB_NAME: string, baseline: 
 }
 
 export { expect };
-export type { Browser, Page } from '@playwright/test';
+export type { Browser, BrowserContext, Page } from '@playwright/test';

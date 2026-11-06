@@ -18,6 +18,8 @@ import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/i
 import {
 	createDoc,
 	createUndoManager,
+	redoOneStep,
+	undoOneStep,
 	getIssuesMap,
 	getYIssue,
 	touchedEntries,
@@ -172,13 +174,9 @@ export class IssueStore {
 		// merge: the stack holds this client's changes, and Yjs re-applies the inverse against
 		// whatever the document has become.
 		this.#undo = createUndoManager(this.#map, this);
-		const syncUndoState = () => {
-			this.canUndo = this.#undo.canUndo();
-			this.canRedo = this.#undo.canRedo();
-		};
-		this.#undo.on('stack-item-added', syncUndoState);
-		this.#undo.on('stack-item-popped', syncUndoState);
-		this.#undo.on('stack-cleared', syncUndoState);
+		this.#undo.on('stack-item-added', this.#syncUndoState);
+		this.#undo.on('stack-item-popped', this.#syncUndoState);
+		this.#undo.on('stack-cleared', this.#syncUndoState);
 		this.#persistence = attachPersistence(this.#doc, workspaceId);
 		// Attached synchronously, like persistence: a provider that arrives late misses the
 		// updates made in the gap. A remote update arriving before IndexedDB has finished
@@ -350,14 +348,16 @@ export class IssueStore {
 	 */
 	undo(): boolean {
 		if (!this.#undo.canUndo()) return false;
-		this.#undo.undo();
+		undoOneStep(this.#undo);
+		this.#syncUndoState();
 		return true;
 	}
 
 	/** Reapplies what {@link undo} took back. */
 	redo(): boolean {
 		if (!this.#undo.canRedo()) return false;
-		this.#undo.redo();
+		redoOneStep(this.#undo);
+		this.#syncUndoState();
 		return true;
 	}
 
@@ -413,7 +413,8 @@ export class IssueStore {
 	revertEdit(group: EditGroup): boolean {
 		if (group.item === null) return true;
 		if (this.#undo.undoStack.at(-1) !== group.item) return false;
-		this.#undo.undo();
+		undoOneStep(this.#undo);
+		this.#syncUndoState();
 		group.item = null;
 		return true;
 	}
@@ -482,6 +483,11 @@ export class IssueStore {
 		void this.#persistence.destroy();
 		this.#doc.destroy();
 	}
+
+	#syncUndoState = () => {
+		this.canUndo = this.#undo.canUndo();
+		this.canRedo = this.#undo.canRedo();
+	};
 
 	/** A write of this visitor's, which is what undo tracks. See the constructor. */
 	#write<T>(write: () => T): T {
