@@ -45,6 +45,41 @@ export function createUndoManager(map: IssuesMap, origin: object): Y.UndoManager
 }
 
 /**
+ * Undo and redo, one step at a time, whatever Yjs would rather do.
+ *
+ * `UndoManager.undo()` keeps popping until a step changes something. A step changes nothing when
+ * a peer has since overwritten what it wrote, because Yjs refuses to restore over a newer value
+ * from another client. So after a colleague renames an issue you just renamed, undo skips your
+ * rename and takes back whatever you did before it: the issue's creation, or a whole batch of
+ * example issues, deleted for everyone by a keypress that was aimed at a title.
+ *
+ * Yjs has no option for this, so the rest of the stack is hidden while the top step runs. A step
+ * that turns out to change nothing is simply spent, and the next press is the visitor's own
+ * decision. Listeners fire while the stack is short, so a caller that mirrors `canUndo` must read
+ * it again afterwards.
+ */
+export function undoOneStep(undo: Y.UndoManager): void {
+	withOnlyTopStep(undo, undo.undoStack, () => undo.undo());
+}
+
+/** {@link undoOneStep} for redo, which falls through in the same way. */
+export function redoOneStep(undo: Y.UndoManager): void {
+	withOnlyTopStep(undo, undo.redoStack, () => undo.redo());
+}
+
+function withOnlyTopStep<T>(undo: Y.UndoManager, stack: T[], run: () => void): void {
+	const below = stack.splice(0, stack.length - 1);
+	try {
+		run();
+	} finally {
+		stack.unshift(...below);
+		// A spent step runs no transaction, so Yjs does not reset its merge window, and a quick next
+		// write would join whatever older step is now on top.
+		undo.stopCapturing();
+	}
+}
+
+/**
  * Whether an entry under `issues` is an issue at all: a Y.Map, under a key that is an issue id.
  *
  * Duck-typing on `.get` is not enough: Y.Array, Y.XmlFragment and a sub-document all have a
