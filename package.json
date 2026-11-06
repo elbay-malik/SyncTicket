@@ -21,7 +21,7 @@
 		"cf-typegen": "wrangler types",
 		"ci:local": "bash scripts/ci-local.sh",
 		"fetch:search-assets": "node scripts/fetch-search-assets.mjs",
-		"deploy": "[ -n \"$PUBLIC_RELAY_HOST\" ] || { echo 'PUBLIC_RELAY_HOST is not set — a build without it ships a permanently local-only app. See docs/DEPLOY.md.' >&2; exit 1; }; pnpm --filter syncticket-relay run deploy && pnpm build && wrangler deploy"
+		"deploy": "[ -n \"$PUBLIC_RELAY_HOST\" ] || { echo 'PUBLIC_RELAY_HOST is not set — a build without it ships a permanently local-only app. See docs/DEPLOY.md.' >&2; exit 1; }; node scripts/check-search-assets.mjs static && pnpm --filter syncticket-relay run deploy && pnpm build && wrangler deploy"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

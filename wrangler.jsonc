@@ -5,6 +5,11 @@
 	"compatibility_date": "2026-07-06",
 	"compatibility_flags": ["nodejs_compat"],
 	"main": ".svelte-kit/cloudflare/_worker.js",
+	// Not a build: `pnpm build` has already run. Wrangler runs this before every deploy, which makes
+	// it the one place a deploy without the gitignored search assets cannot get past. A custom
+	// command also stops `wrangler dev` watching the entry, so restart a running preview to pick up
+	// a new `pnpm build`.
+	"build": { "command": "node scripts/check-search-assets.mjs .svelte-kit/cloudflare" },
 	"assets": {
 		"binding": "ASSETS",
 		"directory": ".svelte-kit/cloudflare"
