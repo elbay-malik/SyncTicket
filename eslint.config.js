@@ -45,5 +45,21 @@ export default defineConfig(
 		// and cannot know about SvelteKit's resolve().
 		files: ['src/lib/components/ui/**'],
 		rules: { 'svelte/no-navigation-without-resolve': 'off' }
+	},
+	{
+		// Some WebKit builds lack crypto.randomUUID, and calling it during startup blanked the
+		// page on an iPhone. App code goes through $lib/model/uuid.ts, which falls back.
+		files: ['src/**/*.ts', 'src/**/*.svelte'],
+		ignores: ['src/lib/model/uuid.ts', 'src/**/*.test.ts'],
+		rules: {
+			'no-restricted-properties': [
+				'error',
+				{
+					object: 'crypto',
+					property: 'randomUUID',
+					message: 'Use randomUUID() from $lib/model/uuid.js: some WebKit builds lack it.'
+				}
+			]
+		}
 	}
 );
