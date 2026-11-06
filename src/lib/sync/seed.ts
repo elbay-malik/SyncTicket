@@ -16,6 +16,7 @@ import {
 import type { IssuesMap } from './doc.js';
 import { maxOrderKey } from './issues.js';
 import { orderKeysBetween } from './order.js';
+import { randomUUID } from '$lib/model/uuid.js';
 
 const SUBJECTS = [
 	'Login',
@@ -188,7 +189,7 @@ export function seedIssues(map: IssuesMap, count: number, options: SeedOptions =
 
 	doc.transact(() => {
 		for (let index = 0; index < count; index += 1) {
-			const id = crypto.randomUUID();
+			const id = randomUUID();
 			const subject = SUBJECTS[Math.floor(random() * SUBJECTS.length)] ?? 'Sync';
 			const verb = VERBS[Math.floor(random() * VERBS.length)] ?? 'is slow on';
 			const status = ISSUE_STATUSES[Math.floor(random() * ISSUE_STATUSES.length)] as IssueStatus;
@@ -239,7 +240,7 @@ export function seedDemoIssues(map: IssuesMap): string[] {
 
 	doc.transact(() => {
 		DEMO_ISSUES.forEach((issue, index) => {
-			const id = crypto.randomUUID();
+			const id = randomUUID();
 			const yIssue = new Y.Map<unknown>();
 			map.set(id, yIssue);
 			yIssue.set('title', issue.title);

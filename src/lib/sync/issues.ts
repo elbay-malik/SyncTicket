@@ -18,6 +18,7 @@ import {
 	type NewIssueInput
 } from '$lib/model/issue.js';
 import { labelsEqual } from '$lib/model/labels.js';
+import { randomUUID } from '$lib/model/uuid.js';
 import { getYIssue, yIssues, type IssuesMap, type YIssue } from './doc.js';
 import { appendOrderKey, isOrderKey, orderKeyBetween, planRepairs, type Ordered } from './order.js';
 
@@ -123,7 +124,7 @@ export function nextOrderKey(map: IssuesMap): string {
 /** Creates an issue and returns its id. All field writes happen in one transaction. */
 export function createIssue(map: IssuesMap, input: NewIssueInput = {}): string {
 	const doc = requireDoc(map);
-	const id = crypto.randomUUID();
+	const id = randomUUID();
 	const now = Date.now();
 	const order = nextOrderKey(map);
 	doc.transact(() => {

@@ -1,6 +1,8 @@
 // A workspace is the unit of sharding: one Y.Doc, one IndexedDB database, and (from Phase 9)
 // one Durable Object room — all keyed by the workspace id.
 
+import { randomUUID } from './uuid.js';
+
 export const WORKSPACE_DB_PREFIX = 'syncticket';
 
 /**
@@ -57,7 +59,7 @@ export interface WorkspaceResolution {
  * grants access, so the id has to be long and random rather than sequential or memorable.
  */
 export function createWorkspaceId(): string {
-	return `w${crypto.randomUUID().replace(/-/g, '')}`;
+	return `w${randomUUID().replace(/-/g, '')}`;
 }
 
 /**
