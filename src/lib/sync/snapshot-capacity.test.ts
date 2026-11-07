@@ -65,25 +65,24 @@ describe('snapshot capacity', () => {
 		expect(perIssue).toBeLessThan(320);
 	});
 
-	it('still saves a 4,000-issue workspace, below even the warning threshold', () => {
+	it('still saves a 2,000-issue workspace, below even the warning threshold', () => {
 		// The healthy case, and the reason the warning exists: there has to be a size that is
 		// large by any demo standard and still nowhere near refusal.
-		expect(encodedBytes(4000)).toBeLessThan(WARN_BYTES);
+		expect(encodedBytes(2000)).toBeLessThan(WARN_BYTES);
 	});
 
-	it('refuses an 8,000-issue workspace', () => {
-		// The case the banner is for. 8,000 rather than the 6,000 an earlier audit suggested:
-		// 6,000 encodes to ~1.86 MB, which is 2.3% under the ceiling — close enough that
-		// ordinary encoding variation, not a regression, would decide whether the test passed.
-		expect(encodedBytes(8000)).toBeGreaterThan(MAX_BYTES);
+	it('refuses a 4,000-issue workspace', () => {
+		// The case the banner is for, with room either side of the ~3,250 crossover so that
+		// ordinary encoding variation, not a regression, cannot decide whether the test passes.
+		expect(encodedBytes(4000)).toBeGreaterThan(MAX_BYTES);
 	});
 
 	it('crosses the ceiling in the range ADR 0010 documents', () => {
-		// The ADR's own claim, asserted: ~6,100 issues of this shape. Bounded on both sides so
+		// The ADR's own claim, asserted: ~3,250 issues of this shape. Bounded on both sides so
 		// the test fails whether capacity grows or shrinks — a capacity that silently doubled
 		// would make the banner unreachable in practice and the ADR's reasoning obsolete.
-		const crossover = MAX_BYTES / (encodedBytes(6000) / 6000);
-		expect(crossover).toBeGreaterThan(5500);
-		expect(crossover).toBeLessThan(7000);
+		const crossover = MAX_BYTES / (encodedBytes(3000) / 3000);
+		expect(crossover).toBeGreaterThan(2900);
+		expect(crossover).toBeLessThan(3600);
 	});
 });

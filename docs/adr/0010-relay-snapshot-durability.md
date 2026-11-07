@@ -290,6 +290,32 @@ Make the failure loud, durable and visible. Do not raise the ceiling.
   can create it. The first two are not guarded, so a brand-new room inside an exhausted budget may
   still fail to start.
 
+## Expiry and a lower ceiling (2026-11-07)
+
+Nothing deleted a room, ever, and nothing could pick out the ones nobody used, because room names
+cannot be listed. So the account's 5 GB of Durable Object storage, which does not reset like the
+daily budgets, could be filled by anyone minting rooms and saving a large snapshot into each, and
+then writes would fail for every room until the owner wiped them all.
+
+- **Every room expires 30 days after its last save, unless someone is connected when its alarm
+  fires** (`workers/relay/src/expiry.ts`). The alarm is set when a room wakes and has none, and
+  moved on a save only when it has fallen more than an hour behind, so typing costs no extra
+  writes. A connected room puts the alarm off for another term.
+- **Expiry takes everything**: the snapshot, the health row and any quarantined row. This changes
+  what "stays in quarantine until someone recovers it by hand" above means: by hand, within 30
+  days of the room's last save. A room nobody has saved into for that long has nobody to report
+  it to.
+- **The cost is a newcomer's copy.** A workspace whose people are all away for 30 days opens empty
+  for someone who only has the link. Anyone who has opened it in their browser still holds the
+  whole document in IndexedDB and uploads it again when they next connect.
+- **The ceiling is now 1 MB** (`SNAPSHOT_MAX_BYTES`), half the row cap, with the warning at
+  750 KB. The table above is still the row cap's; at 1 MB a never-edited workspace holds about
+  3,250 issues (`snapshot-capacity.test.ts` asserts 2,900-3,600), far past any demo workspace,
+  and each room a stranger fills costs half as much.
+- **An expired room that someone reaches before eviction keeps going.** `deleteAll` empties
+  storage but not the instance's memory, so a connection in that window still gets the document,
+  and its next save recreates the tables and writes it back. Someone is using the room after all.
+
 ## Recovering a quarantined row
 
 An operator has to do this; nothing in the app reads the table. A `relay.persistence
