@@ -8,12 +8,16 @@
 // does not reset like the daily budgets do, with rooms holding a snapshot each. Writes would then
 // fail for every room, until the owner wiped all of them by hand.
 //
-// So every room expires a fixed time after its last save, unless someone is in it. A workspace
+// So every room expires a fixed time after it was last opened or saved into, unless someone is in
+// it when that time comes. (Opening counts because a wake re-arms the alarm too; someone looking
+// at a workspace is using it.) Rooms that existed before expiry did not get an alarm until they
+// next wake; one nobody opens again keeps its storage until an operator wakes it, for example by
+// listing the namespace's objects and connecting to each. A workspace
 // someone still has open in a browser is not lost: the browser holds the whole document in
 // IndexedDB and uploads it again on its next connect. What expiry does lose is a room's copy for
 // a newcomer while nobody who has the workspace is around (ADR 0010).
 
-/** How long after its last save a room keeps its storage. */
+/** How long after it was last opened or saved into a room keeps its storage. */
 export const ROOM_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /**
  * How far behind the target an alarm may be before it is moved. Saves come every few seconds

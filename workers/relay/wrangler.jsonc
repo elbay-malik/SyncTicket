@@ -62,7 +62,9 @@
 			},
 			// Only the app the suite builds, so that e2e/relay-limits.e2e.ts can show a page from
 			// another origin being refused.
-			"vars": { "ALLOWED_ORIGINS": "http://localhost:4173" }
+			// A 40-second term, so that e2e/room-expiry.e2e.ts can watch a room expire. Longer than
+			// any test leaves a room with nobody in it.
+			"vars": { "ALLOWED_ORIGINS": "http://localhost:4173", "ROOM_TTL_MS": "40000" }
 		}
 	}
 }
