@@ -4,7 +4,7 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import { onMount } from 'svelte';
 	import type { Snapshot } from '@sveltejs/kit';
-	import { afterNavigate, goto, preloadCode } from '$app/navigation';
+	import { afterNavigate, goto, preloadCode, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
@@ -74,7 +74,14 @@
 	afterNavigate(() => {
 		void Promise.resolve().then(() => {
 			const address = workspaceAddress(page.url, store.workspaceId, store.visitedWorkspaceIds);
-			if (address.kind === 'replace') {
+			if (address.kind === 'replace' && page.route.id === null) {
+				// An address that matches no route: there is nothing to load again, and a navigation
+				// to it only renders the not-found page a second time. That render could also land
+				// after a click on the page's own "Go to Issues", showing "Page not found" again
+				// under an address that already said /issues. Rewriting the entry in place is enough.
+				// eslint-disable-next-line svelte/no-navigation-without-resolve -- The current URL with one query parameter changed, as for goto() below.
+				replaceState(address.url, page.state);
+			} else if (address.kind === 'replace') {
 				// eslint-disable-next-line svelte/no-navigation-without-resolve -- The router's own current URL with one query parameter changed: the path is the one SvelteKit just resolved, and `resolve()` takes a route id, not a URL.
 				void goto(address.url, { replaceState: true, keepFocus: true, noScroll: true });
 			} else if (address.kind === 'reload') {
