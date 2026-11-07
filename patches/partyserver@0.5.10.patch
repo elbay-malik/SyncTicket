@@ -1,0 +1,89 @@
+diff --git a/dist/index.js b/dist/index.js
+index d2fd9146fa268442e62e4a0656a2ddbdda189f84..d2593efada0f11accf6d19f01a88c0646ac8254f 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -490,8 +490,7 @@ async function routePartykitRequest(req, env$1 = env, options) {
+ 				console.warn("You appear to be migrating a PartyKit project to PartyServer.");
+ 				console.warn(`PartyServer doesn't have a "main" party by default. Try adding this to your PartySocket client:\n 
+ party: "${camelCaseToKebabCase(Object.keys(map)[0])}"`);
+-			} else console.error(`The url ${req.url}  with namespace "${namespace}" and name "${name}" does not match any server namespace. 
+-Did you forget to add a durable object binding to the class ${namespace[0].toUpperCase() + namespace.slice(1)} in your wrangler.jsonc?`);
++			} else console.error("A request named a party namespace this worker does not serve.");
+ 			return new Response("Invalid request", { status: 400 });
+ 		}
+ 		const corsHeaders = resolveCorsHeaders(options?.cors);
+@@ -624,18 +623,18 @@ var Server = class extends DurableObject {
+ 				});
+ 			}
+ 		} catch (err) {
+-			console.error(`Error in ${this.#ParentClass.name}:${this.ctx.id.name ?? this.#_name ?? "<unnamed>"} fetch:`, err);
++			console.error(`Error in ${this.#ParentClass.name}:${String(this.ctx.id.name ?? this.#_name ?? "<unnamed>").slice(0, 8)} fetch:`, err);
+ 			if (!(err instanceof Error)) throw err;
+ 			if (request.headers.get("Upgrade") === "websocket") {
+ 				const pair = new WebSocketPair();
+ 				pair[1].accept();
+-				pair[1].send(JSON.stringify({ error: err.stack }));
++				pair[1].send(JSON.stringify({ error: "Connection setup failed" }));
+ 				pair[1].close(1011, "Uncaught exception during session setup");
+ 				return new Response(null, {
+ 					status: 101,
+ 					webSocket: pair[0]
+ 				});
+-			} else return new Response(err.stack, { status: 500 });
++			} else return new Response("Internal error", { status: 500 });
+ 		}
+ 	}
+ 	async webSocketMessage(ws, message) {
+@@ -646,7 +645,7 @@ var Server = class extends DurableObject {
+ 			connection.server = this.name;
+ 			return this.onMessage(connection, message);
+ 		} catch (e) {
+-			console.error(`Error in ${this.#ParentClass.name}:${this.ctx.id.name ?? this.#_name ?? "<unnamed>"} webSocketMessage:`, e);
++			console.error(`Error in ${this.#ParentClass.name}:${String(this.ctx.id.name ?? this.#_name ?? "<unnamed>").slice(0, 8)} webSocketMessage:`, e);
+ 		}
+ 	}
+ 	async webSocketClose(ws, code, reason, wasClean) {
+@@ -657,7 +656,7 @@ var Server = class extends DurableObject {
+ 			connection.server = this.name;
+ 			await this.onClose(connection, code, reason, wasClean);
+ 		} catch (e) {
+-			console.error(`Error in ${this.#ParentClass.name}:${this.ctx.id.name ?? this.#_name ?? "<unnamed>"} webSocketClose:`, e);
++			console.error(`Error in ${this.#ParentClass.name}:${String(this.ctx.id.name ?? this.#_name ?? "<unnamed>").slice(0, 8)} webSocketClose:`, e);
+ 		} finally {
+ 			closeQuietly(ws, code, reason);
+ 		}
+@@ -671,7 +670,7 @@ var Server = class extends DurableObject {
+ 			connection.server = this.name;
+ 			return this.onError(connection, error);
+ 		} catch (e) {
+-			console.error(`Error in ${this.#ParentClass.name}:${this.ctx.id.name ?? this.#_name ?? "<unnamed>"} webSocketError:`, e);
++			console.error(`Error in ${this.#ParentClass.name}:${String(this.ctx.id.name ?? this.#_name ?? "<unnamed>").slice(0, 8)} webSocketError:`, e);
+ 		}
+ 	}
+ 	/**
+@@ -904,14 +903,14 @@ var Server = class extends DurableObject {
+ 	* Called when an error occurs on a connection.
+ 	*/
+ 	onError(connection, error) {
+-		console.error(`Error on connection ${connection.id} in ${this.#ParentClass.name}:${this.name}:`, error);
++		console.error(`Error on connection ${connection.id} in ${this.#ParentClass.name}:${String(this.name).slice(0, 8)}:`, error);
+ 		console.info(`Implement onError on ${this.#ParentClass.name} to handle this error.`);
+ 	}
+ 	/**
+ 	* Called when a request is made to the server.
+ 	*/
+ 	onRequest(request) {
+-		console.warn(`onRequest hasn't been implemented on ${this.#ParentClass.name}:${this.name} responding to ${request.url}`);
++		console.warn(`onRequest hasn't been implemented on ${this.#ParentClass.name}`);
+ 		return new Response("Not implemented", { status: 404 });
+ 	}
+ 	/**
+@@ -919,7 +918,7 @@ var Server = class extends DurableObject {
+ 	* @param error - The error that occurred.
+ 	*/
+ 	onException(error) {
+-		console.error(`Exception in ${this.#ParentClass.name}:${this.name}:`, error);
++		console.error(`Exception in ${this.#ParentClass.name}:${String(this.name).slice(0, 8)}:`, error);
+ 		console.info(`Implement onException on ${this.#ParentClass.name} to handle this error.`);
+ 	}
+ 	onAlarm() {

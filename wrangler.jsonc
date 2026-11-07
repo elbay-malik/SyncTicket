@@ -17,8 +17,12 @@
 	"routes": [{ "pattern": "syncticket.elbaymalik.com", "custom_domain": true }],
 	"workers_dev": true,
 	"preview_urls": true,
+	// Invocation logs off: each one records the request URL, and a workspace link's `?ws=` is
+	// the whole access control to that workspace. Errors and console output still reach the
+	// dashboard.
 	"observability": {
-		"enabled": true
+		"enabled": true,
+		"logs": { "invocation_logs": false }
 	}
 	// FUTURE (Phase 9 — realtime relay): cross-script Durable Object binding to the separate
 	// relay worker. The DO class and its migrations (new_sqlite_classes — the free plan only

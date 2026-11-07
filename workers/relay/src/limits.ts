@@ -26,11 +26,9 @@
 //   - It does not close room creation. It narrows the rate from one source; a distributed
 //     source walks straight past a per-location counter. Closing it needs a signed id, which
 //     would change the id format, the IndexedDB database name and every existing demo URL.
-//   - It does not limit messages on an established socket. Deliberate: `hibernate: true`
-//     evicts any in-memory counter at a moment an attacker picks, and a storage-backed one
-//     would spend more of the write budget than the messages it polices — an inbound
-//     WebSocket message bills at 1/20th of a request, while one counter row costs a whole
-//     row write, competing directly with the snapshot writes that are the actual data path.
+//   - It does not limit messages on an established socket. That is `message-limits.ts`, in
+//     memory: hibernation does evict its counters, but only once the socket has gone quiet, and
+//     that quiet is itself a pause the sender had to take.
 
 /**
  * The limit this relay asks Cloudflare to enforce. `wrangler.jsonc` carries the copy that
@@ -66,7 +64,79 @@ export const CONNECT_LIMIT = { limit: 30, period: 60 } as const;
  * limiting is pointless — there is one caller and it is you.
  */
 export function connectKey(request: Pick<Request, 'headers'>): string | null {
-	return request.headers.get('cf-connecting-ip');
+	const ip = request.headers.get('cf-connecting-ip');
+	return ip === null ? null : addressKey(ip);
+}
+
+/**
+ * The part of an address that identifies one client: all of an IPv4 address, and the /64
+ * network of an IPv6 one. A single host is routinely given a whole /64, so keying on the full
+ * IPv6 address handed one machine billions of separate buckets.
+ */
+export function addressKey(ip: string): string {
+	if (!ip.includes(':')) return ip;
+	// An IPv4 address written as IPv6 (::ffff:203.0.113.1) is the IPv4 address.
+	const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+	if (mapped) return mapped[1]!;
+	const [head = '', tail = ''] = ip.toLowerCase().split('::');
+	const front = head ? head.split(':') : [];
+	const back = tail ? tail.split(':') : [];
+	const groups = ip.includes('::')
+		? [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill('0'), ...back]
+		: front;
+	const network = groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, '') || '0');
+	return `${network.join(':')}::/64`;
+}
+
+/** Where the app is served from, as `ALLOWED_ORIGINS` lists it: comma-separated origins. */
+export function allowedOrigins(value: string | undefined): Set<string> | null {
+	if (!value) return null;
+	return new Set(
+		value
+			.split(',')
+			.map((origin) => origin.trim())
+			.filter(Boolean)
+	);
+}
+
+/** The longest upgrade URL the app's client sends is well under this. */
+export const MAX_UPGRADE_URL_LENGTH = 2048;
+/** partyserver takes `_pk` as the connection id; the client sends `nanoid(10)`. */
+const CONNECTION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Checks the parts of an upgrade request that are not the room name, and strips what only a
+ * server should send. A Response refuses the connection; a Request replaces the incoming one.
+ *
+ * - **Origin.** A browser always says which page opened a socket, and a page on another site
+ *   has no business opening one here: that is how a script on any site with visitors could open
+ *   rooms from each visitor's browser, each with a limiter bucket of its own. A request with no
+ *   Origin at all is not a browser's, so a page cannot send one; it is let through, and the
+ *   limiter is what bounds it. `"null"` (a sandboxed frame or a file) is refused. With no list
+ *   configured, every origin is allowed, so a misconfigured deploy degrades instead of refusing
+ *   everyone.
+ * - **Shape.** partyserver stores the whole URL with each socket and uses `_pk` as the
+ *   connection id and a hibernation tag; a value the client would never send makes setup throw,
+ *   and partyserver answers that with its stack trace.
+ * - **Props.** `x-partykit-props` is meant to come from the worker, never from the client.
+ */
+export function screenUpgrade(request: Request, origins: string | undefined): Response | Request {
+	const allowed = allowedOrigins(origins);
+	const origin = request.headers.get('origin');
+	if (allowed && origin !== null && !allowed.has(origin)) {
+		return new Response('origin not allowed', { status: 403 });
+	}
+	if (request.url.length > MAX_UPGRADE_URL_LENGTH) {
+		return new Response('request too long', { status: 414 });
+	}
+	const id = new URL(request.url).searchParams.get('_pk');
+	if (id !== null && !CONNECTION_ID.test(id)) {
+		return new Response('bad connection id', { status: 400 });
+	}
+	if (!request.headers.has('x-partykit-props')) return request;
+	const headers = new Headers(request.headers);
+	headers.delete('x-partykit-props');
+	return new Request(request, { headers });
 }
 
 /**
