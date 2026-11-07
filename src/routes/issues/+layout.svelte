@@ -363,7 +363,7 @@
 	     Before that it pointed at a bare `/issues` that opened anyone else a new workspace. -->
 	<p class="text-muted-foreground -mt-1 text-xs">
 		Anyone with this link can read and edit this workspace — please don't put anything real or
-		sensitive in it.
+		sensitive in it. The sync server keeps it for 30 days after the last change.
 	</p>
 
 	<!-- Shown only while the relay is ready and nobody else is here; a second peer arriving is

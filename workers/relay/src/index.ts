@@ -41,6 +41,7 @@ import {
 	type PersistPlan
 } from './persistence-plan.js';
 import { isRoutableRoom } from './rooms.js';
+import { ROOM_TTL_MS, nextExpiry, onExpiry } from './expiry.js';
 import { connectKey, refuseConnect, screenUpgrade } from './limits.js';
 import {
 	admitFrame,
@@ -116,6 +117,13 @@ export class YDocRoom extends YServer<Env> {
 	#noticeAt = 0;
 	/** A damaged row is still in the way of id=1, so no save may overwrite it. See `onLoad`. */
 	#refuseSaves = false;
+	/**
+	 * Set once the room's storage has been deleted by `onAlarm`, until the next save puts its
+	 * tables back. The document stays in memory until the instance is evicted, so someone who
+	 * connects in that window still gets it, and their next save keeps the room: someone is
+	 * using it after all.
+	 */
+	#expired = false;
 	/**
 	 * Per-connection message limits, in memory (see `message-limits.ts` for why that is enough).
 	 * A connection that lived through a hibernation starts again with a full budget.
@@ -197,6 +205,7 @@ export class YDocRoom extends YServer<Env> {
 		const now = Date.now();
 		if (snapshot.status === 'damaged') {
 			this.#setAsideDamaged(snapshot, health, now);
+			await this.#armExpiry(now);
 			return snapshot.doc;
 		}
 		const loaded = planLoad({
@@ -209,9 +218,50 @@ export class YDocRoom extends YServer<Env> {
 		this.#reason = loaded.reason;
 		this.#noticeAt = loaded.at ?? now;
 		if (loaded.log) console.error(loaded.log);
+		// A room that is opened and never saved into still expires: that is most of what a
+		// stranger minting rooms would leave behind.
+		await this.#armExpiry(now);
 		// No broadcast: this repeats on every wake, and a socket that lived through the hibernation
 		// has already been told. `onConnect` carries it to anyone arriving.
 		return snapshot.doc;
+	}
+
+	/** The room's term, overridable for a local check of expiry (`wrangler dev --var`). */
+	#ttl(): number {
+		const configured = Number((this.env as { ROOM_TTL_MS?: string }).ROOM_TTL_MS);
+		return Number.isFinite(configured) && configured > 0 ? configured : ROOM_TTL_MS;
+	}
+
+	/** Sets or moves the room's expiry alarm. A failure only costs this one re-arm. */
+	async #armExpiry(now: number): Promise<void> {
+		try {
+			const at = nextExpiry(now, await this.ctx.storage.getAlarm(), this.#ttl());
+			if (at !== null) await this.ctx.storage.setAlarm(at);
+		} catch (err) {
+			console.error(`relay.expiry event=arm-failed room=${this.#roomTag()}`, errorText(err));
+		}
+	}
+
+	/**
+	 * The room's term is up. See `expiry.ts`. Everything goes, including the health row and any
+	 * quarantined snapshot (ADR 0010): a room nobody has used in that long has nobody to report
+	 * them to.
+	 */
+	override async onAlarm(): Promise<void> {
+		const now = Date.now();
+		const decision = onExpiry([...this.getConnections()].length, now, this.#ttl());
+		if (decision.action === 'postpone') {
+			await this.ctx.storage.setAlarm(decision.until);
+			return;
+		}
+		await this.ctx.storage.deleteAlarm();
+		await this.ctx.storage.deleteAll();
+		this.#expired = true;
+		this.#persist = 'ok';
+		this.#reason = undefined;
+		this.#refuseSaves = false;
+		this.#warned = false;
+		console.log(`relay.expiry event=expired room=${this.#roomTag()}`);
 	}
 
 	/**
@@ -290,6 +340,13 @@ export class YDocRoom extends YServer<Env> {
 		// and the one `onConnect` later re-encodes for a late joiner are the same instant.
 		const now = Date.now();
 		try {
+			if (this.#expired) {
+				// Someone came back before the instance was evicted. Their room starts again.
+				this.ctx.storage.sql.exec(createTableSql());
+				this.ctx.storage.sql.exec(createHealthTableSql());
+				this.#createQuarantineTable();
+				this.#expired = false;
+			}
 			const { bytes, size, unreadable } = prepareSnapshot(this.document);
 			// A second, unrelated measurement: what a cold wake would cost. Cheap — the state
 			// vector is one clock per client — and not derivable from `bytes`, which is the whole
@@ -310,6 +367,7 @@ export class YDocRoom extends YServer<Env> {
 			if (plan.write) {
 				try {
 					this.ctx.storage.sql.exec(writeSnapshotSql(), bytes);
+					await this.#armExpiry(now);
 				} catch (err) {
 					applied = planWriteError({
 						err,

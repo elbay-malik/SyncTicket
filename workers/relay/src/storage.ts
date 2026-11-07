@@ -29,11 +29,16 @@ import * as Y from 'yjs';
  */
 export const SNAPSHOT_BUDGET_BYTES = 2_000_000;
 
-/** Stop here: 5% under the cap, because SQLite's per-row overhead is uncharacterised. */
-export const SNAPSHOT_MAX_BYTES = 1_900_000;
+/**
+ * Stop here: half the row cap. It was 5% under the cap, which let one room hold 1.9 MB of
+ * whatever its link-holders sent, and the account's whole Durable Object storage is 5 GB. At
+ * 1 MB a room still holds about 3,250 issues (`src/lib/sync/snapshot-capacity.test.ts`), far
+ * past what a demo workspace reaches, and each room that a stranger fills costs half as much.
+ */
+export const SNAPSHOT_MAX_BYTES = 1_000_000;
 
-/** 75% of the budget — the only notice that can arrive *before* anything is lost. */
-export const SNAPSHOT_WARN_BYTES = 1_500_000;
+/** 75% of the ceiling — the only notice that can arrive *before* anything is lost. */
+export const SNAPSHOT_WARN_BYTES = 750_000;
 
 export type SnapshotSize = 'ok' | 'warn' | 'over';
 

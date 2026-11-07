@@ -494,12 +494,12 @@ describe('real documents against the ceiling', () => {
 		return doc;
 	}
 
-	it('fits 5,000 never-edited issues and refuses 10,000', () => {
+	it('fits 2,000 never-edited issues and refuses 5,000', () => {
 		// The numbers behind the decision to report the ceiling rather than raise it. Empty
-		// descriptions are the most favourable case there is, and 10,000 issues still cannot
+		// descriptions are the most favourable case there is, and 5,000 issues still cannot
 		// be stored.
-		expect(classifySnapshot(encodeSnapshot(docWithIssues(5_000)).byteLength)).toBe('ok');
-		expect(classifySnapshot(encodeSnapshot(docWithIssues(10_000)).byteLength)).toBe('over');
+		expect(classifySnapshot(encodeSnapshot(docWithIssues(2_000)).byteLength)).toBe('ok');
+		expect(classifySnapshot(encodeSnapshot(docWithIssues(5_000)).byteLength)).toBe('over');
 	});
 });
 
@@ -546,9 +546,9 @@ describe('wake cost, which the byte guard cannot see', () => {
 	});
 
 	it('sees a document the byte guard calls fine', () => {
-		// 3,000 empty-description issues: comfortably under SNAPSHOT_WARN_BYTES, and over the
-		// wake threshold. Exactly the blind spot this axis exists for.
-		const doc = docWithIssues(3_000);
+		// 2,300 empty-description issues: under SNAPSHOT_WARN_BYTES, and over the wake
+		// threshold. Exactly the blind spot this axis exists for.
+		const doc = docWithIssues(2_300);
 		expect(classifySnapshot(encodeSnapshot(doc).byteLength)).toBe('ok');
 		expect(countStructs(doc)).toBeGreaterThan(WAKE_WARN_STRUCTS);
 	});
