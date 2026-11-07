@@ -182,6 +182,12 @@ describe('dragOptions', () => {
 		// tabbable columns is what this avoids.
 		expect(dragOptions(items, false).zoneTabIndex).toBe(-1);
 	});
+
+	it('lets the pointer, not the dragged card, decide the column', () => {
+		// By default the library tests the card's centre, so where the card was held changed
+		// where it landed (e2e/board-drop.e2e.ts drives it with a real mouse).
+		expect(dragOptions(items, false).useCursorForDetection).toBe(true);
+	});
 });
 
 describe('isTapGesture', () => {

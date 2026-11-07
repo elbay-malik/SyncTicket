@@ -66,7 +66,12 @@
 			// makes Tab-to-another-column work.
 			zoneTabIndex: -1,
 			flipDurationMs: reducedMotion ? 0 : FLIP_DURATION_MS,
-			delayTouchStart: TOUCH_DRAG_DELAY_MS
+			delayTouchStart: TOUCH_DRAG_DELAY_MS,
+			// Where the pointer is decides the column, not where the dragged card's centre is.
+			// By default the library tests the centre, so a card held by its left edge and
+			// released with the finger over the next column went back where it came from, and
+			// one held by its right edge landed a column further than the finger was.
+			useCursorForDetection: true
 		} satisfies Options<Issue>;
 	}
 </script>
@@ -200,7 +205,10 @@
 		<Badge variant="secondary" class="ml-auto">{total}</Badge>
 	</header>
 
-	<div class="relative flex-1">
+	<!-- The zone fills the column, header aside. It used to be only as tall as its cards, so a
+	     card released in the lower part of a column, or anywhere in an empty one but the top,
+	     was outside every zone and went back without a word. -->
+	<div class="relative flex flex-1 flex-col">
 		{#if items.length === 0}
 			<!-- Sibling of the zone on purpose: a child here would become a draggable. -->
 			<p
@@ -210,7 +218,7 @@
 			</p>
 		{/if}
 		<div
-			class="flex min-h-32 flex-col gap-2 p-3"
+			class="flex min-h-32 flex-1 flex-col gap-2 p-3"
 			aria-label={label}
 			use:dndzone={options}
 			ontouchstartcapture={beginTap}
