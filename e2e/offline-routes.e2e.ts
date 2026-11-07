@@ -93,3 +93,24 @@ test('an address that matches nothing gets a real page, inside the app', async (
 	await error.getByRole('link', { name: 'Go to Issues' }).click();
 	await expect(page.getByText('No issues yet')).toBeVisible();
 });
+
+test('the not-found page takes its workspace link in place, and history still works around it', async ({
+	page
+}) => {
+	await page.goto('/no-such-page');
+	await expect(page).toHaveURL(/\/no-such-page\?ws=[a-z0-9]+$/);
+	const address = page.url();
+
+	await page.getByTestId('route-error').getByRole('link', { name: 'Go to Issues' }).click();
+	await expect(page.getByText('No issues yet')).toBeVisible();
+	await page.waitForTimeout(300);
+	await expect(page.getByTestId('route-error')).toHaveCount(0);
+
+	// Back lands on the same not-found entry, and Forward is still there.
+	await page.goBack();
+	await expect(page).toHaveURL(address);
+	await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+	await page.goForward();
+	await expect(page).toHaveURL(/\/issues\?ws=[a-z0-9]+$/);
+	await expect(page.getByText('No issues yet')).toBeVisible();
+});
