@@ -131,6 +131,9 @@ interface WorkspaceSession extends WorkspaceResolution {
 	visited: readonly string[];
 }
 
+/** The channel `IssueStore.forget` announces itself on. */
+const FORGET_CHANNEL = 'syncticket:forget';
+
 export class IssueStore {
 	#doc: Y.Doc;
 	#map: IssuesMap;
@@ -169,6 +172,13 @@ export class IssueStore {
 	#persisted = $state(true);
 	#invalidWorkspaceParam = $state<string | null>(null);
 	#leftBehind = $state<string | null>(null);
+	/**
+	 * Where a tab says it has forgotten a workspace (`forget`), so this browser's other tabs of it
+	 * stop: left running, they wrote on into a deleted database, and a reload recreated it.
+	 */
+	#forgetChannel: BroadcastChannel | null = null;
+	/** Whether this is the workspace a bare address opens. See {@link linkQuery}. */
+	#home = $state(true);
 	/**
 	 * The workspace this browser opened most recently before this one, or null. The way back
 	 * after following someone's link: a bare address opens the last workspace opened, so
@@ -213,6 +223,15 @@ export class IssueStore {
 		this.#minted = session.minted;
 		this.#invalidWorkspaceParam = session.invalidParam;
 		this.#leftBehind = session.leftBehind;
+		this.#home = session.leftBehind === null;
+		if (browser && typeof BroadcastChannel !== 'undefined') {
+			this.#forgetChannel = new BroadcastChannel(FORGET_CHANNEL);
+			this.#forgetChannel.onmessage = (event: MessageEvent) => {
+				if ((event.data as { workspaceId?: unknown } | null)?.workspaceId !== workspaceId) return;
+				this.destroy();
+				location.assign('/issues');
+			};
+		}
 		this.joinedNewWorkspace = session.newToBrowser;
 		this.visitedWorkspaceIds = session.visited;
 		this.previousWorkspaceId = session.visited.find((id) => id !== workspaceId) ?? null;
@@ -348,6 +367,20 @@ export class IssueStore {
 			// Blocked storage: nothing is remembered anyway.
 		}
 		this.#leftBehind = null;
+		this.#home = true;
+	}
+
+	/**
+	 * What an internal link's address needs after its path to stay in this workspace: `?ws=` and
+	 * the id when this is not the workspace a bare address opens, else nothing.
+	 *
+	 * Links inside the app carry no `?ws=`, because the session already knows its workspace. A new
+	 * tab does not: it starts from the address alone, and a bare one opens the remembered
+	 * workspace. So an issue opened in a new tab from someone's shared workspace landed in the
+	 * visitor's own, as "Issue not found".
+	 */
+	get linkQuery(): string {
+		return this.#home ? '' : `?ws=${encodeURIComponent(this.workspaceId)}`;
 	}
 
 	/**
@@ -596,10 +629,11 @@ export class IssueStore {
 		} catch {
 			// Blocked or mangled storage: the database below is what holds the issues.
 		}
+		// Before the database goes, so the other tabs have closed theirs.
+		this.#forgetChannel?.postMessage({ workspaceId: id });
 		this.destroy();
 		await this.#persistenceClosed;
 		await new Promise<void>((resolve) => {
-			// Blocked while another tab still has it open; it goes once that tab does.
 			const request = indexedDB.deleteDatabase(workspaceDbName(id));
 			request.onsuccess = request.onerror = request.onblocked = () => resolve();
 		});
@@ -607,6 +641,8 @@ export class IssueStore {
 	}
 
 	destroy(): void {
+		this.#forgetChannel?.close();
+		this.#forgetChannel = null;
 		this.#map.unobserveDeep(this.#onChange);
 		this.#undo.destroy();
 		this.remote.destroy();

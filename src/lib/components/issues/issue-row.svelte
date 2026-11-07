@@ -96,13 +96,15 @@
 		focuses when the cursor moves, which is what makes a screen reader announce the row —
 		and it keeps Enter as ordinary link activation instead of a global shortcut.
 	-->
+	<!-- eslint-disable svelte/no-navigation-without-resolve -- A resolved path, plus `?ws=` when this is not the home workspace (IssueStore.linkQuery). -->
 	<a
-		href={resolve('/issues/[id]', { id: issueIdParam(issue.id) })}
+		href={resolve('/issues/[id]', { id: issueIdParam(issue.id) }) + store.linkQuery}
 		data-issue-link={issue.id}
 		tabindex={tabbable ? 0 : -1}
 		aria-current={selected ? 'true' : undefined}
 		class="focus-visible:ring-ring flex-1 truncate rounded-sm px-1 py-1 text-sm underline-offset-4 outline-none group-hover:underline focus-visible:ring-2"
 	>
+		<!-- eslint-enable svelte/no-navigation-without-resolve -->
 		{issue.title}
 		{#if viewerSentence}<span class="sr-only">, {viewerSentence}</span>{/if}
 	</a>

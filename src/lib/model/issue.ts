@@ -19,7 +19,15 @@ export interface Issue {
 	order: string;
 	createdAt: number;
 	updatedAt: number;
+	/**
+	 * Fields cut short on read because a peer made them longer than any view should render
+	 * (`READ_LIMITS` in src/lib/sync/issues.ts). Absent when nothing was cut. The editor must not
+	 * write these back: what it holds is the cut copy, and saving it would cut the field for all.
+	 */
+	clipped?: readonly ClippableField[];
 }
+
+export type ClippableField = 'title' | 'description' | 'assignee' | 'labels';
 
 /** Fields a caller may set when creating an issue; everything else is defaulted. */
 export type NewIssueInput = Partial<

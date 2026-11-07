@@ -14,6 +14,7 @@ import { Awareness } from 'y-protocols/awareness';
 import { getIssuesMap } from '$lib/sync/doc.js';
 import { createIssue } from '$lib/sync/issues.js';
 import { IssueStore } from '$lib/state/issues.svelte.js';
+import { READ_LIMITS } from '$lib/sync/issues.js';
 import type { RelayHandlers } from '$lib/sync/provider.js';
 import IssueDetailSheet from './issue-detail-sheet.svelte';
 import { IDLE_COMMIT_MS } from './issue-editor.svelte';
@@ -148,6 +149,27 @@ describe('issue-detail-sheet.svelte', () => {
 		await page.getByRole('alertdialog').getByRole('button', { name: 'Delete issue' }).click();
 		expect(store.get(id)).toBeUndefined();
 		expect(onOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it('will not edit a field cut short on read, since saving it would cut it for everyone', async () => {
+		const store = makeStore();
+		const long = 'd'.repeat(READ_LIMITS.description + 5);
+		const id = store.create({ title: 'Huge' });
+		store.update(id, { description: long });
+		await open(store, id);
+		const description = page.getByRole('dialog').getByLabelText('Description');
+		await expect.element(description).toHaveAttribute('readonly');
+		await expect
+			.element(page.getByRole('note'))
+			.toHaveTextContent(/description field can't be edited/);
+		await userEvent.type(description, 'x');
+		expect(store.get(id)?.clipped).toEqual(['description']);
+		// Typing changed nothing, so nothing was written back over the whole field.
+		expect(store.get(id)?.description).toBe(long.slice(0, READ_LIMITS.description));
+		// And the title, which was not cut, is still editable.
+		await expect
+			.element(page.getByRole('dialog').getByLabelText('Title'))
+			.not.toHaveAttribute('readonly');
 	});
 
 	it('shows a not-found state for an unknown id', async () => {

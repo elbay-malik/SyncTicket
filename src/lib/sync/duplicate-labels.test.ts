@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { formatLabels, parseLabels } from '$lib/model/labels.js';
 import { createDoc, getIssuesMap, getYIssue } from './doc.js';
-import { createIssue, patchIssue, readAllIssues, readIssue } from './issues.js';
+import { READ_LIMITS, createIssue, patchIssue, readAllIssues, readIssue } from './issues.js';
 import { peerWrites } from './junk-entries.fixture.js';
 
 function makeWorkspace(labels: string[] = []) {
@@ -53,9 +53,14 @@ describe('labels a peer repeats', () => {
 		expect(deliver(['c', 'a', 'b']).read).toEqual(['c', 'a', 'b']);
 	});
 
-	it('does not cap them, because size limits are a separate decision', () => {
+	it('hands views a bounded number of labels, each cut to a bounded length', () => {
+		// The size limit, now decided (READ_LIMITS): 200,000 labels from a peer once stalled the tab.
 		const many = Array.from({ length: 2000 }, (_, i) => `label-${i}`.repeat(50));
-		expect(deliver(many).read).toEqual(many);
+		const read = deliver(many).read;
+		expect(read).toHaveLength(READ_LIMITS.labels);
+		expect(read).toEqual(
+			many.slice(0, READ_LIMITS.labels).map((label) => label.slice(0, READ_LIMITS.label))
+		);
 	});
 
 	it('reads the same through readAllIssues, which is what the store projects', () => {

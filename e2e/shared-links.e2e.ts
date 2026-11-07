@@ -83,6 +83,18 @@ test("someone's link says where you are, keeps your own workspace, and both ways
 	await expect(notice).toContainText('workspace someone shared');
 	// The link did not replace the visitor's own workspace.
 	expect(await remembered(page)).toBe(own);
+	// So links inside it carry the workspace, or an issue opened in a new tab would land in the
+	// visitor's own, as "Issue not found".
+	await expect(page.getByRole('link', { name: "Alice's issue" })).toHaveAttribute(
+		'href',
+		new RegExp(`\\?ws=${friend}$`)
+	);
+	const tab = await page.context().newPage();
+	await tab.goto((await page.getByRole('link', { name: "Alice's issue" }).getAttribute('href'))!);
+	await expect(tab.getByRole('dialog').getByLabel('Title')).toHaveValue("Alice's issue", {
+		timeout: 10_000
+	});
+	await tab.close();
 
 	await page.getByTestId('joined-workspace-back').click();
 	await expect(page).toHaveURL(exactly('/issues', own));
@@ -128,6 +140,12 @@ test('forgetting a workspace removes it from this device and goes to the one bef
 	await page.goto(`/issues?ws=${friend}`);
 	await expect(page.getByRole('link', { name: "Alice's issue" })).toBeVisible({ timeout: 10_000 });
 
+	// A second tab of the same workspace, which has to stop rather than write on into a deleted
+	// database.
+	const other = await page.context().newPage();
+	await other.goto(`/issues?ws=${friend}`);
+	await expect(other.getByRole('link', { name: "Alice's issue" })).toBeVisible({ timeout: 10_000 });
+
 	page.once('dialog', (dialog) => void dialog.accept());
 	await page.keyboard.press('ControlOrMeta+k');
 	await page.getByRole('option', { name: 'Forget this workspace on this device' }).click();
@@ -138,6 +156,7 @@ test('forgetting a workspace removes it from this device and goes to the one bef
 	);
 	expect(databases).not.toContain(`syncticket:${friend}`);
 	expect(databases).toContain(`syncticket:${own}`);
+	await expect(other).toHaveURL(exactly('/issues', own));
 	// Alice's copy is hers, and untouched.
 	await expect(alice.getByRole('link', { name: "Alice's issue" })).toBeVisible();
 	await Promise.all([alice.context().close(), page.context().close()]);

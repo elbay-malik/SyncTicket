@@ -11,6 +11,7 @@ import {
 	DEFAULT_STATUS,
 	isIssuePriority,
 	isIssueStatus,
+	type ClippableField,
 	type Issue,
 	type IssuePatch,
 	type IssuePriority,
@@ -31,8 +32,8 @@ function requireDoc(map: IssuesMap): Y.Doc {
 /**
  * The most of each field a view is handed. Generous for anything a person writes, and a bound on
  * what a peer can make every visitor render: a 21 MB title or 200,000 labels arrived intact and
- * stalled the tab for seconds. Applied on read only, never written back, so a long field is
- * shown cut short rather than lost.
+ * stalled the tab for seconds. Applied on read only, and a cut field is marked in `clipped` so
+ * the editor leaves it alone: it is shown cut short rather than lost.
  */
 export const READ_LIMITS = {
 	title: 1_000,
@@ -45,6 +46,23 @@ export const READ_LIMITS = {
 function readString(yIssue: YIssue, key: string, fallback: string, max: number): string {
 	const value = yIssue.get(key);
 	return typeof value === 'string' ? value.slice(0, max) : fallback;
+}
+
+/** Which of an issue's fields `READ_LIMITS` cut. */
+function clippedFields(yIssue: YIssue): ClippableField[] {
+	const over = (key: 'title' | 'description' | 'assignee') => {
+		const value = yIssue.get(key);
+		return typeof value === 'string' && value.length > READ_LIMITS[key];
+	};
+	const labels = yIssue.get('labels');
+	const labelsOver =
+		Array.isArray(labels) &&
+		(labels.length > READ_LIMITS.labels ||
+			labels.some((label) => typeof label === 'string' && label.length > READ_LIMITS.label));
+	return [
+		...(['title', 'description', 'assignee'] as const).filter(over),
+		...(labelsOver ? (['labels'] as const) : [])
+	];
 }
 
 /** The last time a Date can hold, either side of the epoch. ECMAScript fixes it at this. */
@@ -105,7 +123,9 @@ function readOrder(yIssue: YIssue): string {
 /** Deserialise one issue Y.Map into a plain Issue, tolerating missing/corrupt fields. */
 export function readIssue(id: string, yIssue: YIssue): Issue {
 	const createdAt = readTime(yIssue, 'createdAt', 0);
+	const clipped = clippedFields(yIssue);
 	return {
+		...(clipped.length > 0 ? { clipped } : {}),
 		id,
 		title: readString(yIssue, 'title', 'Untitled', READ_LIMITS.title),
 		description: readString(yIssue, 'description', '', READ_LIMITS.description),
