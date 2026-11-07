@@ -43,7 +43,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import type { Issue, IssuePriority, IssueStatus } from '$lib/model/issue.js';
 	import { formatLabels, parseLabels } from '$lib/model/labels.js';
-	import { isoTime, relativeTime } from '$lib/format.js';
+	import { isoTime, listNames, relativeTime } from '$lib/format.js';
 	import type { EditGroup, IssueStore } from '$lib/state/issues.svelte.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -64,6 +64,9 @@
 
 <script lang="ts">
 	let { issue, store }: { issue: Issue; store: IssueStore } = $props();
+
+	/** Fields cut short on read, which must not be written back (`Issue.clipped`). */
+	const clipped = $derived(issue.clipped ?? []);
 
 	// The issue this editor was created for, and the only thing a write may go by. `issue` is a live
 	// getter on the parent, and blur and onDestroy both run as the editor is being taken down, by
@@ -295,6 +298,14 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-5 px-4 pb-4">
+	{#if clipped.length > 0}
+		<!-- Read-only rather than editable: the editor holds the cut copy, and saving it would cut
+		     the field short for everyone. -->
+		<p class="text-muted-foreground rounded-md border border-dashed p-2 text-xs" role="note">
+			Part of this issue is too long to show in full, so the {listNames([...clipped])}
+			{clipped.length === 1 ? "field can't" : "fields can't"} be edited here.
+		</p>
+	{/if}
 	<div class="flex flex-col gap-1.5">
 		<!-- The title's `pr-9` clears the sheet's close button, which is absolutely positioned
 		     in the sheet's top-right corner and otherwise sits on top of the end of the title
@@ -302,6 +313,7 @@
 		<Label for="issue-title" class="sr-only">Title</Label>
 		<Input
 			id="issue-title"
+			readonly={clipped.includes('title')}
 			aria-label="Title"
 			bind:ref={titleInput}
 			value={titleShown}
@@ -322,6 +334,7 @@
 		<Label for="issue-description">Description</Label>
 		<Textarea
 			id="issue-description"
+			readonly={clipped.includes('description')}
 			aria-label="Description"
 			rows={6}
 			placeholder="Add a description…"
@@ -370,6 +383,7 @@
 		<Label for="issue-assignee" class="text-muted-foreground font-normal">Assignee</Label>
 		<Input
 			id="issue-assignee"
+			readonly={clipped.includes('assignee')}
 			aria-label="Assignee"
 			placeholder="Unassigned"
 			bind:ref={assigneeInput}
@@ -388,6 +402,7 @@
 		<Label for="issue-labels" class="text-muted-foreground font-normal">Labels</Label>
 		<Input
 			id="issue-labels"
+			readonly={clipped.includes('labels')}
 			aria-label="Labels"
 			placeholder="comma, separated"
 			bind:ref={labelsInput}

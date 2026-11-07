@@ -8,9 +8,13 @@
 	import { page } from '$app/state';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
+	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { Kbd } from '$lib/components/ui/kbd/index.js';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import BrandMark from './brand-mark.svelte';
+
+	/** For links that keep a new tab in this workspace (`IssueStore.linkQuery`). */
+	const store = getIssueStore();
 
 	const sidebar = Sidebar.useSidebar();
 
@@ -71,7 +75,8 @@
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton isActive={page.url.pathname.startsWith('/issues')}>
 								{#snippet child({ props })}
-									<a href={resolve('/issues')} {...props}>
+									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- A resolved path, plus `?ws=` when this is not the home workspace (IssueStore.linkQuery). -->
+									<a href={resolve('/issues') + store.linkQuery} {...props}>
 										<!-- Not circle-dot, which this used to be: that glyph IS a status (In Progress),
 										     and DESIGN.md's Circle Belongs to Status Rule keeps rings out of chrome.
 										     list-todo won a 16px render beside the mark, the status set and the
@@ -87,7 +92,8 @@
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton isActive={page.url.pathname.startsWith('/board')}>
 								{#snippet child({ props })}
-									<a href={resolve('/board')} {...props}>
+									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- A resolved path, plus `?ws=` when this is not the home workspace (IssueStore.linkQuery). -->
+									<a href={resolve('/board') + store.linkQuery} {...props}>
 										<SquareKanbanIcon />
 										<span>Board</span>
 									</a>
