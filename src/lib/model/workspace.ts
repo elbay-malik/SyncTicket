@@ -50,6 +50,12 @@ export interface WorkspaceResolution {
 	 * they were invited to, with no way to tell.
 	 */
 	invalidParam: string | null;
+	/**
+	 * True when the id was minted just now, so this browser started the workspace and nobody
+	 * can have shared anything into it yet. An id from a link or from storage may already hold
+	 * someone's issues on the relay.
+	 */
+	minted: boolean;
 }
 
 /**
@@ -80,11 +86,11 @@ export function createWorkspaceId(): string {
  */
 export function chooseWorkspace(search: string, remembered: string | null): WorkspaceResolution {
 	const fromUrl = new URLSearchParams(search).get(WORKSPACE_PARAM);
-	if (isWorkspaceId(fromUrl)) return { id: fromUrl, invalidParam: null };
+	if (isWorkspaceId(fromUrl)) return { id: fromUrl, invalidParam: null, minted: false };
 	// Past this point the parameter was either absent (null) or present and unusable, which
 	// is exactly what `invalidParam` reports — so both fallbacks can carry it as it stands.
-	if (isWorkspaceId(remembered)) return { id: remembered, invalidParam: fromUrl };
-	return { id: createWorkspaceId(), invalidParam: fromUrl };
+	if (isWorkspaceId(remembered)) return { id: remembered, invalidParam: fromUrl, minted: false };
+	return { id: createWorkspaceId(), invalidParam: fromUrl, minted: true };
 }
 
 /** What the address bar has to do to show the workspace this session belongs to. */

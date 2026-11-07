@@ -16,6 +16,7 @@
 	import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import { online } from 'svelte/reactivity/window';
 	import { connectionCopy } from '$lib/format.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
 	import type { Presence } from '$lib/state/presence.svelte.js';
@@ -31,7 +32,8 @@
 			// People, not tabs — `connectionCopy` promises a count that never includes this browser.
 			peerCount: presence.others.length,
 			relayPersistence: store.relayPersistence,
-			relayPersistenceReason: store.relayPersistenceReason
+			relayPersistenceReason: store.relayPersistenceReason,
+			networkOnline: online.current === true
 		})
 	);
 
@@ -63,11 +65,18 @@
 		// over while nothing had connected at all.
 		if (!isOffline && store.connection !== 'connected') return;
 		announcedOffline = isOffline;
-		liveMessage = isOffline
-			? store.persisted
-				? "You're offline. Your changes are saved on this device and will sync once you're back online."
-				: "You're offline, and this browser could not save locally either — changes here will be lost if this tab closes."
-			: 'Back online.';
+		// Read once, at the transition: the network coming back while the relay is still
+		// unreachable is not news worth a second announcement.
+		const unreachable = isOffline && online.current === true;
+		liveMessage = !isOffline
+			? 'Back online.'
+			: unreachable
+				? store.persisted
+					? "Can't reach the sync server. Your changes are saved on this device and will sync once it's reachable again."
+					: "Can't reach the sync server, and this browser could not save locally either — changes here will be lost if this tab closes."
+				: store.persisted
+					? "You're offline. Your changes are saved on this device and will sync once you're back online."
+					: "You're offline, and this browser could not save locally either — changes here will be lost if this tab closes.";
 	});
 </script>
 

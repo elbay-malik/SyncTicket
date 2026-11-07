@@ -104,7 +104,17 @@ export function connectionCopy(input: {
 	relayPersistence: PersistenceState;
 	/** Why its last save failed; absent while `relayPersistence` is 'ok'. */
 	relayPersistenceReason?: PersistFailure;
+	/**
+	 * Whether the browser itself reports a network (`navigator.onLine`). Defaults to false,
+	 * which keeps 'offline' saying "you're offline".
+	 *
+	 * 'offline' only means the relay can't be reached, and with a working network that is the
+	 * relay's fault (down, or blocked by a proxy or firewall), not the visitor's. Telling them
+	 * they are offline sends them to check a wifi connection that is fine.
+	 */
+	networkOnline?: boolean;
 }): ConnectionCopy {
+	const relayUnreachable = input.connection === 'offline' && input.networkOnline === true;
 	const stored = input.persisted
 		? 'Saved on this device'
 		: 'Not saved — this browser blocked local storage, so changes exist only until you close this tab';
@@ -114,7 +124,9 @@ export function connectionCopy(input: {
 			case 'local':
 				return 'Local only — no relay configured';
 			case 'offline':
-				return "Not shared — you're offline";
+				return relayUnreachable
+					? "Not shared — can't reach the sync server"
+					: "Not shared — you're offline";
 			case 'connecting':
 				return 'Connecting…';
 			case 'connected':
@@ -164,7 +176,7 @@ export function connectionCopy(input: {
 				case 'local':
 					return 'Local only';
 				case 'offline':
-					return 'Offline';
+					return relayUnreachable ? 'Server unreachable' : 'Offline';
 				case 'connecting':
 					return 'Connecting…';
 				case 'connected':

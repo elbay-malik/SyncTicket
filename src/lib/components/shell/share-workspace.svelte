@@ -6,6 +6,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import LinkIcon from '@lucide/svelte/icons/link';
+	import { online } from 'svelte/reactivity/window';
 	import { workspaceShareUrl } from '$lib/model/workspace.js';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -28,6 +29,20 @@
 	 * fallback it refers to is still on screen, nor linger after it has gone.
 	 */
 	let failed = $state(false);
+	/**
+	 * True after a copy made while the relay can't be reached, until dismissed or reconnected.
+	 * The link itself is fine, but the workspace only reaches it through the relay, so the
+	 * person it is sent to could open an empty workspace. A plain "Copied" let them send it.
+	 */
+	let unsynced = $state(false);
+	let open = $derived(failed || unsynced);
+	/** Why the link can't carry the workspace now: the visitor's network, or the relay. */
+	const cause = $derived(
+		online.current === false ? "you're offline" : "this tab can't reach the sync server"
+	);
+	$effect(() => {
+		if (store.connection !== 'offline') unsynced = false;
+	});
 	let button = $state<HTMLButtonElement | null>(null);
 	let field = $state<HTMLInputElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
@@ -49,6 +64,7 @@
 			return;
 		}
 		failed = false;
+		unsynced = store.connection === 'offline';
 		copied = true;
 		clearTimeout(timer);
 		timer = setTimeout(() => (copied = false), 2000);
@@ -57,7 +73,16 @@
 
 <!-- Controlled and trigger-less: the Share button is anchored to, not wired as a toggle,
      because on the ordinary path a click copies and must open nothing. -->
-<Popover.Root bind:open={failed}>
+<Popover.Root
+	bind:open={
+		() => open,
+		(value) => {
+			if (value) return;
+			failed = false;
+			unsynced = false;
+		}
+	}
+>
 	<Button
 		bind:ref={button}
 		variant="ghost"
@@ -86,12 +111,14 @@
 		trapFocus={false}
 		customAnchor={button}
 		align="end"
-		aria-label="Invite link"
-		data-testid="share-fallback"
+		aria-label={failed ? 'Invite link' : 'Link not synced yet'}
+		data-testid={failed ? 'share-fallback' : 'share-unsynced'}
 		onOpenAutoFocus={(event) => {
 			// Into the field, with the whole link selected: on a keyboard that is one ⌘C/Ctrl+C
-			// away from done, and on a phone the selection handles are already up.
+			// away from done, and on a phone the selection handles are already up. The unsynced
+			// note takes no focus: it is something to read, and the copy has already happened.
 			event.preventDefault();
+			if (!failed) return;
 			field?.focus();
 			field?.select();
 		}}
@@ -108,22 +135,33 @@
 			if (lost) button?.focus();
 		}}
 	>
-		<p class="text-muted-foreground text-xs">
-			This browser blocked copying. The link is selected below — copy it from here.
-		</p>
-		<Input
-			bind:ref={field}
-			value={url}
-			readonly
-			aria-label="Invite link"
-			data-testid="share-fallback-url"
-			onfocus={(event) => event.currentTarget.select()}
-		/>
+		{#if failed}
+			<p class="text-muted-foreground text-xs">
+				This browser blocked copying. The link is selected below — copy it from here.
+			</p>
+			<Input
+				bind:ref={field}
+				value={url}
+				readonly
+				aria-label="Invite link"
+				data-testid="share-fallback-url"
+				onfocus={(event) => event.currentTarget.select()}
+			/>
+		{:else}
+			<p class="text-xs">
+				Link copied, but {cause} right now. Anyone who opens the link may not see what's here until this
+				tab reconnects.
+			</p>
+		{/if}
 	</Popover.Content>
 </Popover.Root>
 <!-- Announced rather than only drawn: the button's label changes, but a screen-reader user who
      pressed it and heard nothing would be in exactly the position this fixes. It says what is
      actually there — focus is already in the field, so this is the why, not a pointer. -->
 <span class="sr-only" role="status" aria-live="polite">
-	{failed ? 'Copy failed. The invite link is selected in a text field, ready to copy.' : ''}
+	{failed
+		? 'Copy failed. The invite link is selected in a text field, ready to copy.'
+		: unsynced
+			? `Link copied, but ${cause}, so whoever opens the link may not see what's here until this tab reconnects.`
+			: ''}
 </span>
