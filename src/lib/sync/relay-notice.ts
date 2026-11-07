@@ -31,7 +31,7 @@
  */
 export type PersistenceState = 'ok' | 'degraded' | 'stale';
 
-/** Why a save failed. 'too-big' is the 2 MB row cap; everything else is 'unknown'. */
+/** Why a save failed. 'too-big' is the relay's 1 MB snapshot guard; everything else is 'unknown'. */
 export type PersistFailure = 'too-big' | 'unknown';
 
 export interface PersistenceNotice {

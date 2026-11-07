@@ -77,9 +77,9 @@ Durable constraints:
   is the access. This is a settled product fact, not a stage to be grown out of, so future work
   never introduces accounts, and nothing in the product may describe itself as a private tracker.
 - **Free-plan ceilings are product limits.** 100,000 requests/day and 100,000 rows written/day,
-  account-wide. A workspace stops being saved by the relay at roughly **6,130 issues**
-  (measured: 307.6 encoded bytes per issue against a 1.9 MB snapshot guard under Cloudflare's
-  2 MB row cap). The product's answer is to say so in plain language rather than fail silently.
+  account-wide. A workspace stops being saved by the relay at roughly **3,250 issues**
+  (measured: 307.6 encoded bytes per issue against a 1 MB snapshot guard, half Cloudflare's
+  2 MB row cap), and a room is deleted 30 days after it was last opened. The product's answer is to say so in plain language rather than fail silently.
 - **Abuse control is narrow and must not be overstated.** 30 socket upgrades per 60 seconds per
   IP, measured permissive in production (60 concurrent attempts yielded 42 connections). The
   room-name check is a shape check with no secret: a stranger can mint a routable name. This

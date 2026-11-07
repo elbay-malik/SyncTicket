@@ -297,10 +297,13 @@ cannot be listed. So the account's 5 GB of Durable Object storage, which does no
 daily budgets, could be filled by anyone minting rooms and saving a large snapshot into each, and
 then writes would fail for every room until the owner wiped them all.
 
-- **Every room expires 30 days after its last save, unless someone is connected when its alarm
-  fires** (`workers/relay/src/expiry.ts`). The alarm is set when a room wakes and has none, and
-  moved on a save only when it has fallen more than an hour behind, so typing costs no extra
+- **Every room expires 30 days after it was last opened or saved into, unless someone is
+  connected when its alarm fires** (`workers/relay/src/expiry.ts`). A wake and a save both move
+  the alarm, but only when it has fallen more than an hour behind, so typing costs no extra
   writes. A connected room puts the alarm off for another term.
+- **Rooms from before 2026-11-07 get an alarm only on their next wake.** One nobody opens again
+  keeps its storage until an operator wakes it: list the namespace's objects through Cloudflare's
+  API and connect to each, which arms its alarm.
 - **Expiry takes everything**: the snapshot, the health row and any quarantined row. This changes
   what "stays in quarantine until someone recovers it by hand" above means: by hand, within 30
   days of the room's last save. A room nobody has saved into for that long has nobody to report
@@ -313,8 +316,11 @@ then writes would fail for every room until the owner wiped them all.
   3,250 issues (`snapshot-capacity.test.ts` asserts 2,900-3,600), far past any demo workspace,
   and each room a stranger fills costs half as much.
 - **An expired room that someone reaches before eviction keeps going.** `deleteAll` empties
-  storage but not the instance's memory, so a connection in that window still gets the document,
-  and its next save recreates the tables and writes it back. Someone is using the room after all.
+  storage but not the instance's memory, so a connection in that window still gets the document.
+  `onConnect` saves at once, which recreates the tables, arms a new term and writes the document
+  back, because a returning tab that holds nothing new would otherwise never trigger a save.
+- **Rooms already between 1 MB and 1.9 MB** stop being saved on their first save after the lower
+  ceiling, and say so through the existing over-the-ceiling notice.
 
 ## Recovering a quarantined row
 

@@ -243,7 +243,7 @@ export class YDocRoom extends YServer<Env> {
 	}
 
 	/**
-	 * The room's term is up. See `expiry.ts`. Everything goes, including the health row and any
+	 * The room's term is up: 30 days since it was last opened or saved into. See `expiry.ts`. Everything goes, including the health row and any
 	 * quarantined snapshot (ADR 0010): a room nobody has used in that long has nobody to report
 	 * them to.
 	 */
@@ -341,11 +341,13 @@ export class YDocRoom extends YServer<Env> {
 		const now = Date.now();
 		try {
 			if (this.#expired) {
-				// Someone came back before the instance was evicted. Their room starts again.
+				// Someone came back before the instance was evicted. Their room starts again, with
+				// a term of its own even if the save below is refused.
 				this.ctx.storage.sql.exec(createTableSql());
 				this.ctx.storage.sql.exec(createHealthTableSql());
 				this.#createQuarantineTable();
 				this.#expired = false;
+				await this.#armExpiry(now);
 			}
 			const { bytes, size, unreadable } = prepareSnapshot(this.document);
 			// A second, unrelated measurement: what a cold wake would cost. Cheap — the state
@@ -456,6 +458,10 @@ export class YDocRoom extends YServer<Env> {
 	override onConnect(conn: Connection, ctx: ConnectionContext): void {
 		// Sync step 1 and awareness first (`dist/server/index.js:334-352`), so the client has
 		// the document before it is told anything about it.
+		// A room whose storage expired while its document was still in memory, and someone is back.
+		// Their tab may hold nothing the room lacks, and then nothing would ever save, so the room
+		// is written back now rather than left empty for whoever comes next.
+		if (this.#expired) void this.onSave();
 		try {
 			super.onConnect(conn, ctx);
 		} catch (err) {
