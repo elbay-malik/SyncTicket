@@ -4,6 +4,7 @@
 	// outlive the issue they belong to.
 
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import { online } from 'svelte/reactivity/window';
 	import type { IssueStore } from '$lib/state/issues.svelte.js';
 	import { getPresence } from '$lib/state/presence.svelte.js';
 	import { listNames } from '$lib/format.js';
@@ -46,8 +47,45 @@
 	// out of a perfectly ordinary delete.
 	let deleting = $state(false);
 
+	/**
+	 * Which of the states without an issue to show. `synced` is only the local database, and
+	 * on a shared link that is empty: the issue is still on its way from the relay. Deciding
+	 * "not found" from it told everyone opening a shared deep link that the issue may have been
+	 * deleted, for as long as the round trip took, and for good when the relay was unreachable.
+	 * So "not found" waits for `settled`, and a relay that can't be reached says so instead.
+	 */
+	const absence = $derived.by((): 'loading' | 'unreachable' | 'missing' => {
+		if (store.settled) return 'missing';
+		return store.synced && store.connection === 'offline' ? 'unreachable' : 'loading';
+	});
+	const unreachableCause = $derived(
+		online.current === false ? "You're offline" : "The sync server can't be reached"
+	);
+	/**
+	 * Said rather than only drawn: the sheet opens while it waits, so by the time the issue, or
+	 * the news that it can't be had, arrives, the dialog has already been announced as "Loading
+	 * issue" and nothing else would tell a screen-reader user it changed.
+	 */
+	let waited = $state(false);
+	$effect(() => {
+		if (!issue && !deleting) waited = true;
+	});
+	const announcement = $derived.by(() => {
+		if (!waited || deleting) return '';
+		if (issue) return 'Issue loaded.';
+		if (absence === 'unreachable') return `This issue isn't on this device. ${unreachableCause}.`;
+		return absence === 'missing' ? 'Issue not found.' : '';
+	});
+
 	/** Accessible name for the dialog in every state (bits-ui names it from Sheet.Title). */
-	const title = $derived(!store.synced ? 'Loading issue' : (issue?.title ?? 'Issue not found'));
+	const title = $derived(
+		issue?.title ??
+			(absence === 'missing'
+				? 'Issue not found'
+				: absence === 'unreachable'
+					? "Issue isn't on this device"
+					: 'Loading issue')
+	);
 
 	function confirmDelete() {
 		confirmOpen = false;
@@ -78,6 +116,8 @@
 			</Sheet.Description>
 		</Sheet.Header>
 
+		<span class="sr-only" role="status" aria-live="polite">{announcement}</span>
+
 		{#if viewers.length > 0}
 			<div
 				class="text-muted-foreground flex items-center gap-2 px-4 pb-2 text-xs"
@@ -88,13 +128,7 @@
 			</div>
 		{/if}
 
-		{#if !store.synced}
-			<div class="flex flex-col gap-4 px-4 pb-4" data-testid="issue-sheet-loading">
-				<Skeleton class="h-9 w-2/3" />
-				<Skeleton class="h-32 w-full" />
-				<Skeleton class="h-8 w-1/2" />
-			</div>
-		{:else if issue}
+		{#if issue}
 			<!-- Around the editor alone, inside the dialog: the dialog keeps its name, its Close and
 			     its focus trap, and Delete below stays reachable, which is the one way out of a record
 			     that cannot render. The key is outside so another issue starts clean rather than
@@ -111,8 +145,36 @@
 					Delete
 				</Button>
 			</div>
-		{:else if !deleting}
-			<div class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+		{:else if deleting}
+			<!-- Nothing: the route is changing away, and anything here would flash on the way out. -->
+		{:else if absence === 'loading'}
+			<div class="flex flex-col gap-4 px-4 pb-4" data-testid="issue-sheet-loading">
+				<Skeleton class="h-9 w-2/3" />
+				<Skeleton class="h-32 w-full" />
+				<Skeleton class="h-8 w-1/2" />
+			</div>
+		{:else if absence === 'unreachable'}
+			<div
+				class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"
+				data-testid="issue-sheet-unreachable"
+			>
+				<p class="text-base font-medium">This issue isn't on this device</p>
+				<!-- Not "it will appear": it may have been deleted, and only the relay can say. -->
+				<p class="text-muted-foreground max-w-xs text-sm">
+					{unreachableCause}, so this device can't ask the sync server for it yet. If it was shared
+					with you, it will appear here once {online.current === false
+						? "you're back online"
+						: "the server's reachable"}; if it was deleted, it won't.
+				</p>
+				<Button variant="outline" size="sm" onclick={() => onOpenChange(false)}>
+					Back to issues
+				</Button>
+			</div>
+		{:else}
+			<div
+				class="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"
+				data-testid="issue-sheet-missing"
+			>
 				<p class="text-base font-medium">Issue not found</p>
 				<p class="text-muted-foreground max-w-xs text-sm">
 					It may have been deleted, or this link points at another workspace.

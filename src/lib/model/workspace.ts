@@ -19,6 +19,10 @@ export const DEFAULT_WORKSPACE_ID = 'default';
 /** Query parameter carrying the workspace id, and the key it is remembered under. */
 export const WORKSPACE_PARAM = 'ws';
 export const WORKSPACE_STORAGE_KEY = 'syncticket:workspace';
+/** The workspaces this browser has opened, most recent first. See {@link rememberVisit}. */
+export const VISITED_STORAGE_KEY = 'syncticket:workspaces';
+/** How many workspaces {@link VISITED_STORAGE_KEY} keeps. */
+export const VISITED_LIMIT = 10;
 
 /**
  * Ids are used verbatim in an IndexedDB database name and a Durable Object room name, so
@@ -38,6 +42,38 @@ export function isWorkspaceId(value: unknown): value is string {
 	return typeof value === 'string' && value !== DEFAULT_WORKSPACE_ID && VALID_ID.test(value);
 }
 
+/**
+ * The shape `createWorkspaceId` mints, and the only one the relay opens a room for
+ * (`ROOM_NAME` in workers/relay/src/rooms.ts; the e2e fixtures mint it with a `t`).
+ */
+const SHAREABLE_ID = /^[a-z][0-9a-f]{32}$/;
+
+/**
+ * The workspace a link's `?ws=` value names, or null when it names none.
+ *
+ * Stricter than {@link isWorkspaceId}, which also has to accept ids already in a visitor's
+ * storage. A link is held to the shape the relay accepts, because anything else is a link that
+ * was damaged on the way: cut short by a chat client, or with a character lost in a copy. Taken
+ * at face value it opened an empty workspace that could never sync, said "you're offline" while
+ * the network was fine, and replaced the visitor's remembered workspace with the dead one.
+ *
+ * A value that differs only in case is the same id: ids are lower-case hex, so upper-casing
+ * (some mail and chat clients do it to links) loses nothing, and the original is restored.
+ *
+ * `known` (the remembered id and every workspace this browser has opened) is let through as it
+ * stands, so a workspace this browser holds under an id of an older shape can still be reloaded,
+ * and gone back to, from the address it is shown.
+ */
+export function linkedWorkspaceId(
+	value: string | null,
+	known: readonly (string | null)[]
+): string | null {
+	if (value === null) return null;
+	if (isWorkspaceId(value) && known.includes(value)) return value;
+	const id = value.toLowerCase();
+	return SHAREABLE_ID.test(id) ? id : null;
+}
+
 /** What {@link chooseWorkspace} made of the id sources it was given. */
 export interface WorkspaceResolution {
 	/** The workspace this session belongs to. Never {@link DEFAULT_WORKSPACE_ID}. */
@@ -50,6 +86,13 @@ export interface WorkspaceResolution {
 	 * they were invited to, with no way to tell.
 	 */
 	invalidParam: string | null;
+	/**
+	 * The workspace this browser remembered until a link took it somewhere it has never been,
+	 * else null. Opening someone's link makes theirs the workspace a bare address opens, and
+	 * that used to happen without a word: a visitor's own issues seemed to have gone, with no
+	 * way back in the app. Null on a return to a workspace this browser has opened before.
+	 */
+	leftBehind: string | null;
 	/**
 	 * True when the id was minted just now, so this browser started the workspace and nobody
 	 * can have shared anything into it yet. An id from a link or from storage may already hold
@@ -72,7 +115,10 @@ export function createWorkspaceId(): string {
  * Decides which workspace a session belongs to, from the URL and whatever this browser
  * remembered — minting one when neither offers a usable id.
  *
- * An id in the URL wins over a remembered one. Internal links still do not carry it — every
+ * An id in the URL wins over a remembered one, if it is one a link can carry (see
+ * {@link linkedWorkspaceId}). `visited` is every workspace this browser has opened: those are let
+ * through whatever their shape, and decide whether the remembered one is being left for
+ * somewhere new. Internal links still do not carry it — every
  * `resolve()` call in the app would otherwise have to thread a query parameter through — so
  * the id is also remembered, and that memory is what keeps a navigation or a reload in the
  * same workspace. The address bar is then put back in step after every navigation (see
@@ -84,13 +130,45 @@ export function createWorkspaceId(): string {
  * `?ws=default` — the one id in the system a stranger can guess — a real, joinable room for
  * every returning visitor.
  */
-export function chooseWorkspace(search: string, remembered: string | null): WorkspaceResolution {
+export function chooseWorkspace(
+	search: string,
+	remembered: string | null,
+	visited: readonly string[] = []
+): WorkspaceResolution {
 	const fromUrl = new URLSearchParams(search).get(WORKSPACE_PARAM);
-	if (isWorkspaceId(fromUrl)) return { id: fromUrl, invalidParam: null, minted: false };
+	const linked = linkedWorkspaceId(fromUrl, [remembered, ...visited]);
+	if (linked !== null) {
+		const away = isWorkspaceId(remembered) && remembered !== linked && !visited.includes(linked);
+		return { id: linked, invalidParam: null, leftBehind: away ? remembered : null, minted: false };
+	}
 	// Past this point the parameter was either absent (null) or present and unusable, which
 	// is exactly what `invalidParam` reports — so both fallbacks can carry it as it stands.
-	if (isWorkspaceId(remembered)) return { id: remembered, invalidParam: fromUrl, minted: false };
-	return { id: createWorkspaceId(), invalidParam: fromUrl, minted: true };
+	if (isWorkspaceId(remembered)) {
+		return { id: remembered, invalidParam: fromUrl, leftBehind: null, minted: false };
+	}
+	return { id: createWorkspaceId(), invalidParam: fromUrl, leftBehind: null, minted: true };
+}
+
+/**
+ * The visited list as stored, keeping only usable ids: it comes out of storage that anything
+ * running on this origin can write to.
+ */
+export function readVisited(stored: unknown): string[] {
+	return Array.isArray(stored) ? stored.filter(isWorkspaceId).slice(0, VISITED_LIMIT) : [];
+}
+
+/**
+ * The visited list after opening `id`: it moves to the front, `previous` (the workspace that was
+ * remembered until now, which an older build never listed) goes after it, and the oldest drop
+ * off past {@link VISITED_LIMIT}.
+ */
+export function rememberVisit(
+	earlier: readonly string[],
+	id: string,
+	previous: string | null
+): string[] {
+	const order = [id, ...(isWorkspaceId(previous) ? [previous] : []), ...earlier];
+	return [...new Set(order)].slice(0, VISITED_LIMIT);
 }
 
 /** What the address bar has to do to show the workspace this session belongs to. */
@@ -116,13 +194,19 @@ export type WorkspaceAddress =
  * to match it would quietly drop the workspace someone was sent to; loading the page again
  * lets `chooseWorkspace` take the URL's id, as it does for any arriving link.
  */
-export function workspaceAddress(url: URL, workspaceId: string): WorkspaceAddress {
+export function workspaceAddress(
+	url: URL,
+	workspaceId: string,
+	visited: readonly string[] = []
+): WorkspaceAddress {
 	const values = url.searchParams.getAll(WORKSPACE_PARAM);
 	// Exactly one, and the right one. A repeated parameter is rewritten even when the first copy
 	// is correct, so a pasted link cannot carry a second id that some other reader picks.
 	if (values.length === 1 && values[0] === workspaceId) return { kind: 'keep' };
-	const named = values[0] ?? null;
-	if (values.length === 1 && isWorkspaceId(named) && named !== workspaceId) {
+	// Judged as a link, the same way `chooseWorkspace` judged it. Reloading for a value it would
+	// refuse loops for ever: the reload falls back to this workspace and asks again.
+	const named = linkedWorkspaceId(values[0] ?? null, [workspaceId, ...visited]);
+	if (values.length === 1 && named !== null && named !== workspaceId) {
 		return { kind: 'reload' };
 	}
 	const next = new URL(url);

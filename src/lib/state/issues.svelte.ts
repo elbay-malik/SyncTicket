@@ -11,8 +11,11 @@ import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import {
 	DEFAULT_WORKSPACE_ID,
+	VISITED_STORAGE_KEY,
 	WORKSPACE_STORAGE_KEY,
 	chooseWorkspace,
+	readVisited,
+	rememberVisit,
 	type WorkspaceResolution
 } from '$lib/model/workspace.js';
 import type { Issue, IssuePatch, IssueStatus, NewIssueInput } from '$lib/model/issue.js';
@@ -82,24 +85,43 @@ export interface IssueStoreOptions {
  * copy is always this workspace's link. On the server there is no URL to read and the store
  * is empty anyway, so the sentinel is correct there.
  */
-function sessionWorkspace(): WorkspaceResolution {
-	if (!browser) return { id: DEFAULT_WORKSPACE_ID, invalidParam: null, minted: false };
+function sessionWorkspace(): WorkspaceSession {
+	if (!browser) {
+		return {
+			id: DEFAULT_WORKSPACE_ID,
+			invalidParam: null,
+			leftBehind: null,
+			minted: false,
+			visited: []
+		};
+	}
 	let remembered: string | null = null;
+	let stored: unknown = null;
 	try {
 		remembered = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+		stored = JSON.parse(localStorage.getItem(VISITED_STORAGE_KEY) ?? 'null');
 	} catch {
-		// Private mode or blocked storage; the URL or a freshly minted id still works.
+		// Private mode, blocked storage, or a list someone mangled; the URL or a freshly minted
+		// id still works.
 	}
+	const earlier = readVisited(stored);
 	// Everything but the storage is `chooseWorkspace`'s: which id wins, and the fact that a
 	// visitor with nothing usable gets a workspace of their own rather than landing in a
 	// shared one. This function only remembers the answer.
-	const session = chooseWorkspace(location.search, remembered);
+	const session = chooseWorkspace(location.search, remembered, earlier);
+	const visited = rememberVisit(earlier, session.id, remembered);
 	try {
 		if (session.id !== remembered) localStorage.setItem(WORKSPACE_STORAGE_KEY, session.id);
+		localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(visited));
 	} catch {
 		// Not being able to remember it only costs us the id on the next reload.
 	}
-	return session;
+	return { ...session, visited };
+}
+
+/** A {@link WorkspaceResolution} plus what this browser has opened, as now remembered. */
+interface WorkspaceSession extends WorkspaceResolution {
+	visited: readonly string[];
 }
 
 export class IssueStore {
@@ -139,6 +161,15 @@ export class IssueStore {
 	#synced = $state(false);
 	#persisted = $state(true);
 	#invalidWorkspaceParam = $state<string | null>(null);
+	#leftBehind = $state<string | null>(null);
+	/**
+	 * The workspace this browser opened most recently before this one, or null. The way back
+	 * after following someone's link: a bare address opens the last workspace opened, so
+	 * without this a visitor's own issues could only be reached through browser history.
+	 */
+	readonly previousWorkspaceId: string | null;
+	/** Every workspace this browser has opened, most recent first, as of this session's start. */
+	readonly visitedWorkspaceIds: readonly string[];
 	// Relay storage health, as last reported by the relay itself. 'ok' until told otherwise:
 	// a workspace with no relay, or one whose relay has not spoken yet, has no known storage
 	// problem, and the UI must not imply one.
@@ -157,14 +188,23 @@ export class IssueStore {
 	constructor(explicitWorkspaceId?: string, options: IssueStoreOptions = {}) {
 		// An explicit id (tests, benchmarks) bypasses the URL and storage entirely, so there is
 		// no share link for it to have been wrong about.
-		const session: WorkspaceResolution =
+		const session: WorkspaceSession =
 			explicitWorkspaceId === undefined
 				? sessionWorkspace()
-				: { id: explicitWorkspaceId, invalidParam: null, minted: false };
+				: {
+						id: explicitWorkspaceId,
+						invalidParam: null,
+						leftBehind: null,
+						minted: false,
+						visited: []
+					};
 		const workspaceId = session.id;
 		this.workspaceId = workspaceId;
 		this.#minted = session.minted;
 		this.#invalidWorkspaceParam = session.invalidParam;
+		this.#leftBehind = session.leftBehind;
+		this.visitedWorkspaceIds = session.visited;
+		this.previousWorkspaceId = session.visited.find((id) => id !== workspaceId) ?? null;
 		this.#doc = createDoc();
 		this.#map = getIssuesMap(this.#doc);
 		this.#map.observeDeep(this.#onChange);
@@ -274,6 +314,19 @@ export class IssueStore {
 	/** Acknowledges the notice above. */
 	dismissInvalidWorkspaceParam(): void {
 		this.#invalidWorkspaceParam = null;
+	}
+
+	/**
+	 * The workspace a link just took this browser away from, while the notice saying so is up;
+	 * see {@link WorkspaceResolution.leftBehind}.
+	 */
+	get leftBehindWorkspaceId(): string | null {
+		return this.#leftBehind;
+	}
+
+	/** Acknowledges the notice above. */
+	dismissLeftBehind(): void {
+		this.#leftBehind = null;
 	}
 
 	/**
