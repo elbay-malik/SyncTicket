@@ -22,6 +22,49 @@
 		<meta property="og:image:alt" content="SyncTicket: a screenshot of the app" />
 		<meta name="twitter:card" content="summary_large_image" />
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+		<script>
+			// Before any other script: a browser set to block site data throws on any read of
+			// localStorage, and libraries the root layout imports (mode-watcher, and runed under it)
+			// read it while their modules load. That threw before the app could start, and SvelteKit
+			// replaced the page with a bare "500 Internal Error". With an in-memory stand-in the app
+			// runs, and IndexedDB being refused too is what makes it say nothing is being saved.
+			(function () {
+				['localStorage', 'sessionStorage'].forEach(function (name) {
+					try {
+						if (window[name]) return;
+					} catch (error) {
+						// Blocked: replaced below.
+					}
+					var items = new Map();
+					var storage = {
+						get length() {
+							return items.size;
+						},
+						key: function (index) {
+							var keys = Array.from(items.keys());
+							return index in keys ? keys[index] : null;
+						},
+						getItem: function (key) {
+							return items.has(String(key)) ? items.get(String(key)) : null;
+						},
+						setItem: function (key, value) {
+							items.set(String(key), String(value));
+						},
+						removeItem: function (key) {
+							items.delete(String(key));
+						},
+						clear: function () {
+							items.clear();
+						}
+					};
+					try {
+						Object.defineProperty(window, name, { value: storage, configurable: true });
+					} catch (error) {
+						// Nothing more to do: the app's own reads are guarded.
+					}
+				});
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
