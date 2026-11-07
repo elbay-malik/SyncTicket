@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+	secureRandom,
+	workspaceUserId,
 	MAX_NAME_LENGTH,
 	PEER_HUES,
 	createIdentity,
@@ -148,5 +150,44 @@ describe('parseIdentity', () => {
 	it('rejects a hue outside the wheel', () => {
 		expect(parseIdentity({ name: 'Ada', hue: 999 }).hue).toBeLessThan(360);
 		expect(parseIdentity({ name: 'Ada', hue: -5 }).hue).toBeGreaterThanOrEqual(0);
+	});
+});
+
+describe('workspaceUserId', () => {
+	const a = 'w' + 'a'.repeat(32);
+	const b = 'w' + 'b'.repeat(32);
+
+	it('gives a browser a different id in each workspace, and the same one each time in one', () => {
+		const first = workspaceUserId(null, a);
+		const again = workspaceUserId(first.ids, a);
+		const other = workspaceUserId(again.ids, b);
+		expect(again.userId).toBe(first.userId);
+		expect(other.userId).not.toBe(first.userId);
+		expect(other.ids).toEqual({ [a]: first.userId, [b]: other.userId });
+		for (const id of [first.userId, other.userId]) expect(id).toMatch(/^u[0-9a-f]{32}$/);
+	});
+
+	it('keeps only ids of the right shape from storage anyone on this origin can write', () => {
+		const { ids } = workspaceUserId({ [a]: '<script>', [b]: 42, x: 'u' + '1'.repeat(32) }, a);
+		expect(Object.keys(ids)).toEqual(['x', a]);
+		expect(ids[a]).toMatch(/^u[0-9a-f]{32}$/);
+		expect(workspaceUserId([1, 2], a).userId).toMatch(/^u[0-9a-f]{32}$/);
+	});
+
+	it('keeps a bounded number of workspaces', () => {
+		let stored: Record<string, string> = {};
+		for (let i = 0; i < 80; i++) stored = workspaceUserId(stored, `w${i}`).ids;
+		expect(Object.keys(stored).length).toBeLessThanOrEqual(50);
+		expect(stored).toHaveProperty('w79');
+	});
+});
+
+describe('secureRandom', () => {
+	it('draws numbers in [0, 1)', () => {
+		for (let i = 0; i < 100; i++) {
+			const n = secureRandom();
+			expect(n).toBeGreaterThanOrEqual(0);
+			expect(n).toBeLessThan(1);
+		}
 	});
 });

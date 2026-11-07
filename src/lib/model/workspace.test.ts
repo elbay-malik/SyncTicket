@@ -132,10 +132,12 @@ describe('chooseWorkspace', () => {
 		const legacy = 'older-shape_id';
 		const shared = createWorkspaceId();
 		expect(chooseWorkspace(`?ws=${shared}`, legacy).leftBehind).toBe(legacy);
+		// Remembered: someone who made the shared workspace theirs, then went back.
 		expect(chooseWorkspace(`?ws=${legacy}`, shared, [shared, legacy])).toMatchObject({
 			id: legacy,
 			invalidParam: null,
-			leftBehind: null
+			leftBehind: shared,
+			newToBrowser: false
 		});
 		// And the address check agrees, so the visit reloads into it instead of rewriting it.
 		const address = workspaceAddress(new URL(`https://example.test/issues?ws=${legacy}`), shared, [
@@ -145,11 +147,17 @@ describe('chooseWorkspace', () => {
 		expect(address).toEqual({ kind: 'reload' });
 	});
 
-	it('says which workspace a link took this browser away from, the first time only', () => {
+	it('says which remembered workspace a link opened somewhere other than, every time', () => {
 		const shared = createWorkspaceId();
-		expect(chooseWorkspace(`?ws=${shared}`, REMEMBERED).leftBehind).toBe(REMEMBERED);
-		// A workspace this browser has opened before is a return, not a new arrival.
-		expect(chooseWorkspace(`?ws=${shared}`, REMEMBERED, [shared]).leftBehind).toBeNull();
+		expect(chooseWorkspace(`?ws=${shared}`, REMEMBERED)).toMatchObject({
+			leftBehind: REMEMBERED,
+			newToBrowser: true
+		});
+		// A workspace this browser has opened before is still not the remembered one.
+		expect(chooseWorkspace(`?ws=${shared}`, REMEMBERED, [shared])).toMatchObject({
+			leftBehind: REMEMBERED,
+			newToBrowser: false
+		});
 		// Nothing was left behind when nothing was remembered, or nothing changed.
 		expect(chooseWorkspace(`?ws=${shared}`, null).leftBehind).toBeNull();
 		expect(chooseWorkspace(`?ws=${REMEMBERED}`, REMEMBERED).leftBehind).toBeNull();

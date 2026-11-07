@@ -155,7 +155,8 @@ test('a bad workspace link is replaced by the real one, says so once, and keeps 
 	await expect(page.getByRole('dialog').getByLabel('Title')).toHaveValue('Deep link target');
 	const notice = page.getByTestId('invalid-workspace-link');
 	await expect(notice).toHaveCount(1);
-	await expect(notice).toContainText('not a valid id!');
+	// Not quoted back: that put words of anyone's choosing on this domain.
+	await expect(notice).not.toContainText('not a valid id!');
 
 	// Closing the sheet is a navigation like any other: the notice is not shown a second time,
 	// and the address keeps the real id.

@@ -40,7 +40,7 @@ import {
 	planWriteError,
 	type PersistPlan
 } from './persistence-plan.js';
-import { isRoutableRoom } from './rooms.js';
+import { isBlockedRoom, isRoutableRoom } from './rooms.js';
 import { ROOM_TTL_MS, nextExpiry, onExpiry } from './expiry.js';
 import { connectKey, refuseConnect, screenUpgrade } from './limits.js';
 import {
@@ -539,6 +539,9 @@ export default {
 			async onBeforeConnect(req, lobby) {
 				if (!isRoutableRoom(lobby.name)) {
 					return new Response('unknown workspace', { status: 400 });
+				}
+				if (isBlockedRoom(lobby.name, (env as { BLOCKED_ROOMS?: string }).BLOCKED_ROOMS)) {
+					return new Response('workspace removed', { status: 410 });
 				}
 				// The rest of the request, before anything is counted: where it comes from, and
 				// whether it is shaped like the app's own. See `screenUpgrade`.

@@ -13,6 +13,7 @@ import {
 	DEFAULT_WORKSPACE_ID,
 	VISITED_STORAGE_KEY,
 	WORKSPACE_STORAGE_KEY,
+	workspaceDbName,
 	chooseWorkspace,
 	readVisited,
 	rememberVisit,
@@ -46,6 +47,7 @@ import { ConnectionStatus, type ConnectionState } from '$lib/sync/connection.sve
 import { RemoteActivity } from './remote-activity.svelte.js';
 import { classifyChange, isLiveRemote, type RemoteAuthor } from './remote-change.js';
 import { toPeer } from './presence.svelte.js';
+import { PRESENCE_IDS_STORAGE_KEY } from '$lib/model/identity.js';
 
 /** What changed in one CRDT batch. Emitted to listeners such as the search index. */
 export interface IssueDelta {
@@ -91,6 +93,7 @@ function sessionWorkspace(): WorkspaceSession {
 			id: DEFAULT_WORKSPACE_ID,
 			invalidParam: null,
 			leftBehind: null,
+			newToBrowser: false,
 			minted: false,
 			visited: []
 		};
@@ -111,7 +114,11 @@ function sessionWorkspace(): WorkspaceSession {
 	const session = chooseWorkspace(location.search, remembered, earlier);
 	const visited = rememberVisit(earlier, session.id, remembered);
 	try {
-		if (session.id !== remembered) localStorage.setItem(WORKSPACE_STORAGE_KEY, session.id);
+		// A link never replaces the remembered workspace, the one a bare address opens: only the
+		// visitor does that (`adoptWorkspace`). It used to happen silently, so a link was enough to
+		// send everything someone typed afterwards into whoever sent it.
+		const adopt = session.id !== remembered && session.leftBehind === null;
+		if (adopt) localStorage.setItem(WORKSPACE_STORAGE_KEY, session.id);
 		localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(visited));
 	} catch {
 		// Not being able to remember it only costs us the id on the next reload.
@@ -168,6 +175,8 @@ export class IssueStore {
 	 * without this a visitor's own issues could only be reached through browser history.
 	 */
 	readonly previousWorkspaceId: string | null;
+	/** Whether a link brought this browser to this workspace for the first time. */
+	readonly joinedNewWorkspace: boolean;
 	/** Every workspace this browser has opened, most recent first, as of this session's start. */
 	readonly visitedWorkspaceIds: readonly string[];
 	// Relay storage health, as last reported by the relay itself. 'ok' until told otherwise:
@@ -195,6 +204,7 @@ export class IssueStore {
 						id: explicitWorkspaceId,
 						invalidParam: null,
 						leftBehind: null,
+						newToBrowser: false,
 						minted: false,
 						visited: []
 					};
@@ -203,6 +213,7 @@ export class IssueStore {
 		this.#minted = session.minted;
 		this.#invalidWorkspaceParam = session.invalidParam;
 		this.#leftBehind = session.leftBehind;
+		this.joinedNewWorkspace = session.newToBrowser;
 		this.visitedWorkspaceIds = session.visited;
 		this.previousWorkspaceId = session.visited.find((id) => id !== workspaceId) ?? null;
 		this.#doc = createDoc();
@@ -324,8 +335,18 @@ export class IssueStore {
 		return this.#leftBehind;
 	}
 
-	/** Acknowledges the notice above. */
+	/** Acknowledges the notice above, keeping the previous workspace as the remembered one. */
 	dismissLeftBehind(): void {
+		this.#leftBehind = null;
+	}
+
+	/** Makes this workspace the one a bare address opens, and acknowledges the notice above. */
+	adoptWorkspace(): void {
+		try {
+			localStorage.setItem(WORKSPACE_STORAGE_KEY, this.workspaceId);
+		} catch {
+			// Blocked storage: nothing is remembered anyway.
+		}
 		this.#leftBehind = null;
 	}
 
@@ -547,6 +568,44 @@ export class IssueStore {
 		return this.#write(() => seedDemoIssues(this.#map));
 	}
 
+	/**
+	 * Removes this workspace from this device: its local database, and every mention of it in
+	 * this browser's memory of workspaces. The store is unusable afterwards, so the caller moves
+	 * the page on. Returns the workspace to go to instead, if this browser has one.
+	 *
+	 * Anyone else with the link keeps their own copy, and the relay's copy expires on its own
+	 * (`workers/relay/src/expiry.ts`). There is no deleting it for everyone: nobody owns a
+	 * workspace, so nobody could be allowed to (ADR 0004).
+	 */
+	async forget(): Promise<string | null> {
+		const id = this.workspaceId;
+		const next = this.previousWorkspaceId;
+		try {
+			const visited = JSON.parse(localStorage.getItem(VISITED_STORAGE_KEY) ?? '[]');
+			const kept = readVisited(visited).filter((other) => other !== id);
+			localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(kept));
+			if (localStorage.getItem(WORKSPACE_STORAGE_KEY) === id) {
+				if (next === null) localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+				else localStorage.setItem(WORKSPACE_STORAGE_KEY, next);
+			}
+			const presenceIds = JSON.parse(localStorage.getItem(PRESENCE_IDS_STORAGE_KEY) ?? '{}');
+			if (presenceIds && typeof presenceIds === 'object') {
+				delete (presenceIds as Record<string, unknown>)[id];
+				localStorage.setItem(PRESENCE_IDS_STORAGE_KEY, JSON.stringify(presenceIds));
+			}
+		} catch {
+			// Blocked or mangled storage: the database below is what holds the issues.
+		}
+		this.destroy();
+		await this.#persistenceClosed;
+		await new Promise<void>((resolve) => {
+			// Blocked while another tab still has it open; it goes once that tab does.
+			const request = indexedDB.deleteDatabase(workspaceDbName(id));
+			request.onsuccess = request.onerror = request.onblocked = () => resolve();
+		});
+		return next;
+	}
+
 	destroy(): void {
 		this.#map.unobserveDeep(this.#onChange);
 		this.#undo.destroy();
@@ -555,9 +614,12 @@ export class IssueStore {
 		// open would apply an inbound sync message to a destroyed document.
 		this.#relay.destroy();
 		this.#status.destroy();
-		void this.#persistence.destroy();
+		this.#persistenceClosed = this.#persistence.destroy();
 		this.#doc.destroy();
 	}
+
+	/** Settles once the local database has been closed, which `forget` waits for. */
+	#persistenceClosed: Promise<void> = Promise.resolve();
 
 	#syncUndoState = () => {
 		this.canUndo = this.#undo.canUndo();

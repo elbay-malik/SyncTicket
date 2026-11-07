@@ -70,6 +70,13 @@
 		{ id: 'theme-system', label: 'System theme', hint: '', group: 'Theme', run: () => resetMode() },
 		// The way back after following someone's link, which makes theirs the workspace a bare
 		// address opens. A full page load: a session is bound to one workspace for its lifetime.
+		{
+			id: 'forget-workspace',
+			label: 'Forget this workspace on this device',
+			hint: '',
+			group: 'Workspace',
+			run: () => void forget()
+		},
 		...(previous === null
 			? []
 			: [
@@ -116,6 +123,16 @@
 		const first = results[0];
 		selected = first ? `issue:${first.id}` : (matchingCommands[0]?.label ?? '');
 	});
+
+	/** Asks first: the local copy is gone for good, and may be the only one. */
+	async function forget() {
+		const sure = confirm(
+			"Forget this workspace on this device?\n\nIts issues are removed from this browser. Anyone else with the link keeps their copy, and the sync server's copy is deleted 30 days after the workspace was last opened. If nobody else has it, it is gone."
+		);
+		if (!sure) return;
+		const next = await store.forget();
+		location.assign(next === null ? '/issues' : workspaceShareUrl('', next));
+	}
 
 	async function run(action: () => void) {
 		issueUi.paletteOpen = false;

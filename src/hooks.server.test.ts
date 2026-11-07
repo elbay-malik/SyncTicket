@@ -10,10 +10,15 @@ import { handle } from './hooks.server.js';
 
 const WORKSPACE = `w${'deadbeef'.repeat(4)}`;
 
-async function respondTo(path: string) {
-	const url = new URL(path, 'https://app.example');
+async function respondTo(
+	path: string,
+	origin = 'https://app.example',
+	headers: Record<string, string> = {}
+) {
+	const url = new URL(path, origin);
+	const request = new Request(url, { headers });
 	const resolve = vi.fn(async () => new Response('page'));
-	const response = await handle({ event: { url } as RequestEvent, resolve });
+	const response = await handle({ event: { url, request } as RequestEvent, resolve });
 	return { response, resolve };
 }
 
@@ -52,7 +57,8 @@ describe('a path that decodeURI refuses', () => {
 			const url = new URL('https://app.example');
 			url.pathname = path;
 			const resolve = vi.fn(async () => new Response('page'));
-			const response = await handle({ event: { url } as RequestEvent, resolve });
+			const request = new Request('https://app.example/');
+			const response = await handle({ event: { url, request } as RequestEvent, resolve });
 			expect(new URL(response.headers.get('location') ?? '', url).origin).toBe(
 				'https://app.example'
 			);
@@ -83,5 +89,47 @@ describe('every other path', () => {
 		expect(resolve).toHaveBeenCalledOnce();
 		expect(await response.text()).toBe('page');
 		expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+	});
+});
+
+describe('plain HTTP', () => {
+	it('is sent to HTTPS, path, query and all, when the edge saw it', async () => {
+		const { response, resolve } = await respondTo(`/issues?ws=${WORKSPACE}`, 'http://app.example', {
+			'cf-visitor': '{"scheme":"http"}'
+		});
+		expect(resolve).not.toHaveBeenCalled();
+		expect(response.status).toBe(308);
+		expect(response.headers.get('location')).toBe(`https://app.example/issues?ws=${WORKSPACE}`);
+	});
+
+	it('is left alone without the edge: wrangler dev hands the worker the production host over HTTP', async () => {
+		for (const origin of ['http://syncticket.elbaymalik.com', 'http://localhost:4173']) {
+			const { resolve } = await respondTo('/issues', origin);
+			expect(resolve).toHaveBeenCalledOnce();
+		}
+		const { resolve } = await respondTo('/issues', 'https://app.example', {
+			'cf-visitor': '{"scheme":"https"}'
+		});
+		expect(resolve).toHaveBeenCalledOnce();
+	});
+});
+
+describe('transport and indexing headers', () => {
+	it('sends HSTS over HTTPS only', async () => {
+		expect((await respondTo('/issues')).response.headers.get('Strict-Transport-Security')).toBe(
+			'max-age=31536000'
+		);
+		const local = await respondTo('/issues', 'http://localhost:4173');
+		expect(local.response.headers.get('Strict-Transport-Security')).toBeNull();
+	});
+
+	it('keeps workspace links and issues out of search engines, and the landing page in', async () => {
+		const robots = async (path: string) =>
+			(await respondTo(path)).response.headers.get('X-Robots-Tag');
+		expect(await robots(`/issues?ws=${WORKSPACE}`)).toBe('noindex');
+		expect(await robots(`/board?ws=${WORKSPACE}`)).toBe('noindex');
+		expect(await robots('/issues/00000000-0000-4000-8000-00000000000a')).toBe('noindex');
+		expect(await robots('/issues')).toBeNull();
+		expect(await robots('/')).toBeNull();
 	});
 });

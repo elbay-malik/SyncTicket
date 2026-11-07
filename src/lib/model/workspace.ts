@@ -87,12 +87,14 @@ export interface WorkspaceResolution {
 	 */
 	invalidParam: string | null;
 	/**
-	 * The workspace this browser remembered until a link took it somewhere it has never been,
-	 * else null. Opening someone's link makes theirs the workspace a bare address opens, and
-	 * that used to happen without a word: a visitor's own issues seemed to have gone, with no
-	 * way back in the app. Null on a return to a workspace this browser has opened before.
+	 * The workspace this browser remembers, when a link opened a different one, else null. That
+	 * remembered workspace stays the one a bare address opens until the visitor chooses
+	 * otherwise. A link used to replace it without a word: a visitor's own issues seemed to have
+	 * gone, and everything they typed afterwards went to whoever sent the link.
 	 */
 	leftBehind: string | null;
+	/** True when the link opened a workspace this browser had never opened before. */
+	newToBrowser: boolean;
 	/**
 	 * True when the id was minted just now, so this browser started the workspace and nobody
 	 * can have shared anything into it yet. An id from a link or from storage may already hold
@@ -117,8 +119,7 @@ export function createWorkspaceId(): string {
  *
  * An id in the URL wins over a remembered one, if it is one a link can carry (see
  * {@link linkedWorkspaceId}). `visited` is every workspace this browser has opened: those are let
- * through whatever their shape, and decide whether the remembered one is being left for
- * somewhere new. Internal links still do not carry it — every
+ * through whatever their shape, and say whether the link's workspace is new to this browser. Internal links still do not carry it — every
  * `resolve()` call in the app would otherwise have to thread a query parameter through — so
  * the id is also remembered, and that memory is what keeps a navigation or a reload in the
  * same workspace. The address bar is then put back in step after every navigation (see
@@ -138,15 +139,33 @@ export function chooseWorkspace(
 	const fromUrl = new URLSearchParams(search).get(WORKSPACE_PARAM);
 	const linked = linkedWorkspaceId(fromUrl, [remembered, ...visited]);
 	if (linked !== null) {
-		const away = isWorkspaceId(remembered) && remembered !== linked && !visited.includes(linked);
-		return { id: linked, invalidParam: null, leftBehind: away ? remembered : null, minted: false };
+		const away = isWorkspaceId(remembered) && remembered !== linked;
+		return {
+			id: linked,
+			invalidParam: null,
+			leftBehind: away ? remembered : null,
+			newToBrowser: !visited.includes(linked) && linked !== remembered,
+			minted: false
+		};
 	}
 	// Past this point the parameter was either absent (null) or present and unusable, which
 	// is exactly what `invalidParam` reports — so both fallbacks can carry it as it stands.
 	if (isWorkspaceId(remembered)) {
-		return { id: remembered, invalidParam: fromUrl, leftBehind: null, minted: false };
+		return {
+			id: remembered,
+			invalidParam: fromUrl,
+			leftBehind: null,
+			newToBrowser: false,
+			minted: false
+		};
 	}
-	return { id: createWorkspaceId(), invalidParam: fromUrl, leftBehind: null, minted: true };
+	return {
+		id: createWorkspaceId(),
+		invalidParam: fromUrl,
+		leftBehind: null,
+		newToBrowser: false,
+		minted: true
+	};
 }
 
 /**

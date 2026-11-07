@@ -68,7 +68,7 @@ test('an upper-cased link opens the workspace it was copied from', async ({ brow
 	await Promise.all([alice.context().close(), bob.context().close()]);
 });
 
-test("someone's link says it replaced your workspace, and both ways back work", async ({
+test("someone's link says where you are, keeps your own workspace, and both ways back work", async ({
 	browser
 }) => {
 	const friend = room();
@@ -81,11 +81,13 @@ test("someone's link says it replaced your workspace, and both ways back work", 
 	const notice = page.getByTestId('joined-workspace');
 	await expect(notice).toBeVisible();
 	await expect(notice).toContainText('workspace someone shared');
+	// The link did not replace the visitor's own workspace.
+	expect(await remembered(page)).toBe(own);
 
 	await page.getByTestId('joined-workspace-back').click();
 	await expect(page).toHaveURL(exactly('/issues', own));
 	await expect(page.getByRole('link', { name: 'My own issue' })).toBeVisible();
-	// Going back to a workspace opened before is a return, not another arrival.
+	// Home again: nothing to say.
 	await expect(page.getByTestId('joined-workspace')).toHaveCount(0);
 	expect(await remembered(page)).toBe(own);
 
@@ -94,9 +96,58 @@ test("someone's link says it replaced your workspace, and both ways back work", 
 	await page.getByRole('option', { name: 'Switch to your previous workspace' }).click();
 	await expect(page).toHaveURL(exactly('/issues', friend));
 	await expect(page.getByRole('link', { name: "Alice's issue" })).toBeVisible({ timeout: 10_000 });
-	await expect(page.getByTestId('joined-workspace')).toHaveCount(0);
+	// Opened before, so not new, but still not the visitor's usual workspace.
+	await expect(page.getByTestId('joined-workspace')).toContainText("isn't your usual workspace");
 
 	await Promise.all([alice.context().close(), page.context().close()]);
+});
+
+test('making a shared workspace yours is what makes a bare address open it', async ({
+	browser
+}) => {
+	const friend = room();
+	const alice = await owner(browser, friend, "Alice's issue");
+	const page = await owner(browser, room(), 'My own issue');
+
+	await page.goto(`/issues?ws=${friend}`);
+	await page.getByTestId('joined-workspace-adopt').click();
+	await expect(page.getByTestId('joined-workspace')).toHaveCount(0);
+	expect(await remembered(page)).toBe(friend);
+	await page.goto('/issues');
+	await expect(page).toHaveURL(exactly('/issues', friend));
+	await Promise.all([alice.context().close(), page.context().close()]);
+});
+
+test('forgetting a workspace removes it from this device and goes to the one before', async ({
+	browser
+}) => {
+	const friend = room();
+	const alice = await owner(browser, friend, "Alice's issue");
+	const own = room();
+	const page = await owner(browser, own, 'My own issue');
+	await page.goto(`/issues?ws=${friend}`);
+	await expect(page.getByRole('link', { name: "Alice's issue" })).toBeVisible({ timeout: 10_000 });
+
+	page.once('dialog', (dialog) => void dialog.accept());
+	await page.keyboard.press('ControlOrMeta+k');
+	await page.getByRole('option', { name: 'Forget this workspace on this device' }).click();
+	await expect(page).toHaveURL(exactly('/issues', own));
+	await expect(page.getByRole('link', { name: 'My own issue' })).toBeVisible();
+	const databases = await page.evaluate(async () =>
+		(await indexedDB.databases()).map((db) => db.name)
+	);
+	expect(databases).not.toContain(`syncticket:${friend}`);
+	expect(databases).toContain(`syncticket:${own}`);
+	// Alice's copy is hers, and untouched.
+	await expect(alice.getByRole('link', { name: "Alice's issue" })).toBeVisible();
+	await Promise.all([alice.context().close(), page.context().close()]);
+});
+
+test('workspace links are kept out of search engines', async ({ request }) => {
+	const linked = await request.get(`/issues?ws=${room()}`);
+	expect(linked.headers()['x-robots-tag']).toBe('noindex');
+	const landing = await request.get('/issues');
+	expect(landing.headers()['x-robots-tag']).toBeUndefined();
 });
 
 test('a first visit through a link has nothing to go back to and says nothing', async ({

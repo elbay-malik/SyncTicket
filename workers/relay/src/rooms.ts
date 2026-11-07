@@ -28,6 +28,18 @@
  */
 export const ROOM_NAME = /^[a-z][0-9a-f]{32}$/;
 
+/**
+ * True when `name` is on `BLOCKED_ROOMS`, a comma-separated list of rooms taken down after a
+ * report of abuse. The app has no accounts, so a room someone filled with abuse cannot be made
+ * private or handed to anyone; refusing it is the one lever there is. Set with
+ * `wrangler secret put BLOCKED_ROOMS` or a var, so that the ids, which are the rooms'
+ * capabilities, never land in this public repository.
+ */
+export function isBlockedRoom(name: string, blocked: string | undefined): boolean {
+	if (!blocked) return false;
+	return blocked.split(',').some((entry) => entry.trim() === name);
+}
+
 /** True when `name` is a room this relay is willing to bring into existence. */
 export function isRoutableRoom(name: string): boolean {
 	return ROOM_NAME.test(name);

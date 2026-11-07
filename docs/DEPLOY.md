@@ -146,7 +146,7 @@ never saw.
 
 ## The deploy that exists
 
-First deployed 2026-10-22, on the free plan, from the account `eleo.666@gmail.com`:
+First deployed 2026-10-22, on the free plan, from the owner's Cloudflare account:
 
 | Worker             | URL                                       | Upload                          |
 | ------------------ | ----------------------------------------- | ------------------------------- |
