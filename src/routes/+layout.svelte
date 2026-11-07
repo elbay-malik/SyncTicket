@@ -4,7 +4,7 @@
 	import { ModeWatcher } from 'mode-watcher';
 	import { onMount } from 'svelte';
 	import type { Snapshot } from '@sveltejs/kit';
-	import { afterNavigate, goto, preloadCode, replaceState } from '$app/navigation';
+	import { afterNavigate, goto, preloadCode } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
@@ -78,9 +78,13 @@
 				// An address that matches no route: there is nothing to load again, and a navigation
 				// to it only renders the not-found page a second time. That render could also land
 				// after a click on the page's own "Go to Issues", showing "Page not found" again
-				// under an address that already said /issues. Rewriting the entry in place is enough.
-				// eslint-disable-next-line svelte/no-navigation-without-resolve -- The current URL with one query parameter changed, as for goto() below.
-				replaceState(address.url, page.state);
+				// under an address that already said /issues. So the entry is rewritten in place.
+				//
+				// With the browser's own call, keeping SvelteKit's history state as it is, not with
+				// SvelteKit's shallow `replaceState`: that stores `page.url` in the entry, which here
+				// is still the address without `?ws=`, and Back to this page then loaded that
+				// address as a new entry and threw away the Forward history.
+				history.replaceState(history.state, '', address.url);
 			} else if (address.kind === 'replace') {
 				// eslint-disable-next-line svelte/no-navigation-without-resolve -- The router's own current URL with one query parameter changed: the path is the one SvelteKit just resolved, and `resolve()` takes a route id, not a URL.
 				void goto(address.url, { replaceState: true, keepFocus: true, noScroll: true });
