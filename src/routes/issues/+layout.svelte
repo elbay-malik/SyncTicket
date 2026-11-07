@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { online } from 'svelte/reactivity/window';
 	// The issue list lives in the layout, not the page, so opening a detail sheet at
 	// /issues/[id] keeps the list mounted behind it — filter, sort and quick-add draft all
 	// survive the round trip, and the sheet is a real URL that can be shared and reloaded.
@@ -407,6 +408,16 @@
 						<SparklesIcon />
 						Load example issues
 					</Button>
+				{:else if online.current === false && store.connection === 'offline'}
+					<p class="text-muted-foreground max-w-sm text-xs" data-testid="issues-awaiting-network">
+						You're offline, so issues shared with this link haven't loaded. They'll appear once
+						you're back online.
+					</p>
+				{:else if store.relayUnreachable}
+					<p class="text-muted-foreground max-w-sm text-xs" data-testid="issues-relay-unreachable">
+						Can't reach the sync server, so issues shared with this link haven't loaded. They'll
+						appear once it's reachable.
+					</p>
 				{:else}
 					<p class="text-muted-foreground max-w-sm text-xs" data-testid="issues-awaiting-relay">
 						Still checking for issues shared with this link…

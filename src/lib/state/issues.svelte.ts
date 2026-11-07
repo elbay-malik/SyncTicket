@@ -6,6 +6,7 @@
 
 import { browser } from '$app/environment';
 import { SvelteMap } from 'svelte/reactivity';
+import { online } from 'svelte/reactivity/window';
 import * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import {
@@ -82,7 +83,7 @@ export interface IssueStoreOptions {
  * is empty anyway, so the sentinel is correct there.
  */
 function sessionWorkspace(): WorkspaceResolution {
-	if (!browser) return { id: DEFAULT_WORKSPACE_ID, invalidParam: null };
+	if (!browser) return { id: DEFAULT_WORKSPACE_ID, invalidParam: null, minted: false };
 	let remembered: string | null = null;
 	try {
 		remembered = localStorage.getItem(WORKSPACE_STORAGE_KEY);
@@ -113,6 +114,8 @@ export class IssueStore {
 	#status = new ConnectionStatus();
 	#relaySynced = $state(false);
 	#relayEverSynced = $state(false);
+	/** Whether this session minted the workspace; see {@link WorkspaceResolution.minted}. */
+	#minted = false;
 	#byId = new SvelteMap<string, Issue>();
 	/**
 	 * What peers have just changed, for the rows and cards to trace and the announcer to say.
@@ -157,9 +160,10 @@ export class IssueStore {
 		const session: WorkspaceResolution =
 			explicitWorkspaceId === undefined
 				? sessionWorkspace()
-				: { id: explicitWorkspaceId, invalidParam: null };
+				: { id: explicitWorkspaceId, invalidParam: null, minted: false };
 		const workspaceId = session.id;
 		this.workspaceId = workspaceId;
+		this.#minted = session.minted;
 		this.#invalidWorkspaceParam = session.invalidParam;
 		this.#doc = createDoc();
 		this.#map = getIssuesMap(this.#doc);
@@ -184,6 +188,7 @@ export class IssueStore {
 		this.#relay = (options.attachRelay ?? attachRelay)(this.#doc, workspaceId, {
 			onConnection: (state) => this.#status.report(state),
 			onOffline: () => this.#status.reportCertainOffline(),
+			onNetworkBack: () => this.#status.reportNetworkBack(),
 			onSynced: (synced) => {
 				this.#relaySynced = synced;
 				// Latched apart from the live flag, which a later reconnect drops back to false:
@@ -327,9 +332,26 @@ export class IssueStore {
 		if (!this.#synced) return false;
 		if (this.#relayEverSynced) return true;
 		const connection = this.#status.displayed;
-		// 'local' means no relay is configured at all; 'offline' means we are done waiting for
-		// the one that is. Both are final answers in the only sense that matters here.
-		return connection === 'local' || connection === 'offline';
+		// 'local' means no relay is configured at all: a final answer. 'offline' is final only
+		// for a workspace this session minted, which nobody can have shared anything into. For
+		// one that came from a link (or from storage) the relay may well hold its issues, and
+		// an invitee whose relay was down or blocked used to be offered examples that merged
+		// into the real workspace once it came back. A CRDT can't take that back.
+		return connection === 'local' || (connection === 'offline' && this.#minted);
+	}
+
+	/**
+	 * True while the relay can't be reached although the browser reports a network, for a
+	 * workspace that may hold shared issues and has never heard from it. The relay is down,
+	 * or a proxy or firewall blocks it, so anything shared with this link has not arrived.
+	 */
+	get relayUnreachable(): boolean {
+		return (
+			!this.#minted &&
+			!this.#relayEverSynced &&
+			this.#status.displayed === 'offline' &&
+			online.current === true
+		);
 	}
 
 	get all(): Issue[] {
