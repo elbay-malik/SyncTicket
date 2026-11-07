@@ -202,19 +202,25 @@ export interface Claim {
  * Which entries of a presence frame a connection may set.
  *
  * A connection speaks for one client: its own tab. y-partyserver's provider sends that client's
- * state first when its socket opens, and later also sends back every other client's state it
- * hears about, which the room has already relayed and does not need again. So a connection that
- * holds no client yet takes the first entry's id, and from then on only entries for the ids it
- * holds get through. Without this, anyone with the link could set or clear anyone else's
- * presence, and the echoes cost every room a frame per peer per heartbeat.
+ * state in its first presence frame, as its socket opens, and later also sends back every other
+ * client's state it hears about, which the room has already relayed and does not need again. So
+ * a connection's first presence frame names its client, and the first entry in it is the one it
+ * takes. From then on only entries for the ids it holds get through, and it never claims again:
+ * a later frame is an echo, and claiming from one would take someone else's presence. Without
+ * this, anyone with the link could set or clear anyone else's presence, and the echoes cost every
+ * room a frame per peer per heartbeat.
  *
  * Taking an id another connection holds is allowed, and the caller moves it: that is a tab whose
- * old socket has not been noticed as dead yet, reconnecting. It means a connection that knows a
- * client id can take its presence, which it could always do; ids are public to the room.
+ * old socket has not been noticed as dead yet, reconnecting. It means a new connection that
+ * knows a client id can take its presence, which it could always do; ids are public to the room.
  */
-export function claimEntries(entries: readonly AwarenessEntry[], held: readonly number[]): Claim {
+export function claimEntries(
+	entries: readonly AwarenessEntry[],
+	held: readonly number[],
+	firstFrame: boolean
+): Claim {
 	const acceptable = entries.filter((entry) => isAcceptableState(entry.json));
-	if (held.length > 0) {
+	if (!firstFrame || held.length > 0) {
 		return { keep: acceptable.filter((entry) => held.includes(entry.clientId)), claimed: null };
 	}
 	const first = acceptable[0];
@@ -260,8 +266,8 @@ export class FrameBudget {
 
 /** What a room does with one frame. */
 export type Verdict =
-	| { action: 'pass'; frame: Uint8Array; claimed?: number | null }
-	| { action: 'drop' }
+	| { action: 'pass'; frame: Uint8Array; claimed?: number | null; presenceFrame?: boolean }
+	| { action: 'drop'; presenceFrame?: boolean }
 	| { action: 'close'; code: number; reason: string };
 
 /** Per-connection state the decision needs, owned by the room and kept in memory. */
@@ -278,13 +284,14 @@ export function newConnectionLimits(now: number): ConnectionLimits {
 /**
  * The whole decision for one frame from one connection.
  *
- * `held` is the presence ids the connection holds. When a presence frame claims a new one, the
- * returned `claimed` names it, so the room can take it away from whichever connection had it.
+ * `presence` is what the connection holds and whether it has sent a presence frame before. When a
+ * presence frame claims an id, the returned `claimed` names it, so the room can record it and take
+ * it away from whichever connection had it.
  */
 export function admitFrame(
 	message: ArrayBuffer | ArrayBufferView | string,
 	limits: ConnectionLimits,
-	held: readonly number[],
+	presence: { held: readonly number[]; claimedBefore: boolean },
 	now: number
 ): Verdict {
 	// The client never sends strings. y-partyserver logs every one it gets, in full.
@@ -309,9 +316,16 @@ export function admitFrame(
 		limits.lastStep1At = now;
 		return { action: 'pass', frame: bytes };
 	}
-	if (bytes.length > MAX_AWARENESS_FRAME_BYTES) return { action: 'drop' };
-	const { keep, claimed } = claimEntries(frame.entries, held);
-	if (keep.length === 0) return { action: 'drop' };
+	if (bytes.length > MAX_AWARENESS_FRAME_BYTES) return { action: 'drop', presenceFrame: true };
+	const { keep, claimed } = claimEntries(frame.entries, presence.held, !presence.claimedBefore);
+	// Marked either way: a connection's first presence frame is its one chance to claim, even
+	// when nothing in it could be passed on.
+	if (keep.length === 0) return { action: 'drop', presenceFrame: true };
 	const unchanged = keep.length === frame.entries.length;
-	return { action: 'pass', frame: unchanged ? bytes : encodeAwarenessFrame(keep), claimed };
+	return {
+		action: 'pass',
+		frame: unchanged ? bytes : encodeAwarenessFrame(keep),
+		claimed,
+		presenceFrame: true
+	};
 }

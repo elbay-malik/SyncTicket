@@ -60,3 +60,59 @@ test('two people still see each other and each other’s edits through the limit
 	}
 	await Promise.all([alice!.context().close(), bob!.context().close()]);
 });
+
+test('presence stays right after a tab reconnects without reloading, through heartbeats and a departure', async ({
+	browser
+}) => {
+	// A tab that reconnects keeps its client id, which the room has seen before. Ownership of
+	// that id has to be recorded anyway, or its later echoes of other people's presence would
+	// take theirs, and leave ghosts behind when they go.
+	test.setTimeout(90_000);
+	const workspaceId = room();
+	const pages = await Promise.all(
+		[0, 1, 2].map(async () => {
+			const page = await (await browser.newContext()).newPage();
+			await page.goto(`/issues?ws=${workspaceId}`);
+			await expect(page.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+				timeout: 30_000
+			});
+			return page;
+		})
+	);
+	const [alice, bob, carol] = pages as [
+		import('@playwright/test').Page,
+		import('@playwright/test').Page,
+		import('@playwright/test').Page
+	];
+	for (const page of pages) {
+		await expect(page.getByTestId('relay-status')).toHaveAttribute(
+			'aria-label',
+			/Shared with 2 others/,
+			{ timeout: 15_000 }
+		);
+	}
+	await alice.context().setOffline(true);
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-connection', 'offline');
+	await alice.context().setOffline(false);
+	await expect(alice.getByTestId('relay-status')).toHaveAttribute('data-synced', 'true', {
+		timeout: 15_000
+	});
+	// Past a heartbeat, so every tab has echoed everyone else's state at least once.
+	await alice.waitForTimeout(12_000);
+	for (const page of pages) {
+		await expect(page.getByTestId('relay-status')).toHaveAttribute(
+			'aria-label',
+			/Shared with 2 others/
+		);
+	}
+	// Carol leaves without a word. Her presence must go with her socket, and nobody else's.
+	await carol.context().close();
+	for (const page of [alice, bob]) {
+		await expect(page.getByTestId('relay-status')).toHaveAttribute(
+			'aria-label',
+			/Shared with 1 other/,
+			{ timeout: 15_000 }
+		);
+	}
+	await Promise.all([alice.context().close(), bob.context().close()]);
+});

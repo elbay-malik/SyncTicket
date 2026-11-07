@@ -135,20 +135,29 @@ describe('claimEntries', () => {
 	});
 
 	it('gives a new connection the first client id it speaks for', () => {
-		expect(claimEntries([entry(5), entry(9)], [])).toEqual({ keep: [entry(5)], claimed: 5 });
+		expect(claimEntries([entry(5), entry(9)], [], true)).toEqual({ keep: [entry(5)], claimed: 5 });
 	});
 
 	it('lets a connection set only the presence it holds', () => {
 		// The provider echoes every peer's state back; those, and anyone else's, are dropped.
-		expect(claimEntries([entry(9), entry(5), entry(5, null)], [5])).toEqual({
+		expect(claimEntries([entry(9), entry(5), entry(5, null)], [5], false)).toEqual({
 			keep: [entry(5), entry(5, null)],
 			claimed: null
 		});
-		expect(claimEntries([entry(9)], [5])).toEqual({ keep: [], claimed: null });
+		expect(claimEntries([entry(9)], [5], false)).toEqual({ keep: [], claimed: null });
+	});
+
+	it('claims only from a connection’s first presence frame, never from a later echo', () => {
+		// A tab that reconnected without a reload holds nothing the room recorded; its later
+		// frames echo peers' states, and claiming from one would take a peer's presence.
+		expect(claimEntries([entry(9)], [], false)).toEqual({ keep: [], claimed: null });
 	});
 
 	it('never claims an id for a state it would not pass on', () => {
-		expect(claimEntries([entry(5, [1]), entry(9)], [])).toEqual({ keep: [entry(9)], claimed: 9 });
+		expect(claimEntries([entry(5, [1]), entry(9)], [], true)).toEqual({
+			keep: [entry(9)],
+			claimed: 9
+		});
 	});
 });
 
@@ -165,17 +174,23 @@ describe('FrameBudget', () => {
 
 describe('admitFrame', () => {
 	const now = 1_000_000;
+	const fresh = { held: [] as number[], claimedBefore: false };
 
 	it('passes the frames an ordinary client sends', () => {
 		const limits = newConnectionLimits(now);
-		expect(admitFrame(syncFrame('one'), limits, [], now).action).toBe('pass');
-		expect(admitFrame(syncFrame('update'), limits, [], now).action).toBe('pass');
-		const first = admitFrame(awarenessFrame([[5, presence]]), limits, [], now);
-		expect(first).toMatchObject({ action: 'pass', claimed: 5 });
+		expect(admitFrame(syncFrame('one'), limits, fresh, now).action).toBe('pass');
+		expect(admitFrame(syncFrame('update'), limits, fresh, now).action).toBe('pass');
+		const first = admitFrame(awarenessFrame([[5, presence]]), limits, fresh, now);
+		expect(first).toMatchObject({ action: 'pass', claimed: 5, presenceFrame: true });
+	});
+
+	it('marks a first presence frame even when nothing in it can be passed on', () => {
+		const verdict = admitFrame(awarenessFrame([[5, [1, 2]]]), newConnectionLimits(now), fresh, now);
+		expect(verdict).toEqual({ action: 'drop', presenceFrame: true });
 	});
 
 	it('drops strings, which the client never sends and the base class logs in full', () => {
-		expect(admitFrame('__YPS:hello', newConnectionLimits(now), [], now)).toEqual({
+		expect(admitFrame('__YPS:hello', newConnectionLimits(now), fresh, now)).toEqual({
 			action: 'drop'
 		});
 	});
@@ -184,7 +199,7 @@ describe('admitFrame', () => {
 		const verdict = admitFrame(
 			new Uint8Array(MAX_FRAME_BYTES + 1),
 			newConnectionLimits(now),
-			[],
+			fresh,
 			now
 		);
 		expect(verdict).toMatchObject({ action: 'close', code: 1009 });
@@ -194,16 +209,16 @@ describe('admitFrame', () => {
 		const limits = newConnectionLimits(now);
 		const frame = syncFrame('update');
 		for (let i = 0; i < FRAME_BURST; i++) {
-			expect(admitFrame(frame, limits, [], now).action).toBe('pass');
+			expect(admitFrame(frame, limits, fresh, now).action).toBe('pass');
 		}
-		expect(admitFrame(frame, limits, [], now)).toMatchObject({ action: 'close', code: 1008 });
+		expect(admitFrame(frame, limits, fresh, now)).toMatchObject({ action: 'close', code: 1008 });
 	});
 
 	it('answers a request for the whole document once per interval', () => {
 		const limits = newConnectionLimits(now);
-		expect(admitFrame(syncFrame('one'), limits, [], now).action).toBe('pass');
-		expect(admitFrame(syncFrame('one'), limits, [], now + 1).action).toBe('drop');
-		expect(admitFrame(syncFrame('one'), limits, [], now + SYNC_STEP_1_INTERVAL_MS).action).toBe(
+		expect(admitFrame(syncFrame('one'), limits, fresh, now).action).toBe('pass');
+		expect(admitFrame(syncFrame('one'), limits, fresh, now + 1).action).toBe('drop');
+		expect(admitFrame(syncFrame('one'), limits, fresh, now + SYNC_STEP_1_INTERVAL_MS).action).toBe(
 			'pass'
 		);
 	});
@@ -216,7 +231,7 @@ describe('admitFrame', () => {
 				[5, presence]
 			]),
 			limits,
-			[5],
+			{ held: [5], claimedBefore: true },
 			now
 		);
 		expect(verdict.action).toBe('pass');
@@ -225,8 +240,11 @@ describe('admitFrame', () => {
 			kind: 'awareness',
 			entries: [{ clientId: 5, clock: 3, json: JSON.stringify(presence) }]
 		});
-		expect(admitFrame(awarenessFrame([[9, presence]]), limits, [5], now)).toEqual({
-			action: 'drop'
+		expect(
+			admitFrame(awarenessFrame([[9, presence]]), limits, { held: [5], claimedBefore: true }, now)
+		).toEqual({
+			action: 'drop',
+			presenceFrame: true
 		});
 	});
 });
