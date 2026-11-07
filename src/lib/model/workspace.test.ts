@@ -4,6 +4,10 @@ import {
 	chooseWorkspace,
 	createWorkspaceId,
 	isWorkspaceId,
+	linkedWorkspaceId,
+	readVisited,
+	rememberVisit,
+	VISITED_LIMIT,
 	workspaceAddress,
 	workspaceDbName,
 	workspaceShareUrl
@@ -39,7 +43,8 @@ describe('isWorkspaceId', () => {
 
 describe('chooseWorkspace', () => {
 	it('prefers the id in the URL', () => {
-		expect(chooseWorkspace('?ws=from-url', REMEMBERED).id).toBe('from-url');
+		const shared = createWorkspaceId();
+		expect(chooseWorkspace(`?ws=${shared}`, REMEMBERED).id).toBe(shared);
 	});
 
 	it('falls back to the remembered id', () => {
@@ -88,6 +93,68 @@ describe('chooseWorkspace', () => {
 		);
 		// Present and empty is still present — `?ws=` is a broken link, not an absent one.
 		expect(chooseWorkspace('?ws=', null).invalidParam).toBe('');
+	});
+
+	it('refuses a link whose id was damaged on the way, instead of opening a dead workspace', () => {
+		// The regression: a share link cut short by a chat client, or missing one character,
+		// passed the storage check, opened an empty workspace the relay refuses, said "you're
+		// offline" while the network was fine, and replaced the remembered workspace with it.
+		const real = createWorkspaceId();
+		for (const damaged of [real.slice(0, -1), real.slice(0, 18), `${real}0`, 'garbage', 'w123']) {
+			const resolution = chooseWorkspace(`?ws=${damaged}`, REMEMBERED);
+			expect(resolution.id).toBe(REMEMBERED);
+			expect(resolution.invalidParam).toBe(damaged);
+		}
+	});
+
+	it('reads an upper-cased link as the id it was, since ids are lower-case hex', () => {
+		const real = createWorkspaceId();
+		const resolution = chooseWorkspace(`?ws=${real.toUpperCase()}`, REMEMBERED);
+		expect(resolution.id).toBe(real);
+		expect(resolution.invalidParam).toBeNull();
+	});
+
+	it('still reloads into a remembered id of an older shape when the address names it', () => {
+		// Storage keeps accepting any usable id, so a browser that holds one is not stranded by
+		// the stricter rule for links when the address bar is written back and reloaded.
+		const legacy = 'older-shape_id';
+		expect(chooseWorkspace(`?ws=${legacy}`, legacy)).toMatchObject({
+			id: legacy,
+			invalidParam: null
+		});
+		expect(chooseWorkspace(`?ws=${legacy}`, REMEMBERED).id).toBe(REMEMBERED);
+	});
+
+	it('goes back to a workspace of an older shape this browser has opened', () => {
+		// Both ways back after following someone's link land on `?ws=<previous>`, and by then
+		// the remembered id is the link's. Without the visited list a previous workspace of an
+		// older shape was refused as a damaged link, and could no longer be reached at all.
+		const legacy = 'older-shape_id';
+		const shared = createWorkspaceId();
+		expect(chooseWorkspace(`?ws=${shared}`, legacy).leftBehind).toBe(legacy);
+		expect(chooseWorkspace(`?ws=${legacy}`, shared, [shared, legacy])).toMatchObject({
+			id: legacy,
+			invalidParam: null,
+			leftBehind: null
+		});
+		// And the address check agrees, so the visit reloads into it instead of rewriting it.
+		const address = workspaceAddress(new URL(`https://example.test/issues?ws=${legacy}`), shared, [
+			shared,
+			legacy
+		]);
+		expect(address).toEqual({ kind: 'reload' });
+	});
+
+	it('says which workspace a link took this browser away from, the first time only', () => {
+		const shared = createWorkspaceId();
+		expect(chooseWorkspace(`?ws=${shared}`, REMEMBERED).leftBehind).toBe(REMEMBERED);
+		// A workspace this browser has opened before is a return, not a new arrival.
+		expect(chooseWorkspace(`?ws=${shared}`, REMEMBERED, [shared]).leftBehind).toBeNull();
+		// Nothing was left behind when nothing was remembered, or nothing changed.
+		expect(chooseWorkspace(`?ws=${shared}`, null).leftBehind).toBeNull();
+		expect(chooseWorkspace(`?ws=${REMEMBERED}`, REMEMBERED).leftBehind).toBeNull();
+		expect(chooseWorkspace('', REMEMBERED).leftBehind).toBeNull();
+		expect(chooseWorkspace('?ws=garbage', REMEMBERED).leftBehind).toBeNull();
 	});
 
 	it('says nothing when there was no parameter to complain about', () => {
@@ -151,11 +218,61 @@ describe('workspaceAddress', () => {
 		expect(chooseWorkspace(`?ws=${other}`, REMEMBERED).id).toBe(other);
 	});
 
+	it('does not reload for a damaged id, which would fall back here and reload again for ever', () => {
+		const real = createWorkspaceId();
+		expect(replacedWith(`/issues?ws=${real.slice(0, -1)}`)).toBe(
+			`https://example.test/issues?ws=${REMEMBERED}`
+		);
+		expect(replacedWith('/issues?ws=garbage')).toBe(`https://example.test/issues?ws=${REMEMBERED}`);
+	});
+
+	it('rewrites an upper-cased copy of this workspace instead of reloading into it', () => {
+		expect(replacedWith(`/issues?ws=${REMEMBERED.toUpperCase()}`)).toBe(
+			`https://example.test/issues?ws=${REMEMBERED}`
+		);
+	});
+
 	it('produces an address that resolves back to the same workspace on any device', () => {
 		const address = at('/board');
 		expect(address.kind === 'replace' && chooseWorkspace(address.url.search, null).id).toBe(
 			REMEMBERED
 		);
+	});
+});
+
+describe('linkedWorkspaceId', () => {
+	it('takes only the shape the relay opens a room for', () => {
+		const real = createWorkspaceId();
+		expect(linkedWorkspaceId(real, [])).toBe(real);
+		expect(linkedWorkspaceId(`t${real.slice(1)}`, [])).toBe(`t${real.slice(1)}`);
+		expect(linkedWorkspaceId(real.slice(0, -1), [])).toBeNull();
+		expect(linkedWorkspaceId('', [])).toBeNull();
+		expect(linkedWorkspaceId(null, [])).toBeNull();
+		expect(linkedWorkspaceId(DEFAULT_WORKSPACE_ID, [DEFAULT_WORKSPACE_ID])).toBeNull();
+	});
+});
+
+describe('the visited list', () => {
+	it('puts the workspace just opened first, then the one it replaced, without repeats', () => {
+		const [a, b, c] = [createWorkspaceId(), createWorkspaceId(), createWorkspaceId()];
+		expect(rememberVisit([], a, null)).toEqual([a]);
+		expect(rememberVisit([b, c], a, b)).toEqual([a, b, c]);
+		// A browser from before the list existed still gets its remembered workspace listed.
+		expect(rememberVisit([], a, c)).toEqual([a, c]);
+		expect(rememberVisit([a, b], a, a)).toEqual([a, b]);
+	});
+
+	it('keeps a bounded number', () => {
+		const many = Array.from({ length: VISITED_LIMIT + 5 }, () => createWorkspaceId());
+		expect(rememberVisit(many, createWorkspaceId(), null)).toHaveLength(VISITED_LIMIT);
+	});
+
+	it('ignores anything in storage that is not a list of usable ids', () => {
+		const a = createWorkspaceId();
+		expect(readVisited(null)).toEqual([]);
+		expect(readVisited('nope')).toEqual([]);
+		expect(readVisited({ 0: a })).toEqual([]);
+		expect(readVisited([a, 42, 'a/b', DEFAULT_WORKSPACE_ID, null])).toEqual([a]);
 	});
 });
 

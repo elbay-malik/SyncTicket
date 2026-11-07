@@ -73,7 +73,7 @@
 	// sheet open — `to.params` is the empty pre-initialisation object on a cold load.
 	afterNavigate(() => {
 		void Promise.resolve().then(() => {
-			const address = workspaceAddress(page.url, store.workspaceId);
+			const address = workspaceAddress(page.url, store.workspaceId, store.visitedWorkspaceIds);
 			if (address.kind === 'replace') {
 				// eslint-disable-next-line svelte/no-navigation-without-resolve -- The router's own current URL with one query parameter changed: the path is the one SvelteKit just resolved, and `resolve()` takes a route id, not a URL.
 				void goto(address.url, { replaceState: true, keepFocus: true, noScroll: true });

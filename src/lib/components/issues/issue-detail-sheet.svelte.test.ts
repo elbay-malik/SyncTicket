@@ -9,7 +9,12 @@ import { flushSync } from 'svelte';
 import { page, userEvent } from 'vitest/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import * as Y from 'yjs';
+import { Awareness } from 'y-protocols/awareness';
+import { getIssuesMap } from '$lib/sync/doc.js';
+import { createIssue } from '$lib/sync/issues.js';
 import { IssueStore } from '$lib/state/issues.svelte.js';
+import type { RelayHandlers } from '$lib/sync/provider.js';
 import IssueDetailSheet from './issue-detail-sheet.svelte';
 import { IDLE_COMMIT_MS } from './issue-editor.svelte';
 
@@ -153,6 +158,77 @@ describe('issue-detail-sheet.svelte', () => {
 		// The dialog names itself for assistive tech in this state, not just in the body.
 		await expect.element(page.getByRole('dialog', { name: 'Issue not found' })).toBeVisible();
 		await expect.element(page.getByRole('button', { name: 'Back to issues' })).toBeVisible();
+	});
+});
+
+// A shared deep link opens on an empty local database: the issue is still on its way from the
+// relay. The sheet used to decide "not found" from the local load alone, so everyone opening one
+// was told the issue may have been deleted for the whole round trip, and for good when the relay
+// could not be reached.
+describe('issue-detail-sheet.svelte on a shared link', () => {
+	function relayedStore() {
+		let relay: RelayHandlers | undefined;
+		let attached: Y.Doc | undefined;
+		const store = new IssueStore(`test-${crypto.randomUUID()}`, {
+			attachRelay: (doc, _id, handlers) => {
+				relay = handlers;
+				attached = doc;
+				const awareness = new Awareness(doc);
+				clearInterval(awareness._checkInterval);
+				handlers.onConnection('connecting');
+				return { provider: null, awareness, destroy: () => awareness.destroy() };
+			}
+		});
+		stores.push(store);
+		return { store, relay: () => relay as RelayHandlers, doc: () => attached as Y.Doc };
+	}
+
+	it('waits for the relay instead of saying the issue was not found', async () => {
+		const { store, relay } = relayedStore();
+		await render(IssueDetailSheet, { store, id: 'on-its-way', open: true, onOpenChange: vi.fn() });
+		await vi.waitFor(() => expect(store.synced).toBe(true));
+		await expect.element(page.getByTestId('issue-sheet-loading')).toBeInTheDocument();
+		await expect.element(page.getByRole('dialog', { name: 'Loading issue' })).toBeVisible();
+		expect(page.getByText('Issue not found').query()).toBeNull();
+
+		// Once the relay has answered, its answer stands.
+		relay().onConnection('connected');
+		relay().onSynced(true);
+		await expect.element(page.getByRole('dialog', { name: 'Issue not found' })).toBeVisible();
+		// Said, not only drawn: the dialog was announced as loading.
+		await expect.element(page.getByRole('status')).toHaveTextContent('Issue not found.');
+	});
+
+	it('announces the issue when it arrives after the sheet opened', async () => {
+		const { store, doc } = relayedStore();
+		await vi.waitFor(() => expect(store.synced).toBe(true));
+		// Written on a peer's copy of the document, then delivered, as the relay would.
+		const peer = new Y.Doc();
+		const id = createIssue(getIssuesMap(peer), { title: 'Arrived late' });
+		await render(IssueDetailSheet, { store, id, open: true, onOpenChange: vi.fn() });
+		await expect.element(page.getByTestId('issue-sheet-loading')).toBeInTheDocument();
+		await expect.element(page.getByRole('status')).toHaveTextContent('');
+		Y.applyUpdate(doc(), Y.encodeStateAsUpdate(peer));
+		await expect
+			.element(page.getByRole('dialog').getByLabelText('Title'))
+			.toHaveValue('Arrived late');
+		await expect.element(page.getByRole('status')).toHaveTextContent('Issue loaded.');
+	});
+
+	it('says the issue has not loaded, and why, when the relay cannot be reached', async () => {
+		const { store, relay } = relayedStore();
+		await render(IssueDetailSheet, { store, id: 'on-its-way', open: true, onOpenChange: vi.fn() });
+		await vi.waitFor(() => expect(store.synced).toBe(true));
+		relay().onOffline();
+		const unreachable = page.getByTestId('issue-sheet-unreachable');
+		await expect.element(unreachable).toBeVisible();
+		await expect.element(unreachable).toHaveTextContent(/sync server can't be reached/);
+		// It may have been deleted, and only the relay can say, so it promises nothing.
+		await expect.element(unreachable).toHaveTextContent(/if it was deleted, it won't/);
+		await expect
+			.element(page.getByRole('dialog', { name: "Issue isn't on this device" }))
+			.toBeVisible();
+		expect(page.getByText('Issue not found').query()).toBeNull();
 	});
 });
 

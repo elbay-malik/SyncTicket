@@ -8,7 +8,11 @@
 
 import { flushSync } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_WORKSPACE_ID, WORKSPACE_STORAGE_KEY } from '$lib/model/workspace.js';
+import {
+	DEFAULT_WORKSPACE_ID,
+	VISITED_STORAGE_KEY,
+	WORKSPACE_STORAGE_KEY
+} from '$lib/model/workspace.js';
 import { IssueStore } from './issues.svelte.js';
 import { IssueQuery } from './queries.svelte.js';
 
@@ -158,20 +162,29 @@ describe('IssueStore session workspace', () => {
 	 * `stored` is read before the restore, because what this path writes to localStorage is
 	 * half of what it does: the id it picks becomes that browser's workspace permanently.
 	 */
-	function sessionStore(search: string, remembered: string | null) {
+	function sessionStore(search: string, remembered: string | null, visited?: string[]) {
 		const url = location.href;
 		const previous = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+		const previousVisited = localStorage.getItem(VISITED_STORAGE_KEY);
 		history.replaceState(null, '', `${location.pathname}${search}${location.hash}`);
 		if (remembered === null) localStorage.removeItem(WORKSPACE_STORAGE_KEY);
 		else localStorage.setItem(WORKSPACE_STORAGE_KEY, remembered);
+		if (visited === undefined) localStorage.removeItem(VISITED_STORAGE_KEY);
+		else localStorage.setItem(VISITED_STORAGE_KEY, JSON.stringify(visited));
 		try {
 			const store = new IssueStore();
 			stores.push(store);
-			return { store, stored: localStorage.getItem(WORKSPACE_STORAGE_KEY) };
+			return {
+				store,
+				stored: localStorage.getItem(WORKSPACE_STORAGE_KEY),
+				visited: JSON.parse(localStorage.getItem(VISITED_STORAGE_KEY) ?? 'null') as unknown
+			};
 		} finally {
 			history.replaceState(null, '', url);
 			if (previous === null) localStorage.removeItem(WORKSPACE_STORAGE_KEY);
 			else localStorage.setItem(WORKSPACE_STORAGE_KEY, previous);
+			if (previousVisited === null) localStorage.removeItem(VISITED_STORAGE_KEY);
+			else localStorage.setItem(VISITED_STORAGE_KEY, previousVisited);
 		}
 	}
 
@@ -213,8 +226,41 @@ describe('IssueStore session workspace', () => {
 		expect(store.invalidWorkspaceParam).toBeNull();
 	});
 
+	it('keeps the remembered workspace when a link was damaged, and says the link was bad', () => {
+		const damaged = 'w0000000000000000000000000000000';
+		const { store, stored } = sessionStore(`?ws=${damaged}`, REMEMBERED);
+		expect(store.workspaceId).toBe(REMEMBERED);
+		expect(stored).toBe(REMEMBERED);
+		expect(store.invalidWorkspaceParam).toBe(damaged);
+	});
+
+	it('says which workspace a link took this browser away from, and offers it back', () => {
+		// The regression: opening someone's link silently made it the workspace a bare address
+		// opens, and the visitor's own issues could only be reached through browser history.
+		const shared = 'w00000000000000000000000000000003';
+		const { store, visited } = sessionStore(`?ws=${shared}`, REMEMBERED);
+		expect(store.leftBehindWorkspaceId).toBe(REMEMBERED);
+		expect(store.previousWorkspaceId).toBe(REMEMBERED);
+		expect(visited).toEqual([shared, REMEMBERED]);
+		store.dismissLeftBehind();
+		expect(store.leftBehindWorkspaceId).toBeNull();
+		// The way back stays after the notice has gone.
+		expect(store.previousWorkspaceId).toBe(REMEMBERED);
+	});
+
+	it('treats going back to a workspace opened before as a return, not an arrival', () => {
+		const shared = 'w00000000000000000000000000000003';
+		const { store } = sessionStore(`?ws=${REMEMBERED}`, shared, [shared, REMEMBERED]);
+		expect(store.workspaceId).toBe(REMEMBERED);
+		expect(store.leftBehindWorkspaceId).toBeNull();
+		expect(store.previousWorkspaceId).toBe(shared);
+	});
+
 	it('has nothing to report when the workspace came from an explicit id', () => {
-		expect(makeStore().invalidWorkspaceParam).toBeNull();
+		const store = makeStore();
+		expect(store.invalidWorkspaceParam).toBeNull();
+		expect(store.leftBehindWorkspaceId).toBeNull();
+		expect(store.previousWorkspaceId).toBeNull();
 	});
 });
 

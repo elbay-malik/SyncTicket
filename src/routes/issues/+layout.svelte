@@ -6,6 +6,7 @@
 
 	import { onMount, tick } from 'svelte';
 	import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
+	import UsersIcon from '@lucide/svelte/icons/users';
 	import ListFilterIcon from '@lucide/svelte/icons/list-filter';
 	import ListTodoIcon from '@lucide/svelte/icons/list-todo';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -14,6 +15,7 @@
 	import XIcon from '@lucide/svelte/icons/x';
 	import type { Snapshot } from '@sveltejs/kit';
 	import { afterNavigate } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { connectionCopy } from '$lib/format.js';
 	import { ISSUE_STATUSES, STATUS_META } from '$lib/model/issue.js';
@@ -237,6 +239,44 @@
 				size="icon-sm"
 				aria-label="Dismiss this notice"
 				onclick={() => store.dismissInvalidWorkspaceParam()}
+			>
+				<XIcon />
+			</Button>
+		</div>
+	{/if}
+
+	{#if store.leftBehindWorkspaceId}
+		<!-- Opening someone's link makes theirs the workspace a bare address opens. That once
+		     happened without a word, and a visitor's own issues seemed to have gone. -->
+		<div
+			class="flex items-start gap-3 rounded-lg border border-dashed p-3"
+			role="status"
+			data-testid="joined-workspace"
+		>
+			<UsersIcon class="text-muted-foreground mt-0.5 size-4 shrink-0" />
+			<div class="min-w-0 flex-1 space-y-1">
+				<p class="text-sm font-medium">You've opened a workspace someone shared</p>
+				<p class="text-muted-foreground text-xs">
+					SyncTicket opens this one from now on. The workspace you had before is still on this
+					device, and the command palette can take you back to it at any time.
+				</p>
+				<!-- A full page load: a session is bound to one workspace for its lifetime. -->
+				<!-- eslint-disable svelte/no-navigation-without-resolve -- It is resolved: the path is resolve('/issues'), and only the query is added. -->
+				<a
+					class="text-xs font-medium underline underline-offset-4"
+					href={`${resolve('/issues')}?ws=${encodeURIComponent(store.leftBehindWorkspaceId)}`}
+					data-sveltekit-reload
+					data-testid="joined-workspace-back"
+				>
+					Back to your previous workspace
+				</a>
+				<!-- eslint-enable svelte/no-navigation-without-resolve -->
+			</div>
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				aria-label="Dismiss this notice"
+				onclick={() => store.dismissLeftBehind()}
 			>
 				<XIcon />
 			</Button>

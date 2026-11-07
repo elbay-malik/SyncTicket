@@ -18,6 +18,7 @@
 	import { resolve } from '$app/paths';
 	import { resetMode, setMode } from 'mode-watcher';
 	import { issueIdParam } from '$lib/model/issue.js';
+	import { workspaceShareUrl } from '$lib/model/workspace.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getSearchClient } from '$lib/search/client.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
@@ -28,6 +29,8 @@
 
 	const store = getIssueStore();
 	const search = getSearchClient();
+	/** Fixed for the session, like the workspace itself. */
+	const previous = store.previousWorkspaceId;
 
 	let query = $state('');
 	/** Which item bits-ui considers current; set explicitly when results arrive. */
@@ -64,7 +67,20 @@
 			run: () => setMode('light')
 		},
 		{ id: 'theme-dark', label: 'Dark theme', hint: '', group: 'Theme', run: () => setMode('dark') },
-		{ id: 'theme-system', label: 'System theme', hint: '', group: 'Theme', run: () => resetMode() }
+		{ id: 'theme-system', label: 'System theme', hint: '', group: 'Theme', run: () => resetMode() },
+		// The way back after following someone's link, which makes theirs the workspace a bare
+		// address opens. A full page load: a session is bound to one workspace for its lifetime.
+		...(previous === null
+			? []
+			: [
+					{
+						id: 'previous-workspace',
+						label: 'Switch to your previous workspace',
+						hint: '',
+						group: 'Workspace',
+						run: () => location.assign(workspaceShareUrl('', previous))
+					}
+				])
 	]);
 
 	// The filtering bits-ui would have done, done here so results can bypass it.
@@ -79,7 +95,7 @@
 	);
 
 	const groupedCommands = $derived(
-		['Issues', 'Navigation', 'Theme']
+		['Issues', 'Navigation', 'Workspace', 'Theme']
 			.map((group) => ({ group, items: matchingCommands.filter((c) => c.group === group) }))
 			.filter((section) => section.items.length > 0)
 	);
