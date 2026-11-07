@@ -72,14 +72,14 @@
 	});
 	const announcement = $derived.by(() => {
 		if (!waited || deleting) return '';
-		if (issue) return 'Issue loaded.';
+		if (issue && store.synced) return 'Issue loaded.';
 		if (absence === 'unreachable') return `This issue isn't on this device. ${unreachableCause}.`;
 		return absence === 'missing' ? 'Issue not found.' : '';
 	});
 
 	/** Accessible name for the dialog in every state (bits-ui names it from Sheet.Title). */
 	const title = $derived(
-		issue?.title ??
+		(store.synced ? issue?.title : undefined) ??
 			(absence === 'missing'
 				? 'Issue not found'
 				: absence === 'unreachable'
@@ -128,7 +128,9 @@
 			</div>
 		{/if}
 
-		{#if issue}
+		<!-- The local load comes first, even for an issue already in memory: an editor mounted
+		     before it can have the load land under a field being typed into. -->
+		{#if issue && store.synced}
 			<!-- Around the editor alone, inside the dialog: the dialog keeps its name, its Close and
 			     its focus trap, and Delete below stays reachable, which is the one way out of a record
 			     that cannot render. The key is outside so another issue starts clean rather than
@@ -147,7 +149,7 @@
 			</div>
 		{:else if deleting}
 			<!-- Nothing: the route is changing away, and anything here would flash on the way out. -->
-		{:else if absence === 'loading'}
+		{:else if absence === 'loading' || !store.synced}
 			<div class="flex flex-col gap-4 px-4 pb-4" data-testid="issue-sheet-loading">
 				<Skeleton class="h-9 w-2/3" />
 				<Skeleton class="h-32 w-full" />
