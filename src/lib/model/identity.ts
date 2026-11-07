@@ -71,6 +71,13 @@ export interface Identity {
 
 /** Where this browser remembers who it is. */
 export const IDENTITY_STORAGE_KEY = 'syncticket:identity';
+/**
+ * The presence id this browser uses in each workspace, as `{ [workspaceId]: userId }`. One id for
+ * every workspace let anyone in two of them tell that the same browser was in both.
+ */
+export const PRESENCE_IDS_STORAGE_KEY = 'syncticket:presence-ids';
+/** How many workspaces' presence ids are kept; the oldest go first. */
+const PRESENCE_IDS_LIMIT = 50;
 
 /** Display names are user-supplied and rendered beside other people's content. */
 export const MAX_NAME_LENGTH = 32;
@@ -122,6 +129,16 @@ function pick<T>(list: readonly T[], random: () => number): T {
 	return list[Math.floor(random() * list.length)] as T;
 }
 
+/**
+ * A number in [0, 1) from the platform's secure generator. An id is only as unguessable as what
+ * it is drawn from, and `Math.random` is not built to be.
+ */
+export function secureRandom(): number {
+	const words = new Uint32Array(1);
+	crypto.getRandomValues(words);
+	return words[0]! / 4294967296;
+}
+
 /** 128 bits of id from the injected source, so tests stay deterministic. */
 function mintUserId(random: () => number): string {
 	let id = 'u';
@@ -129,8 +146,30 @@ function mintUserId(random: () => number): string {
 	return id;
 }
 
+/**
+ * This browser's presence id in `workspaceId`, minting one the first time. `stored` is what
+ * `PRESENCE_IDS_STORAGE_KEY` held, which anything on this origin can write, so only ids of the
+ * right shape are kept. Returns the id and the map to store back.
+ */
+export function workspaceUserId(
+	stored: unknown,
+	workspaceId: string,
+	random: () => number = secureRandom
+): { userId: string; ids: Record<string, string> } {
+	const ids: Record<string, string> = {};
+	if (typeof stored === 'object' && stored !== null && !Array.isArray(stored)) {
+		for (const [key, value] of Object.entries(stored)) {
+			if (typeof value === 'string' && USER_ID.test(value)) ids[key] = value;
+		}
+	}
+	const userId = ids[workspaceId] ?? mintUserId(random);
+	delete ids[workspaceId];
+	const kept = Object.entries(ids).slice(-(PRESENCE_IDS_LIMIT - 1));
+	return { userId, ids: Object.fromEntries([...kept, [workspaceId, userId]]) };
+}
+
 /** A fresh identity. `random` is injectable so tests are deterministic. */
-export function createIdentity(random: () => number = Math.random): Identity {
+export function createIdentity(random: () => number = secureRandom): Identity {
 	return {
 		userId: mintUserId(random),
 		name: `${pick(ADJECTIVES, random)} ${pick(ANIMALS, random)}`,

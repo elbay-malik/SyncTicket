@@ -38,8 +38,40 @@ function redirectMalformedPath(url: URL): Response | null {
 	}
 }
 
+/**
+ * A redirect to HTTPS for a visitor who reached Cloudflare's edge over plain HTTP, or null.
+ *
+ * A workspace link carries its capability in `?ws=`, and over plain HTTP anyone on the network
+ * path could read it or answer with a page of their own. The zone's "Always Use HTTPS" setting is
+ * the real fix and covers every response; this covers the Worker's own until that is on.
+ *
+ * Decided by `cf-visitor`, the scheme the edge saw, not by the URL: `wrangler dev` rewrites every
+ * request to the production host over plain HTTP, so the URL would send `pnpm preview` and the
+ * e2e suite to an HTTPS port that does not exist. The edge always sets the header and a client
+ * cannot, and nothing local sets it at all.
+ */
+function redirectToHttps(url: URL, request: Request): Response | null {
+	if (!/"scheme"\s*:\s*"http"/.test(request.headers.get('cf-visitor') ?? '')) return null;
+	const secure = new URL(url);
+	secure.protocol = 'https:';
+	return new Response(null, { status: 308, headers: { location: secure.href } });
+}
+
+/**
+ * Whether a page is one search engines should leave out: a workspace link, or an issue in one.
+ * The bare `/issues` that a fresh visit lands on stays indexable. A header rather than a
+ * robots.txt rule, because a crawler a rule keeps out never sees the noindex, and may still
+ * list the address from links to it.
+ */
+function isWorkspacePage(url: URL): boolean {
+	return url.searchParams.has('ws') || url.pathname.startsWith('/issues/');
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
-	const response = redirectMalformedPath(event.url) ?? (await resolve(event));
+	const response =
+		redirectToHttps(event.url, event.request) ??
+		redirectMalformedPath(event.url) ??
+		(await resolve(event));
 
 	// Stops a browser from second-guessing a declared Content-Type — the mitigation for
 	// "upload something that sniffs as script".
@@ -54,6 +86,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 		'Permissions-Policy',
 		'camera=(), microphone=(), geolocation=(), payment=(), usb=()'
 	);
+	// Once a browser has loaded this over HTTPS, it never asks over HTTP again. Browsers ignore
+	// it on an HTTP response, so it is sent only on HTTPS ones. Not `includeSubDomains`: that is
+	// for the zone to decide, for every host under it.
+	if (event.url.protocol === 'https:') {
+		response.headers.set('Strict-Transport-Security', 'max-age=31536000');
+	}
+	if (isWorkspacePage(event.url)) response.headers.set('X-Robots-Tag', 'noindex');
 
 	return response;
 };

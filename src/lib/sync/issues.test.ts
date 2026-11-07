@@ -8,7 +8,8 @@ import {
 	moveIssue,
 	patchIssue,
 	readAllIssues,
-	readIssue
+	readIssue,
+	READ_LIMITS
 } from './issues.js';
 
 function read(map: IssuesMap, id: string) {
@@ -290,5 +291,44 @@ describe('moveIssue', () => {
 		expect(() => moveIssue(map, b, 'todo', [b, a])).not.toThrow();
 		expect(read(map, a).order).not.toBe('');
 		expect(column(map, 'todo')).toEqual([b, a]);
+	});
+});
+
+describe('readIssue limits', () => {
+	it('hands views a bounded amount of each field, and leaves the document alone', () => {
+		// A peer's 21 MB title or 200,000 labels arrived intact and stalled every visitor's tab.
+		const doc = createDoc();
+		const map = getIssuesMap(doc);
+		const id = createIssue(map, { title: 'x' });
+		const yIssue = getYIssue(map, id)!;
+		const huge = 'y'.repeat(READ_LIMITS.description + 10);
+		doc.transact(() => {
+			yIssue.set('title', huge);
+			yIssue.set('description', huge);
+			yIssue.set('assignee', huge);
+			yIssue.set(
+				'labels',
+				Array.from({ length: 500 }, (_, i) => `label-${i}-${'z'.repeat(200)}`)
+			);
+		});
+		const issue = readIssue(id, yIssue);
+		expect(issue.title).toHaveLength(READ_LIMITS.title);
+		expect(issue.description).toHaveLength(READ_LIMITS.description);
+		expect(issue.assignee).toHaveLength(READ_LIMITS.assignee);
+		expect(issue.labels).toHaveLength(READ_LIMITS.labels);
+		expect(issue.labels.every((label) => label.length <= READ_LIMITS.label)).toBe(true);
+		// Not written back: the stored field is untouched.
+		expect(yIssue.get('description')).toBe(huge);
+	});
+
+	it('changes nothing about a field of ordinary size', () => {
+		const doc = createDoc();
+		const map = getIssuesMap(doc);
+		const id = createIssue(map, { title: 'Normal', description: 'Steps', labels: ['bug'] });
+		expect(readIssue(id, getYIssue(map, id)!)).toMatchObject({
+			title: 'Normal',
+			description: 'Steps',
+			labels: ['bug']
+		});
 	});
 });

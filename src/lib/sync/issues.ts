@@ -28,9 +28,23 @@ function requireDoc(map: IssuesMap): Y.Doc {
 	return doc;
 }
 
-function readString(yIssue: YIssue, key: string, fallback: string): string {
+/**
+ * The most of each field a view is handed. Generous for anything a person writes, and a bound on
+ * what a peer can make every visitor render: a 21 MB title or 200,000 labels arrived intact and
+ * stalled the tab for seconds. Applied on read only, never written back, so a long field is
+ * shown cut short rather than lost.
+ */
+export const READ_LIMITS = {
+	title: 1_000,
+	description: 100_000,
+	assignee: 200,
+	labels: 50,
+	label: 100
+} as const;
+
+function readString(yIssue: YIssue, key: string, fallback: string, max: number): string {
 	const value = yIssue.get(key);
-	return typeof value === 'string' ? value : fallback;
+	return typeof value === 'string' ? value.slice(0, max) : fallback;
 }
 
 /** The last time a Date can hold, either side of the epoch. ECMAScript fixes it at this. */
@@ -58,7 +72,7 @@ function readPriority(yIssue: YIssue): IssuePriority {
 
 function readAssignee(yIssue: YIssue): string | null {
 	const value = yIssue.get('assignee');
-	return typeof value === 'string' ? value : null;
+	return typeof value === 'string' ? value.slice(0, READ_LIMITS.assignee) : null;
 }
 
 /**
@@ -70,7 +84,12 @@ function readAssignee(yIssue: YIssue): string | null {
 function readLabels(yIssue: YIssue): string[] {
 	const value = yIssue.get('labels');
 	if (!Array.isArray(value)) return [];
-	return [...new Set(value.filter((item): item is string => typeof item === 'string'))];
+	const labels = new Set<string>();
+	for (const item of value) {
+		if (labels.size >= READ_LIMITS.labels) break;
+		if (typeof item === 'string') labels.add(item.slice(0, READ_LIMITS.label));
+	}
+	return [...labels];
 }
 
 /**
@@ -88,8 +107,8 @@ export function readIssue(id: string, yIssue: YIssue): Issue {
 	const createdAt = readTime(yIssue, 'createdAt', 0);
 	return {
 		id,
-		title: readString(yIssue, 'title', 'Untitled'),
-		description: readString(yIssue, 'description', ''),
+		title: readString(yIssue, 'title', 'Untitled', READ_LIMITS.title),
+		description: readString(yIssue, 'description', '', READ_LIMITS.description),
 		status: readStatus(yIssue),
 		priority: readPriority(yIssue),
 		assignee: readAssignee(yIssue),

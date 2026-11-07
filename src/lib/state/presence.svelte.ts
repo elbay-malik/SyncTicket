@@ -18,6 +18,8 @@ import { browser } from '$app/environment';
 import type { Awareness } from 'y-protocols/awareness';
 import {
 	IDENTITY_STORAGE_KEY,
+	PRESENCE_IDS_STORAGE_KEY,
+	workspaceUserId,
 	createIdentity,
 	normaliseName,
 	parseIdentity,
@@ -78,27 +80,44 @@ interface PresenceState {
 
 const NO_PEERS: readonly Peer[] = [];
 
-/** Reads the remembered identity, minting one on first visit. */
-export function loadIdentity(): Identity {
+/**
+ * Reads the remembered identity, minting one on first visit. The name and colour are this
+ * browser's everywhere; the id is its own per workspace (`workspaceUserId`), so two workspaces'
+ * people cannot tell from it that one browser was in both.
+ */
+export function loadIdentity(workspaceId?: string): Identity {
 	if (!browser) return createIdentity();
+	let identity: Identity;
 	try {
 		const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
 		if (!raw) {
-			const minted = createIdentity();
-			localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(minted));
-			return minted;
+			identity = createIdentity();
+			localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(identity));
+		} else {
+			identity = parseIdentity(JSON.parse(raw));
 		}
-		return parseIdentity(JSON.parse(raw));
 	} catch {
 		// Blocked storage or corrupt JSON: a session-only identity still works.
 		return createIdentity();
+	}
+	if (workspaceId === undefined) return identity;
+	try {
+		const stored: unknown = JSON.parse(localStorage.getItem(PRESENCE_IDS_STORAGE_KEY) ?? 'null');
+		const { userId, ids } = workspaceUserId(stored, workspaceId);
+		localStorage.setItem(PRESENCE_IDS_STORAGE_KEY, JSON.stringify(ids));
+		return { ...identity, userId };
+	} catch {
+		return { ...identity, userId: createIdentity().userId };
 	}
 }
 
 function saveIdentity(identity: Identity): void {
 	if (!browser) return;
 	try {
-		localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify(identity));
+		// The name and colour only: the id in hand is this workspace's (see `loadIdentity`).
+		const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+		const kept = raw ? parseIdentity(JSON.parse(raw)).userId : identity.userId;
+		localStorage.setItem(IDENTITY_STORAGE_KEY, JSON.stringify({ ...identity, userId: kept }));
 	} catch {
 		// Not remembering it only costs the name on the next reload.
 	}
@@ -119,6 +138,8 @@ export function toPeer(raw: unknown): Peer | null {
 	if (typeof raw !== 'object' || raw === null) return null;
 	const state = raw as Partial<PresenceState>;
 	if (typeof state.name !== 'string' || typeof state.userId !== 'string') return null;
+	// Before anything walks them: no real id or name is anywhere near this long.
+	if (state.userId.length > 64 || state.name.length > 200) return null;
 	// Seeded from the user id so a peer with an unusable hue gets a stable replacement
 	// rather than a new colour on every repaint.
 	const identity = parseIdentity(state, seededRandom(state.userId));
@@ -397,8 +418,13 @@ let browserPresence: Presence | null = null;
  * `getIssueStore` is: presence held across requests would leak one visitor's peers into
  * another's first render.
  */
-export function getPresence(store: { awareness: Awareness; remote?: RemoteActivity }): Presence {
-	const create = () => new Presence(store.awareness, undefined, store.remote ?? null);
+export function getPresence(store: {
+	awareness: Awareness;
+	remote?: RemoteActivity;
+	workspaceId?: string;
+}): Presence {
+	const create = () =>
+		new Presence(store.awareness, loadIdentity(store.workspaceId), store.remote ?? null);
 	if (!browser) return create();
 	if (!browserPresence) browserPresence = create();
 	return browserPresence;

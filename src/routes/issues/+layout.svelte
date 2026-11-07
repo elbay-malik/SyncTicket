@@ -102,19 +102,9 @@
 		recent: 'Recently updated'
 	};
 
-	/** How much of an unusable `?ws=` value the notice below quotes back. */
-	const INVALID_PARAM_PREVIEW = 32;
-
-	// Whatever was in the link, so it goes out as a text node (never HTML) and is truncated —
-	// a long value must not be able to push the rest of the notice off the screen.
-	const badWorkspaceParam = $derived.by(() => {
-		const raw = store.invalidWorkspaceParam;
-		if (raw === null) return null;
-		if (raw === '') return 'was empty';
-		const shown =
-			raw.length > INVALID_PARAM_PREVIEW ? `${raw.slice(0, INVALID_PARAM_PREVIEW)}…` : raw;
-		return `was “${shown}”`;
-	});
+	// Whatever was in the link is not quoted back. It once was, up to 32 characters, which let
+	// anyone put words of their choosing on this domain in a link that looked like the app's own.
+	const badWorkspaceParam = $derived(store.invalidWorkspaceParam !== null);
 
 	// The body sentence comes from `connectionCopy`, the same function the status popover
 	// renders, so the banner and the popover cannot drift into saying two different things
@@ -230,8 +220,8 @@
 			<div class="min-w-0 flex-1 space-y-1">
 				<p class="text-sm font-medium">That share link wasn't valid</p>
 				<p class="text-muted-foreground text-xs break-words">
-					The workspace id in it {badWorkspaceParam}, which is not one this app can open — so you're
-					in a workspace of your own. Ask whoever sent it for the link again.
+					The workspace id in it is not one this app can open, so you're in a workspace of your own.
+					Ask whoever sent it for the link again.
 				</p>
 			</div>
 			<Button
@@ -255,11 +245,24 @@
 		>
 			<UsersIcon class="text-muted-foreground mt-0.5 size-4 shrink-0" />
 			<div class="min-w-0 flex-1 space-y-1">
-				<p class="text-sm font-medium">You've opened a workspace someone shared</p>
-				<p class="text-muted-foreground text-xs">
-					SyncTicket opens this one from now on. The workspace you had before is still on this
-					device, and the command palette can take you back to it at any time.
+				<p class="text-sm font-medium">
+					{store.joinedNewWorkspace
+						? "You've opened a workspace someone shared"
+						: "This isn't your usual workspace"}
 				</p>
+				<p class="text-muted-foreground text-xs">
+					Anyone with this link can see and edit what you add here. Opening SyncTicket without the
+					link still takes you to your usual workspace, unless you make this one yours.
+				</p>
+				<Button
+					variant="outline"
+					size="xs"
+					class="mr-3"
+					data-testid="joined-workspace-adopt"
+					onclick={() => store.adoptWorkspace()}
+				>
+					Make this my workspace
+				</Button>
 				<!-- A full page load: a session is bound to one workspace for its lifetime. -->
 				<!-- eslint-disable svelte/no-navigation-without-resolve -- It is resolved: the path is resolve('/issues'), and only the query is added. -->
 				<a
@@ -268,7 +271,7 @@
 					data-sveltekit-reload
 					data-testid="joined-workspace-back"
 				>
-					Back to your previous workspace
+					Back to your usual workspace
 				</a>
 				<!-- eslint-enable svelte/no-navigation-without-resolve -->
 			</div>
@@ -363,7 +366,11 @@
 	     Before that it pointed at a bare `/issues` that opened anyone else a new workspace. -->
 	<p class="text-muted-foreground -mt-1 text-xs">
 		Anyone with this link can read and edit this workspace — please don't put anything real or
-		sensitive in it. The sync server keeps it for 30 days after it was last opened.
+		sensitive in it. The sync server keeps it for 30 days after it was last opened. Everything here
+		is written by visitors; to report abuse, email
+		<a class="underline underline-offset-2" href="mailto:elbay.malik@gmail.com"
+			>elbay.malik@gmail.com</a
+		>.
 	</p>
 
 	<!-- Shown only while the relay is ready and nobody else is here; a second peer arriving is

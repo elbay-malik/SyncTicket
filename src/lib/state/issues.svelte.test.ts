@@ -209,12 +209,25 @@ describe('IssueStore session workspace', () => {
 		expect(stranded.stored).toBe(stranded.store.workspaceId);
 	});
 
-	it('carries a share link into the workspace it names, and remembers it', () => {
+	it('carries a share link into the workspace it names, and remembers it in a new browser', () => {
 		const shared = 'w00000000000000000000000000000003';
-		const { store, stored } = sessionStore(`?ws=${shared}`, REMEMBERED);
+		const { store, stored } = sessionStore(`?ws=${shared}`, null);
 		expect(store.workspaceId).toBe(shared);
 		expect(stored).toBe(shared);
 		expect(store.invalidWorkspaceParam).toBeNull();
+	});
+
+	it('never lets a link replace the remembered workspace, until the visitor makes it theirs', () => {
+		// The regression: a link silently became the workspace a bare address opens, so
+		// everything typed afterwards went to whoever sent it.
+		const shared = 'w00000000000000000000000000000003';
+		const { store, stored } = sessionStore(`?ws=${shared}`, REMEMBERED);
+		expect(store.workspaceId).toBe(shared);
+		expect(stored).toBe(REMEMBERED);
+		store.adoptWorkspace();
+		expect(localStorage.getItem(WORKSPACE_STORAGE_KEY)).toBe(shared);
+		expect(store.leftBehindWorkspaceId).toBeNull();
+		localStorage.removeItem(WORKSPACE_STORAGE_KEY);
 	});
 
 	it('reports a malformed link instead of silently opening something else', () => {
@@ -248,11 +261,13 @@ describe('IssueStore session workspace', () => {
 		expect(store.previousWorkspaceId).toBe(REMEMBERED);
 	});
 
-	it('treats going back to a workspace opened before as a return, not an arrival', () => {
+	it('tells a return to a workspace opened before from a first arrival', () => {
 		const shared = 'w00000000000000000000000000000003';
-		const { store } = sessionStore(`?ws=${REMEMBERED}`, shared, [shared, REMEMBERED]);
+		const { store, stored } = sessionStore(`?ws=${REMEMBERED}`, shared, [shared, REMEMBERED]);
 		expect(store.workspaceId).toBe(REMEMBERED);
-		expect(store.leftBehindWorkspaceId).toBeNull();
+		expect(store.leftBehindWorkspaceId).toBe(shared);
+		expect(store.joinedNewWorkspace).toBe(false);
+		expect(stored).toBe(shared);
 		expect(store.previousWorkspaceId).toBe(shared);
 	});
 

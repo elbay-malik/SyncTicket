@@ -12,7 +12,7 @@
 // is a deliberate coupling across the two workers — the same kind as the party name.
 
 import { describe, expect, it } from 'vitest';
-import { isRoutableRoom } from './rooms.js';
+import { isBlockedRoom, isRoutableRoom } from './rooms.js';
 
 /** Mirrors `createWorkspaceId()` in src/lib/model/workspace.ts. */
 const mintedByTheApp = () => `w${crypto.randomUUID().replace(/-/g, '')}`;
@@ -57,5 +57,22 @@ describe('isRoutableRoom', () => {
 		expect(isRoutableRoom(`${valid}/../other`)).toBe(false);
 		expect(isRoutableRoom(`prefix${valid}`)).toBe(false);
 		expect(isRoutableRoom(`${valid}\nsecond`)).toBe(false);
+	});
+});
+
+describe('isBlockedRoom', () => {
+	const room = 'w' + 'a'.repeat(32);
+	it('refuses only the rooms listed', () => {
+		expect(isBlockedRoom(room, `${'w' + 'b'.repeat(32)}, ${room}`)).toBe(true);
+		expect(isBlockedRoom(room, 'w' + 'b'.repeat(32))).toBe(false);
+	});
+
+	it('refuses nothing when no list is set', () => {
+		expect(isBlockedRoom(room, undefined)).toBe(false);
+		expect(isBlockedRoom(room, '')).toBe(false);
+	});
+
+	it('matches whole names, never a prefix', () => {
+		expect(isBlockedRoom(room, room.slice(0, 10))).toBe(false);
 	});
 });
