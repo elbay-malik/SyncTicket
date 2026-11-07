@@ -5,8 +5,13 @@
 // that defines it (ADR 0002). The browser connects here directly over WebSocket, so the app
 // worker never proxies sync traffic.
 
-import { routePartykitRequest, type Connection, type ConnectionContext } from 'partyserver';
-import type * as Y from 'yjs';
+import {
+	routePartykitRequest,
+	type Connection,
+	type ConnectionContext,
+	type WSMessage
+} from 'partyserver';
+import * as Y from 'yjs';
 import { YServer } from 'y-partyserver';
 import {
 	countStructs,
@@ -36,7 +41,38 @@ import {
 	type PersistPlan
 } from './persistence-plan.js';
 import { isRoutableRoom } from './rooms.js';
-import { connectKey, refuseConnect } from './limits.js';
+import { connectKey, refuseConnect, screenUpgrade } from './limits.js';
+import {
+	admitFrame,
+	encodeAwarenessFrame,
+	encodeSyncStep1,
+	newConnectionLimits,
+	type AwarenessEntry,
+	type ConnectionLimits
+} from './message-limits.js';
+
+/** Where y-partyserver keeps the presence ids a connection holds (`dist/server/index.js:28`). */
+const AWARENESS_IDS_KEY = '__ypsAwarenessIds';
+
+function heldIds(conn: Connection): number[] {
+	try {
+		const ids = (conn.state as Record<string, unknown> | null)?.[AWARENESS_IDS_KEY];
+		return Array.isArray(ids) ? ids.filter((id): id is number => typeof id === 'number') : [];
+	} catch {
+		return [];
+	}
+}
+
+function setHeldIds(conn: Connection, ids: number[]): void {
+	try {
+		conn.setState((prev: unknown) => ({
+			...(prev as Record<string, unknown> | null),
+			[AWARENESS_IDS_KEY]: ids
+		}));
+	} catch {
+		// The connection is going; y-partyserver's own bookkeeping does the same.
+	}
+}
 
 export class YDocRoom extends YServer<Env> {
 	// Hibernation is what makes an idle room free: the instance is evicted, its memory with
@@ -45,16 +81,14 @@ export class YDocRoom extends YServer<Env> {
 	static override options = { hibernate: true };
 
 	// y-partyserver debounces `onSave` on the document's `update` event, and the *trailing*
-	// timer — not the ceiling — is the worst case: any gap longer than `debounceWait` fires a
-	// write, so bursty human typing costs more than continuous editing does. At the previous
-	// 300/2000 that was up to ~288,000 row writes a day for a single room, against an
-	// account-wide free-plan budget of 100,000 — one room could exhaust the whole account in
-	// about 8.3 hours, which is the second route to exactly the same silent data loss as the
-	// 2 MB ceiling. 2000 is y-partyserver's own default trailing value (`CALLBACK_DEFAULTS`,
-	// `dist/server/index.js:53-57`); only the 10 s ceiling is tightened, to 5 s. The cost is
-	// that up to 5 s of the newest changes live only in evictable memory, which is acceptable
-	// because every client holds the whole document in IndexedDB and re-syncs it on connect.
-	static override callbackOptions = { debounceWait: 2000, debounceMaxWait: 5000 };
+	// timer is the worst case: any gap longer than `debounceWait` fires a write. At its own
+	// 2000/10000, or this file's earlier 2000/5000, a client sending one small update just over
+	// every two seconds cost a row write each time, about 43,000 a day for one room against an
+	// account-wide free-plan budget of 100,000. At 5000/15000 one room costs at most one write
+	// per five seconds, about 17,000 a day, and ordinary typing far fewer. The cost is that up to
+	// 15 s of the newest changes live only in evictable memory, which is acceptable because every
+	// client holds the whole document in IndexedDB and re-syncs it on connect.
+	static override callbackOptions = { debounceWait: 5000, debounceMaxWait: 15000 };
 
 	/** Whether persistence is working, as last decided. Carried to late joiners by `onConnect`. */
 	#persist: PersistenceState = 'ok';
@@ -66,6 +100,62 @@ export class YDocRoom extends YServer<Env> {
 	#noticeAt = 0;
 	/** A damaged row is still in the way of id=1, so no save may overwrite it. See `onLoad`. */
 	#refuseSaves = false;
+	/**
+	 * Per-connection message limits, in memory (see `message-limits.ts` for why that is enough).
+	 * A connection that lived through a hibernation starts again with a full budget.
+	 */
+	#limits = new Map<string, ConnectionLimits>();
+
+	/**
+	 * Every frame passes `admitFrame` before y-partyserver sees it. See `message-limits.ts` for
+	 * what is let through and why.
+	 */
+	override onMessage(conn: Connection, message: WSMessage): void {
+		const now = Date.now();
+		let limits = this.#limits.get(conn.id);
+		if (!limits) {
+			limits = newConnectionLimits(now);
+			this.#limits.set(conn.id, limits);
+		}
+		const verdict = admitFrame(message, limits, heldIds(conn), now);
+		if (verdict.action === 'drop') return;
+		if (verdict.action === 'close') {
+			try {
+				conn.close(verdict.code, verdict.reason);
+			} catch {
+				// Already closing.
+			}
+			return;
+		}
+		if (verdict.claimed != null) this.#takePresence(conn, verdict.claimed);
+		super.onMessage(conn, verdict.frame);
+	}
+
+	/**
+	 * Gives `clientId` to `conn`, taking it from any other connection that held it: the old
+	 * socket of a tab that has reconnected before its death was noticed. Without the move, both
+	 * sockets would claim the id, and the old one closing would clear the reconnected tab's
+	 * presence.
+	 */
+	#takePresence(conn: Connection, clientId: number): void {
+		for (const other of this.getConnections()) {
+			if (other.id === conn.id) continue;
+			const ids = heldIds(other);
+			if (ids.includes(clientId))
+				setHeldIds(
+					other,
+					ids.filter((id) => id !== clientId)
+				);
+		}
+	}
+
+	/** The client never sends custom messages, and the base method logs each one in full. */
+	override onCustomMessage(): void {}
+
+	override onClose(conn: Connection, code: number, reason: string, wasClean: boolean): void {
+		this.#limits.delete(conn.id);
+		super.onClose(conn, code, reason, wasClean);
+	}
 
 	override async onLoad(): Promise<Y.Doc | void> {
 		this.ctx.storage.sql.exec(createTableSql());
@@ -278,12 +368,36 @@ export class YDocRoom extends YServer<Env> {
 	override onConnect(conn: Connection, ctx: ConnectionContext): void {
 		// Sync step 1 and awareness first (`dist/server/index.js:334-352`), so the client has
 		// the document before it is told anything about it.
-		super.onConnect(conn, ctx);
+		try {
+			super.onConnect(conn, ctx);
+		} catch (err) {
+			// Encoding the presence states it holds is the part that can throw. A throw here
+			// reaches partyserver, which refuses the connection and sends the stack trace to the
+			// client, so one bad state would lock everyone new out of the room.
+			console.error(`relay.connect event=setup-failed room=${this.#roomTag()}`, errorText(err));
+			this.#connectWithoutBadStates(conn);
+		}
 		if (this.#persist === 'ok') return;
 		this.sendCustomMessage(
 			conn,
 			encodePersistenceNotice({ state: this.#persist, reason: this.#reason, at: this.#noticeAt })
 		);
+	}
+
+	/** What `super.onConnect` sends, built state by state so a state that cannot be sent is left out. */
+	#connectWithoutBadStates(conn: Connection): void {
+		conn.send(encodeSyncStep1(Y.encodeStateVector(this.document)));
+		const awareness = this.document.awareness;
+		const entries: AwarenessEntry[] = [];
+		for (const [clientId, state] of awareness.getStates()) {
+			try {
+				const clock = awareness.meta.get(clientId)?.clock ?? 0;
+				entries.push({ clientId, clock, json: JSON.stringify(state) });
+			} catch {
+				// Left out: this is the state that made the ordinary path throw.
+			}
+		}
+		if (entries.length > 0) conn.send(encodeAwarenessFrame(entries));
 	}
 
 	/**
@@ -332,10 +446,14 @@ export default {
 				if (!isRoutableRoom(lobby.name)) {
 					return new Response('unknown workspace', { status: 400 });
 				}
-				// After the shape check, so a malformed name costs no limiter call. The name
+				// The rest of the request, before anything is counted: where it comes from, and
+				// whether it is shaped like the app's own. See `screenUpgrade`.
+				const screened = screenUpgrade(req, env.ALLOWED_ORIGINS);
+				if (screened instanceof Response) return screened;
+				// After the shape checks, so a malformed request costs no limiter call. The name
 				// check is only a shape check — a stranger can mint one — so this is what
 				// bounds the rate at which empty rooms can be created. It fails open.
-				return refuseConnect(env.CONNECT_LIMIT, connectKey(req));
+				return (await refuseConnect(env.CONNECT_LIMIT, connectKey(req))) ?? screened;
 			},
 			// Nothing legitimate reaches a room over plain HTTP — this relay speaks Yjs over
 			// WebSocket and nothing else — and letting one through would create the room as a

@@ -5,7 +5,17 @@
 	// pinned wrangler, and both workers pin the same wrangler (ADR 0002).
 	"compatibility_date": "2026-07-06",
 	"main": "src/index.ts",
-	"observability": { "enabled": true },
+	// Invocation logs off: each one records the request URL, and a room's name in that URL is
+	// the whole access control to it (`src/rooms.ts`). The relay's own lines log only an
+	// 8-character tag. Errors and console output still reach the dashboard.
+	"observability": { "enabled": true, "logs": { "invocation_logs": false } },
+	// The pages allowed to open a socket here, checked by `screenUpgrade` in src/limits.ts. The
+	// live site, the older workers.dev address that serves the same build, and the two local
+	// ports (`vite dev`, and `pnpm preview`). Not inherited by the e2e environment, which
+	// declares its own.
+	"vars": {
+		"ALLOWED_ORIGINS": "https://syncticket.elbaymalik.com,https://syncticket.eleo-666.workers.dev,http://localhost:5173,http://localhost:4173"
+	},
 	"workers_dev": true,
 	"durable_objects": {
 		// The binding name is load-bearing: partyserver derives the URL namespace by
@@ -49,7 +59,10 @@
 		"e2e": {
 			"durable_objects": {
 				"bindings": [{ "name": "YDocRoom", "class_name": "YDocRoom" }]
-			}
+			},
+			// Only the app the suite builds, so that e2e/relay-limits.e2e.ts can show a page from
+			// another origin being refused.
+			"vars": { "ALLOWED_ORIGINS": "http://localhost:4173" }
 		}
 	}
 }

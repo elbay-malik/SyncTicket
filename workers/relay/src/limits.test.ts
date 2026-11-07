@@ -14,7 +14,14 @@
 // of service it exists to bound. That is asserted negatively, not left to a comment.
 
 import { describe, expect, it } from 'vitest';
-import { CONNECT_LIMIT, connectKey, refuseConnect } from './limits.js';
+import {
+	CONNECT_LIMIT,
+	MAX_UPGRADE_URL_LENGTH,
+	addressKey,
+	connectKey,
+	refuseConnect,
+	screenUpgrade
+} from './limits.js';
 
 /** Enough of `RateLimit` to drive `refuseConnect`, with no network and no workerd. */
 const limiter = (outcome: boolean | 'throws'): RateLimit =>
@@ -97,5 +104,79 @@ describe('CONNECT_LIMIT', () => {
 		// provider.ts caps backoff at 30 s (<=2 attempts/min) and trips a circuit breaker at
 		// 8 closes in 20 s, so a real client's worst case is far under this.
 		expect(CONNECT_LIMIT.limit).toBeGreaterThanOrEqual(10);
+	});
+});
+
+describe('addressKey', () => {
+	it('keys an IPv6 client on its /64, which one host is routinely given whole', () => {
+		expect(addressKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).toBe('2001:db8:1:2::/64');
+		expect(addressKey('2001:db8:1:2::1')).toBe(addressKey('2001:db8:1:2:ffff::9'));
+		expect(addressKey('2001:DB8:0001:0002::1')).toBe('2001:db8:1:2::/64');
+		expect(addressKey('2001:db8::1')).toBe('2001:db8:0:0::/64');
+		expect(addressKey('2001:db8:1:3::1')).not.toBe(addressKey('2001:db8:1:2::1'));
+	});
+
+	it('leaves IPv4 alone, including when it is written as IPv6', () => {
+		expect(addressKey('203.0.113.7')).toBe('203.0.113.7');
+		expect(addressKey('::ffff:203.0.113.7')).toBe('203.0.113.7');
+	});
+
+	it('is what connectKey uses', () => {
+		expect(connectKey(withHeaders({ 'cf-connecting-ip': '2001:db8:1:2::5' }))).toBe(
+			'2001:db8:1:2::/64'
+		);
+	});
+});
+
+describe('screenUpgrade', () => {
+	const origins = 'https://syncticket.elbaymalik.com,http://localhost:4173';
+	const upgrade = (url: string, headers: Record<string, string> = {}) =>
+		new Request(url, { headers: { upgrade: 'websocket', ...headers } });
+	const room = 'https://relay.test/parties/y-doc-room/w' + '0'.repeat(32);
+
+	it('lets the app’s own pages through, and callers that send no Origin', () => {
+		for (const headers of [{ origin: 'https://syncticket.elbaymalik.com' }, {}] as Record<
+			string,
+			string
+		>[]) {
+			expect(screenUpgrade(upgrade(`${room}?_pk=Ab3_-xYz12`, headers), origins)).toBeInstanceOf(
+				Request
+			);
+		}
+	});
+
+	it('refuses a page on another site, and an opaque origin', async () => {
+		for (const origin of [
+			'https://evil.example',
+			'null',
+			'https://syncticket.elbaymalik.com.evil'
+		]) {
+			const result = screenUpgrade(upgrade(room, { origin }), origins);
+			expect(result).toBeInstanceOf(Response);
+			expect((result as Response).status).toBe(403);
+		}
+	});
+
+	it('allows every origin when none is configured, rather than refusing everyone', () => {
+		expect(
+			screenUpgrade(upgrade(room, { origin: 'https://evil.example' }), undefined)
+		).toBeInstanceOf(Request);
+	});
+
+	it('refuses a connection id or a URL the client would never send', () => {
+		const badId = screenUpgrade(upgrade(`${room}?_pk=${'a'.repeat(300)}`), origins) as Response;
+		expect(badId.status).toBe(400);
+		const long = screenUpgrade(
+			upgrade(`${room}?x=${'a'.repeat(MAX_UPGRADE_URL_LENGTH)}`),
+			origins
+		) as Response;
+		expect(long.status).toBe(414);
+	});
+
+	it('strips props only the worker may set', () => {
+		const result = screenUpgrade(upgrade(room, { 'x-partykit-props': '{"a":1}' }), origins);
+		expect(result).toBeInstanceOf(Request);
+		expect((result as Request).headers.has('x-partykit-props')).toBe(false);
+		expect((result as Request).headers.get('upgrade')).toBe('websocket');
 	});
 });

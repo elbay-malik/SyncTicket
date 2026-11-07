@@ -43,3 +43,8 @@ patchedDependencies:
   # person's own scroll inside that time was undone. See the UI section of AGENTS.md. Redo it when
   # bumping virtua: e2e/list-window.e2e.ts fails without it.
   virtua@0.51.0: patches/virtua@0.51.0.patch
+  # Stops partyserver sending its stack trace to whoever's connection failed to set up, and logging
+  # whole room names and request URLs: a room's name is the only access control to it, and invocation
+  # logs are kept by Cloudflare. Its lines now carry an 8-character tag, like the relay's own. Redo it
+  # when bumping partyserver.
+  partyserver@0.5.10: patches/partyserver@0.5.10.patch
