@@ -8,6 +8,7 @@ import { browser } from '$app/environment';
 import YProvider from 'y-partyserver/provider';
 import { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
+import { abandonable } from './abandonable-socket.js';
 import { watchConnection, type ConnectionState } from './connection.svelte.js';
 import { parsePersistenceNotice, type PersistenceNotice } from './relay-notice.js';
 
@@ -58,6 +59,8 @@ export interface RelayHandlers {
 	 * icon already agrees with, unlike an ordinary retry blip.
 	 */
 	onOffline(): void;
+	/** The browser reports its network back; the relay has not answered yet. */
+	onNetworkBack?(): void;
 	/** Fires with true once the relay and this client have exchanged state. */
 	onSynced(synced: boolean): void;
 	/**
@@ -125,7 +128,10 @@ export function attachRelay(
 	const provider = new YProvider(host, workspaceId, doc, {
 		party: RELAY_PARTY,
 		awareness,
-		maxBackoffTime: 30_000
+		maxBackoffTime: 30_000,
+		// So `nudge()` can give up on a socket whose network has gone without waiting for the
+		// browser to finish closing it. See abandonable-socket.ts.
+		WebSocketPolyfill: abandonable(WebSocket)
 	});
 
 	handlers.onConnection('connecting');
@@ -162,7 +168,9 @@ export function attachRelay(
 	// The two certain-or-cheap signals this stack has for a socket the library itself will
 	// not notice is dead — see connection.svelte.ts for why this is not a periodic watchdog
 	// and does not call `disconnect()`.
-	const unwatch = watchConnection(provider, awareness, handlers.onOffline);
+	const unwatch = watchConnection(provider, awareness, handlers.onOffline, () =>
+		handlers.onNetworkBack?.()
+	);
 
 	return {
 		provider,

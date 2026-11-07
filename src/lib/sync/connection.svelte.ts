@@ -11,10 +11,10 @@
 // inside the WebSocket's own asynchronous `close` handler, so a `connect()` called right
 // after `disconnect()` finds its guard (`!wsconnected && ws === null`) still failing and is
 // a no-op — the eventual reconnect that happens anyway is the pre-existing backoff timer,
-// not anything this module did. `nudge()` below never touches `disconnect`: it either closes
-// the live socket (routing through the library's own correct cleanup and its own
-// already-working reconnect, BroadcastChannel included) or, if there is truly nothing to
-// close, calls `connect()` alone — safe precisely because nothing unsafe came before it.
+// not anything this module did. `nudge()` below never touches `disconnect`: it abandons the
+// live socket (running the library's own close handler at once, so its cleanup is the
+// ordinary one, BroadcastChannel included) and then calls `connect()` — safe precisely
+// because nothing unsafe came before it.
 //
 // It refuses to invent traffic to verify a solo tab's connection. There is no per-update
 // delivery acknowledgement anywhere in this protocol, so "confirm my last edit reached the
@@ -26,6 +26,7 @@
 
 import type YProvider from 'y-partyserver/provider';
 import type { Awareness } from 'y-protocols/awareness';
+import { isAbandonable } from './abandonable-socket.js';
 
 export type ConnectionState = 'local' | 'offline' | 'connecting' | 'connected';
 
@@ -59,24 +60,22 @@ function jitterMs(): number {
 /**
  * Prods a socket that might be dead, without ever calling `disconnect()`.
  *
- * If a (possibly half-open) socket is open, closing it routes through the provider's own
- * `close` handler — the same cleanup and the same backoff-driven reconnect an ordinary drop
- * already goes through, BroadcastChannel resubscription included. If there is genuinely
- * nothing to close, the provider is sitting in the gap between backoff attempts
- * (`ws === null && !wsconnected`), which is exactly `connect()`'s own guard — calling it
- * here, with nothing unsafe preceding it, jumps the remaining wait rather than idling it out.
+ * A socket that is there is abandoned (`abandonable-socket.ts`): its `close` listeners run
+ * now, so the provider does its own cleanup at once (BroadcastChannel stays subscribed), and
+ * whatever the dead socket does later is ignored. Plain `close()` would leave the provider
+ * waiting for the browser to finish a closing handshake that cannot finish without a network,
+ * about ten seconds in Chromium, and nothing reconnects until it does.
+ *
+ * Then, if the provider is idle (`ws === null && !wsconnected`, exactly `connect()`'s own
+ * guard), it connects at once rather than waiting out the backoff.
  */
 export function nudge(provider: YProvider): void {
-	if (provider.ws) {
-		provider.ws.close();
-	} else if (!provider.wsconnected) {
-		void provider.connect();
+	const socket = provider.ws;
+	if (socket) {
+		if (isAbandonable(socket)) socket.abandon();
+		else socket.close();
 	}
-}
-
-/** Same as `nudge`, after a small random delay so simultaneous tabs don't all fire at once. */
-function nudgeSoon(provider: YProvider): void {
-	setTimeout(() => nudge(provider), jitterMs());
+	if (provider.ws === null && !provider.wsconnected) void provider.connect();
 }
 
 /**
@@ -114,22 +113,43 @@ export function shouldSuspectStale(
 export function watchConnection(
 	provider: YProvider,
 	awareness: Awareness,
-	onCertainOffline: () => void
+	onCertainOffline: () => void,
+	onNetworkBack: () => void = () => {}
 ): () => void {
+	// Nudges wait a small random delay, so tabs that all hear the same event don't all
+	// reconnect at once. Tracked so teardown can cancel them: a nudge on a destroyed provider
+	// abandons its closing socket and then connects it again for good.
+	let stopped = false;
+	// A plain bookkeeping set that nothing renders.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const pending = new Set<ReturnType<typeof setTimeout>>();
+	const nudgeSoon = () => {
+		const timer = setTimeout(() => {
+			pending.delete(timer);
+			if (!stopped) nudge(provider);
+		}, jitterMs());
+		pending.add(timer);
+	};
+
 	const onOffline = () => {
 		// The browser itself reporting no network is a fact the UI already agrees with —
 		// this is the one signal in this module certain enough to skip the dwell.
 		onCertainOffline();
 		nudge(provider);
 	};
-	const onOnline = () => nudgeSoon(provider);
+	const onOnline = () => {
+		// Back to "trying" rather than leaving the certain offline in place: otherwise the
+		// network returning reads as a relay that can't be reached until the socket opens.
+		onNetworkBack();
+		nudgeSoon();
+	};
 	const onVisible = () => {
 		const stale = shouldSuspectStale(
 			document.visibilityState,
 			awareness.getStates().size,
 			Date.now() - provider.wsLastMessageReceived
 		);
-		if (stale) nudgeSoon(provider);
+		if (stale) nudgeSoon();
 	};
 
 	window.addEventListener('offline', onOffline);
@@ -137,6 +157,9 @@ export function watchConnection(
 	document.addEventListener('visibilitychange', onVisible);
 
 	return () => {
+		stopped = true;
+		for (const timer of pending) clearTimeout(timer);
+		pending.clear();
 		window.removeEventListener('offline', onOffline);
 		window.removeEventListener('online', onOnline);
 		document.removeEventListener('visibilitychange', onVisible);
@@ -199,6 +222,18 @@ export class ConnectionStatus {
 		this.#cancelDwell();
 		this.raw = 'offline';
 		this.#displayed = 'offline';
+	}
+
+	/**
+	 * The browser reports its network back. Shown as connecting, not left at offline: the
+	 * offline was certain, but it is no longer true, and the relay hasn't answered yet either
+	 * way. If it can't be reached, the next 'offline' goes through the ordinary dwell.
+	 */
+	reportNetworkBack(): void {
+		if (this.#displayed !== 'offline') return;
+		this.#cancelDwell();
+		this.raw = 'connecting';
+		this.#displayed = 'connecting';
 	}
 
 	destroy(): void {

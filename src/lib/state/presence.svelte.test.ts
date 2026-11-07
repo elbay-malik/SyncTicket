@@ -8,7 +8,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
-import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
+import {
+	Awareness,
+	applyAwarenessUpdate,
+	encodeAwarenessUpdate,
+	removeAwarenessStates
+} from 'y-protocols/awareness';
 import { Presence } from './presence.svelte.js';
 import { createIdentity, type Identity } from '$lib/model/identity.js';
 
@@ -298,5 +303,125 @@ describe('Presence', () => {
 		odd.setLocalState({ ...base, t: Date.now() + 1 });
 		deliver(odd, bob.awareness);
 		expect(bob.presence.peers[0]?.hue).toBe(first);
+	});
+});
+
+describe('Presence after a reconnect', () => {
+	/** Lets the answers, which are published after the handler that decided on them, go out. */
+	const settle = async () => {
+		for (let i = 0; i < 10; i++) await Promise.resolve();
+	};
+
+	/**
+	 * What a dropped socket does to both ends: the provider removes every remote state on
+	 * Ada's side, and the relay tells Grace that Ada has gone.
+	 */
+	function dropAda(ada: Node, grace: Node, { relayNoticed }: { relayNoticed: boolean }) {
+		linked = false;
+		removeAwarenessStates(ada.awareness, [grace.awareness.clientID], 'connection');
+		if (relayNoticed) removeAwarenessStates(grace.awareness, [ada.awareness.clientID], 'remote');
+	}
+
+	/** What the provider does as the socket opens again: resend this tab's current state. */
+	function reopenAda(ada: Node) {
+		linked = true;
+		ada.awareness.setLocalState(ada.awareness.getLocalState());
+	}
+
+	it('sees a peer again at once, not on their next beat, after the relay forgot both', async () => {
+		const ada = makeNode('Ada Lovelace');
+		const grace = makeNode('Grace Hopper');
+		connect();
+		await settle();
+		expect(ada.presence.others.map((p) => p.name)).toEqual(['Grace Hopper']);
+
+		dropAda(ada, grace, { relayNoticed: true });
+		await settle();
+		// Grace has been alone long enough to stop beating, and the relay hibernated meanwhile,
+		// so it has no state of hers to hand Ada when she reconnects.
+		vi.advanceTimersByTime(30_000);
+		await settle();
+		expect(ada.presence.others).toHaveLength(0);
+
+		reopenAda(ada);
+		await settle();
+		// Before this fix: up to five seconds, until Grace's next tick.
+		expect(ada.presence.others.map((p) => p.name)).toEqual(['Grace Hopper']);
+		expect(grace.presence.others.map((p) => p.name)).toEqual(['Ada Lovelace']);
+	});
+
+	it('is answered at once too when the relay never told the peer we had gone', async () => {
+		const ada = makeNode('Ada Lovelace');
+		const grace = makeNode('Grace Hopper');
+		connect();
+		await settle();
+
+		// Grace still has Ada, so Ada's return is an update to her, not someone new. It is
+		// Ada's own state saying she can see no one that asks for the answer.
+		dropAda(ada, grace, { relayNoticed: false });
+		await settle();
+		vi.advanceTimersByTime(2_000);
+
+		reopenAda(ada);
+		await settle();
+		expect(ada.presence.others.map((p) => p.name)).toEqual(['Grace Hopper']);
+	});
+
+	it('answers once, and the answer does not start a conversation', async () => {
+		const ada = makeNode('Ada Lovelace');
+		const grace = makeNode('Grace Hopper');
+		connect();
+		await settle();
+		dropAda(ada, grace, { relayNoticed: true });
+		await settle();
+		vi.advanceTimersByTime(30_000);
+		await settle();
+
+		const sent = { ada: 0, grace: 0 };
+		ada.awareness.on('update', (_c: unknown, origin: unknown) => {
+			if (origin === 'local') sent.ada += 1;
+		});
+		grace.awareness.on('update', (_c: unknown, origin: unknown) => {
+			if (origin === 'local') sent.grace += 1;
+		});
+		reopenAda(ada);
+		await settle();
+		vi.advanceTimersByTime(4_000);
+		await settle();
+
+		// Ada's resend and her reply to Grace's answer; Grace's one answer. Then quiet until
+		// the ordinary ten-second beat.
+		expect(sent.ada).toBeLessThanOrEqual(2);
+		expect(sent.grace).toBe(1);
+	});
+
+	it('does not put a tab back on the relay as the page unloads', async () => {
+		const ada = makeNode('Ada Lovelace');
+		const grace = makeNode('Grace Hopper');
+		connect();
+		await settle();
+		// What the provider does on unload: remove this tab's own state.
+		removeAwarenessStates(ada.awareness, [ada.awareness.clientID], 'window unload');
+		await settle();
+		expect(ada.awareness.getLocalState()).toBeNull();
+		expect(grace.presence.others).toHaveLength(0);
+	});
+
+	it("does not count this browser's other tab as company when saying it is alone", async () => {
+		const ada = makeNode('Ada Lovelace');
+		const adaTab = makeNode('Ada Lovelace', ada.identity);
+		const grace = makeNode('Grace Hopper');
+		connect();
+		await settle();
+
+		// Ada's socket drops: Grace is gone from her map, her other tab comes back over
+		// BroadcastChannel, and she beats meanwhile.
+		linked = false;
+		removeAwarenessStates(ada.awareness, [grace.awareness.clientID], 'connection');
+		deliver(adaTab.awareness, ada.awareness);
+		await settle();
+		vi.advanceTimersByTime(11_000);
+		await settle();
+		expect((ada.awareness.getLocalState() as { alone?: boolean }).alone).toBe(true);
 	});
 });
