@@ -82,7 +82,7 @@ test('the pointer decides the column, wherever on the card it was held', async (
 });
 
 test.describe('on a phone', () => {
-	test('a card dragged to the screen edge, over the next column, leaves its own', async ({
+	test('a card dragged to the screen edge, where the next column shows, lands in a column', async ({
 		page
 	}) => {
 		await seed(page, ['Alpha', 'Bravo', 'Charlie']);

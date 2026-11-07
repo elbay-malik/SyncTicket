@@ -88,14 +88,21 @@
 	 * took the card jumping back for dragging being broken.
 	 */
 	let missed = $state(false);
+	const MISSED_DROP =
+		'That was outside every column, so the card stayed put. Release it over a column.';
 	let missedTimer: ReturnType<typeof setTimeout> | undefined;
 	onDestroy(() => clearTimeout(missedTimer));
 
 	function onfinalize(status: IssueStatus, event: CustomEvent<DndEvent<Issue>>) {
 		if (event.detail.info.trigger === TRIGGERS.DROPPED_OUTSIDE_OF_ANY) {
-			missed = true;
 			clearTimeout(missedTimer);
-			missedTimer = setTimeout(() => (missed = false), 4000);
+			// Cleared first, so a second miss while the message is still up changes the live
+			// region's text again and is announced again, rather than writing the same words.
+			missed = false;
+			void tick().then(() => {
+				missed = true;
+				missedTimer = setTimeout(() => (missed = false), 4000);
+			});
 		} else {
 			missed = false;
 		}
@@ -116,23 +123,20 @@
 		<!-- The hold is not decoration: a touch only becomes a drag after
 		     board-column.svelte's TOUCH_DRAG_DELAY_MS, so that a swipe which starts on a card
 		     scrolls the board instead of dragging the card. -->
-		<!-- One line, two jobs. The hint stays a plain paragraph; the missed-drop message is a
-		     live region that is always there, so only the message is announced, and only when it
-		     appears. -->
-		<p class="text-muted-foreground ml-auto text-xs text-pretty" hidden={missed}>
-			Drag a card — on a touch screen, hold it first — or focus one and press Space, then arrow keys
-			or Tab.
+		<!-- One line, two texts: the hint, or for a moment after a missed drop, why the card went
+		     back. The live region beside it is always in the page and only its text changes, so
+		     the message is announced when it appears, and only then. -->
+		<p class="text-muted-foreground ml-auto text-xs text-pretty" data-testid="board-hint">
+			{#if missed}
+				<span class="text-foreground font-medium">{MISSED_DROP}</span>
+			{:else}
+				Drag a card — on a touch screen, hold it first — or focus one and press Space, then arrow
+				keys or Tab.
+			{/if}
 		</p>
-		<p
-			class="text-foreground ml-auto text-xs font-medium text-pretty"
-			role="status"
-			hidden={!missed}
-			data-testid="board-drop-missed"
-		>
-			{missed
-				? 'That was outside every column, so the card stayed put. Release it over a column.'
-				: ''}
-		</p>
+		<span class="sr-only" role="status" data-testid="board-drop-missed">
+			{missed ? MISSED_DROP : ''}
+		</span>
 	</div>
 
 	{#if !query.synced}
