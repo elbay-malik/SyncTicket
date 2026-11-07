@@ -15,7 +15,7 @@
 	// board clears all previews whenever any drag ends.
 
 	import { onDestroy, tick } from 'svelte';
-	import { type DndEvent } from 'svelte-dnd-action';
+	import { TRIGGERS, type DndEvent } from 'svelte-dnd-action';
 	import { ISSUE_STATUSES, type Issue, type IssueStatus } from '$lib/model/issue.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
@@ -82,7 +82,23 @@
 		apply(reduceConsider(status, event.detail));
 	}
 
+	/**
+	 * Set for a moment after a card was released outside every column. The library puts it
+	 * back where it came from, which is right, but it did so without a word, and a visitor
+	 * took the card jumping back for dragging being broken.
+	 */
+	let missed = $state(false);
+	let missedTimer: ReturnType<typeof setTimeout> | undefined;
+	onDestroy(() => clearTimeout(missedTimer));
+
 	function onfinalize(status: IssueStatus, event: CustomEvent<DndEvent<Issue>>) {
+		if (event.detail.info.trigger === TRIGGERS.DROPPED_OUTSIDE_OF_ANY) {
+			missed = true;
+			clearTimeout(missedTimer);
+			missedTimer = setTimeout(() => (missed = false), 4000);
+		} else {
+			missed = false;
+		}
 		apply(reduceFinalize(status, event.detail));
 	}
 </script>
@@ -100,9 +116,22 @@
 		<!-- The hold is not decoration: a touch only becomes a drag after
 		     board-column.svelte's TOUCH_DRAG_DELAY_MS, so that a swipe which starts on a card
 		     scrolls the board instead of dragging the card. -->
-		<p class="text-muted-foreground ml-auto text-xs text-pretty">
+		<!-- One line, two jobs. The hint stays a plain paragraph; the missed-drop message is a
+		     live region that is always there, so only the message is announced, and only when it
+		     appears. -->
+		<p class="text-muted-foreground ml-auto text-xs text-pretty" hidden={missed}>
 			Drag a card — on a touch screen, hold it first — or focus one and press Space, then arrow keys
 			or Tab.
+		</p>
+		<p
+			class="text-foreground ml-auto text-xs font-medium text-pretty"
+			role="status"
+			hidden={!missed}
+			data-testid="board-drop-missed"
+		>
+			{missed
+				? 'That was outside every column, so the card stayed put. Release it over a column.'
+				: ''}
 		</p>
 	</div>
 
@@ -120,7 +149,13 @@
 			<!-- The one horizontal scroller on the route. It only gets to be one because the inset
 			     around <main> may shrink below the columns' width (sidebar-inset.svelte's min-w-0);
 			     the test id lets board.e2e.ts assert that the overflow lands here, not on the page. -->
-			<div class="flex min-h-64 flex-1 gap-4 overflow-x-auto pb-4" data-testid="board-columns">
+			<!-- Out to the edges of <main>, through its padding (`-mx-6 px-6`, matching its p-6): on a
+			     phone the next column only shows at the screen's edge, and that strip used to be
+			     padding outside the scroller, where a card released over it belonged to no column. -->
+			<div
+				class="-mx-6 flex min-h-64 flex-1 gap-4 overflow-x-auto px-6 pb-4"
+				data-testid="board-columns"
+			>
 				{#each ISSUE_STATUSES as status (status)}
 					<BoardColumn
 						{status}
