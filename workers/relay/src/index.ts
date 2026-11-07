@@ -63,15 +63,31 @@ function heldIds(conn: Connection): number[] {
 	}
 }
 
-function setHeldIds(conn: Connection, ids: number[]): void {
+/**
+ * Set once a connection has sent its first presence frame, its one chance to claim a client
+ * (`claimEntries`). Kept beside y-partyserver's ids in the socket's attachment, so it survives
+ * hibernation as they do.
+ */
+const CLAIMED_KEY = '__stPresenceClaimed';
+
+function claimedBefore(conn: Connection): boolean {
 	try {
-		conn.setState((prev: unknown) => ({
-			...(prev as Record<string, unknown> | null),
-			[AWARENESS_IDS_KEY]: ids
-		}));
+		return (conn.state as Record<string, unknown> | null)?.[CLAIMED_KEY] === true;
+	} catch {
+		return false;
+	}
+}
+
+function updateState(conn: Connection, patch: Record<string, unknown>): void {
+	try {
+		conn.setState((prev: unknown) => ({ ...(prev as Record<string, unknown> | null), ...patch }));
 	} catch {
 		// The connection is going; y-partyserver's own bookkeeping does the same.
 	}
+}
+
+function setHeldIds(conn: Connection, ids: number[]): void {
+	updateState(conn, { [AWARENESS_IDS_KEY]: ids });
 }
 
 export class YDocRoom extends YServer<Env> {
@@ -103,8 +119,12 @@ export class YDocRoom extends YServer<Env> {
 	/**
 	 * Per-connection message limits, in memory (see `message-limits.ts` for why that is enough).
 	 * A connection that lived through a hibernation starts again with a full budget.
+	 *
+	 * Keyed by the socket, not `conn.id`: the client sends the same id on every reconnect, so a
+	 * tab's new socket and its old one, not yet noticed as dead, share one. Keyed by id, the new
+	 * socket inherited the old one's limits and could have its first sync request dropped.
 	 */
-	#limits = new Map<string, ConnectionLimits>();
+	#limits = new WeakMap<Connection, ConnectionLimits>();
 
 	/**
 	 * Every frame passes `admitFrame` before y-partyserver sees it. See `message-limits.ts` for
@@ -112,12 +132,16 @@ export class YDocRoom extends YServer<Env> {
 	 */
 	override onMessage(conn: Connection, message: WSMessage): void {
 		const now = Date.now();
-		let limits = this.#limits.get(conn.id);
+		let limits = this.#limits.get(conn);
 		if (!limits) {
 			limits = newConnectionLimits(now);
-			this.#limits.set(conn.id, limits);
+			this.#limits.set(conn, limits);
 		}
-		const verdict = admitFrame(message, limits, heldIds(conn), now);
+		const presence = { held: heldIds(conn), claimedBefore: claimedBefore(conn) };
+		const verdict = admitFrame(message, limits, presence, now);
+		if (verdict.action !== 'close' && verdict.presenceFrame && !presence.claimedBefore) {
+			updateState(conn, { [CLAIMED_KEY]: true });
+		}
 		if (verdict.action === 'drop') return;
 		if (verdict.action === 'close') {
 			try {
@@ -127,7 +151,12 @@ export class YDocRoom extends YServer<Env> {
 			}
 			return;
 		}
-		if (verdict.claimed != null) this.#takePresence(conn, verdict.claimed);
+		if (verdict.claimed != null) {
+			// Recorded here, not left to y-partyserver: it only records ids the room has never
+			// seen, and a tab reconnecting without a reload brings back an id the room has seen.
+			setHeldIds(conn, [verdict.claimed]);
+			this.#takePresence(conn, verdict.claimed);
+		}
 		super.onMessage(conn, verdict.frame);
 	}
 
@@ -139,7 +168,8 @@ export class YDocRoom extends YServer<Env> {
 	 */
 	#takePresence(conn: Connection, clientId: number): void {
 		for (const other of this.getConnections()) {
-			if (other.id === conn.id) continue;
+			// The socket itself, not its id: the stale socket this is for has the same id.
+			if (other === conn) continue;
 			const ids = heldIds(other);
 			if (ids.includes(clientId))
 				setHeldIds(
@@ -153,7 +183,7 @@ export class YDocRoom extends YServer<Env> {
 	override onCustomMessage(): void {}
 
 	override onClose(conn: Connection, code: number, reason: string, wasClean: boolean): void {
-		this.#limits.delete(conn.id);
+		this.#limits.delete(conn);
 		super.onClose(conn, code, reason, wasClean);
 	}
 
