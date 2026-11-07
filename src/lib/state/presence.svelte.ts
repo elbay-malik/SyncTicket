@@ -41,6 +41,8 @@ const STALE_MS = 25_000;
 const FORGET_MS = 120_000;
 /** The single timer driving both the staleness filter and the beat. */
 const TICK_MS = 5_000;
+/** The least time between two answers to newcomers, so a crowd arriving costs one beat. */
+const ANSWER_MIN_MS = 1_000;
 
 /** An issue id is compared and used as a map key, so its size is bounded on arrival. */
 const MAX_ID_LENGTH = 64;
@@ -67,6 +69,11 @@ interface PresenceState {
 	issue: string | null;
 	/** Changes on every beat, because the provider broadcasts on `change`, not `update`. */
 	t: number;
+	/**
+	 * True when this tab knew of no one else as it published: a request for everyone who sees
+	 * it to answer now, rather than on their next beat. Optional, because older tabs omit it.
+	 */
+	alone?: boolean;
 }
 
 const NO_PEERS: readonly Peer[] = [];
@@ -126,6 +133,7 @@ export class Presence {
 	#awareness: Awareness;
 	#timer: ReturnType<typeof setInterval> | null = null;
 	#lastBeat = 0;
+	#destroyed = false;
 	/**
 	 * When each remote client was last heard from, by this machine's clock.
 	 *
@@ -235,6 +243,7 @@ export class Presence {
 	}
 
 	destroy(): void {
+		this.#destroyed = true;
 		if (this.#timer !== null) clearInterval(this.#timer);
 		this.#timer = null;
 		this.#awareness.off('update', this.#onUpdate);
@@ -249,10 +258,23 @@ export class Presence {
 			name: this.me.name,
 			hue: this.me.hue,
 			issue: this.#activeIssueId,
-			t: Date.now()
+			t: Date.now(),
+			alone: !this.#knowsAnyoneElse()
 		};
 		this.#awareness.setLocalState(state);
 		this.#lastBeat = state.t;
+	}
+
+	/**
+	 * Whether it holds another person. This browser's other tabs don't count: they reach this
+	 * one over BroadcastChannel, so seeing them says nothing about the relay.
+	 */
+	#knowsAnyoneElse(): boolean {
+		for (const [clientId, raw] of this.#awareness.getStates()) {
+			if (clientId === this.#awareness.clientID) continue;
+			if ((raw as Partial<PresenceState> | null)?.userId !== this.me.userId) return true;
+		}
+		return false;
 	}
 
 	#onUpdate = ({ added, updated, removed }: AwarenessChange): void => {
@@ -262,6 +284,35 @@ export class Presence {
 		}
 		for (const clientId of removed) this.#lastSeen.delete(clientId);
 		this.#rebuild(now);
+
+		// Answer at once, rather than on the next tick, when someone has just appeared or says
+		// they can't see anyone. A tab that has been alone stops beating, and the relay only
+		// hands a newcomer the states it still holds, which after it hibernates is none, so
+		// without this a tab that had just reconnected showed "no one else here yet" for about
+		// four seconds while its peer was there all along. An answer is never itself a reason
+		// to answer: it is an update from someone already known, and not `alone`.
+		const me = this.#awareness.clientID;
+		const asking = [...added, ...updated].some((clientId) => {
+			if (clientId === me) return false;
+			const state = this.#awareness.getStates().get(clientId) as Partial<PresenceState> | null;
+			// My own other tabs saying they are alone is about their relay, not about me.
+			if (state?.userId === this.me.userId) return false;
+			return added.includes(clientId) || state?.alone === true;
+		});
+		// Losing everyone (the socket closed) is the other half: the next state this tab sends,
+		// which the provider resends as the socket reopens, has to say it is alone. Only when
+		// this tab is still publishing: the provider removes this tab's own state as the page
+		// unloads, and publishing again then left a ghost tab on the relay.
+		const lostEveryone =
+			removed.some((clientId) => clientId !== me) &&
+			this.#awareness.getLocalState() !== null &&
+			!this.#knowsAnyoneElse();
+		if ((asking && now - this.#lastBeat >= ANSWER_MIN_MS) || lostEveryone) {
+			// After this handler, not inside it: publishing emits an update of its own.
+			queueMicrotask(() => {
+				if (!this.#destroyed && this.#awareness.getLocalState() !== null) this.#publish();
+			});
+		}
 	};
 
 	/**

@@ -7,7 +7,14 @@
 // browser-mode unit tests in this repo don't otherwise use.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ConnectionStatus, nudge, shouldSuspectStale } from './connection.svelte.js';
+import { Awareness } from 'y-protocols/awareness';
+import * as Y from 'yjs';
+import {
+	ConnectionStatus,
+	nudge,
+	shouldSuspectStale,
+	watchConnection
+} from './connection.svelte.js';
 
 describe('ConnectionStatus', () => {
 	const statuses: ConnectionStatus[] = [];
@@ -207,5 +214,50 @@ describe('nudge', () => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- duck-typed YProvider
 		nudge(provider as any);
 		expect(provider.connect).not.toHaveBeenCalled();
+	});
+});
+
+describe('ConnectionStatus.reportNetworkBack', () => {
+	afterEach(() => vi.useRealTimers());
+
+	it('turns a certain offline into connecting, and a relay still unreachable goes back through the dwell', () => {
+		vi.useFakeTimers();
+		const status = new ConnectionStatus();
+		status.reportCertainOffline();
+		status.reportNetworkBack();
+		expect(status.displayed).toBe('connecting');
+
+		status.report('offline');
+		vi.advanceTimersByTime(1_000);
+		expect(status.displayed).toBe('connecting');
+		vi.advanceTimersByTime(300);
+		expect(status.displayed).toBe('offline');
+		status.destroy();
+	});
+
+	it('leaves any other state alone', () => {
+		const status = new ConnectionStatus();
+		status.report('connected');
+		status.reportNetworkBack();
+		expect(status.displayed).toBe('connected');
+		status.destroy();
+	});
+});
+
+describe('watchConnection teardown', () => {
+	afterEach(() => vi.useRealTimers());
+
+	it('cancels a pending nudge, so a destroyed provider is never connected again', () => {
+		vi.useFakeTimers();
+		const provider = { ws: null, wsconnected: false, connect: vi.fn(), wsLastMessageReceived: 0 };
+		const awareness = new Awareness(new Y.Doc());
+		clearInterval(awareness._checkInterval);
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- duck-typed YProvider
+		const stop = watchConnection(provider as any, awareness, () => {});
+		window.dispatchEvent(new Event('online'));
+		stop();
+		vi.advanceTimersByTime(1_000);
+		expect(provider.connect).not.toHaveBeenCalled();
+		awareness.destroy();
 	});
 });
