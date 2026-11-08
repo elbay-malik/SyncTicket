@@ -37,6 +37,10 @@ Target Cloudflare Workers (not Pages) via adapter-cloudflare 7.x with `wrangler.
 
 - Revisit the two-worker split if kit PR #15627 merges and adapter v8 stabilizes on SvelteKit 3.
 
+  **Update (2026-11-08).** The app no longer uses adapter-cloudflare or runs a Worker of its own:
+  it is static files on an assets-only Worker ([ADR 0011](0011-serve-the-app-as-static-files.md)).
+  The relay stays the one Worker with code.
+
 ## Alternatives considered
 
 - **Same-worker DO via community shims** (e.g. sveltekit-add-worker-exports) — self-described as temporary pending #15627; too load-bearing a hack for the project's foundation.

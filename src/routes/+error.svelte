@@ -35,6 +35,9 @@
 
 <svelte:head>
 	<title>{notFound ? 'Page not found' : 'Page did not load'} · SyncTicket</title>
+	<!-- Every address is answered with the app's page and a 200, so this tag is what tells a
+	search engine there is nothing here (ADR 0011). -->
+	<meta name="robots" content="noindex" />
 </svelte:head>
 
 <div class="mx-auto flex w-full max-w-3xl flex-col gap-6">

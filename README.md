@@ -81,12 +81,12 @@ pnpm fetch:search-assets      # optional — vendors the embedding model + ONNX 
                                # want lexical search, which needs nothing extra (ADR 0009)
 pnpm demo                     # relay + app together, with live sync on (recommended)
 pnpm dev                      # app only, local-first, no relay
-pnpm check                    # wrangler types --check + svelte-check (TS strict)
+pnpm check                    # wrangler types + svelte-check (TS strict)
 pnpm lint                     # prettier + eslint
 pnpm test                     # vitest unit + browser-mode component tests
-pnpm exec playwright test     # e2e against the built worker (needs `playwright install chromium`)
-pnpm build                    # production build via adapter-cloudflare
-pnpm preview                  # the BUILT worker under real workerd (wrangler dev, :4173)
+pnpm exec playwright test     # e2e against the built site (needs `playwright install chromium`)
+pnpm build                    # production build: static files in build/
+pnpm preview                  # the BUILT site as Cloudflare serves it (wrangler dev, :4173)
 pnpm ci:local                 # every CI step, in CI's order, locally (--no-e2e for the fast
                                # subset; --help lists what it deliberately does NOT check)
 ```
@@ -150,6 +150,8 @@ The `workers/relay/` split is deliberate: Durable Object classes cannot be expor
 - [0007 — Presence liveness is owned by the client, not the protocol](docs/adr/0007-presence-liveness-is-owned-by-the-client.md)
 - [0008 — Connection liveness: nudge the socket, never call disconnect()](docs/adr/0008-connection-liveness-nudge-not-reconnect.md)
 - [0009 — Self-host the embedding model and the ONNX runtime](docs/adr/0009-self-host-the-embedding-model-and-onnx-runtime.md)
+- [0010 — Relay snapshot durability: report the ceiling, do not raise it](docs/adr/0010-relay-snapshot-durability.md)
+- [0011 — Serve the app as static files, and put both hosts behind the zone](docs/adr/0011-serve-the-app-as-static-files.md)
 
 ## Engineering notes
 
@@ -159,8 +161,8 @@ Per-phase writeups: measured numbers, tradeoffs, and the surprises that only sho
 
 - **The Y.Doc is the source of truth; the UI reads a projection.** Each workspace is one `Y.Doc` holding a `Y.Map` of issues, each issue a `Y.Map` of scalar fields ([src/lib/sync/doc.ts](src/lib/sync/doc.ts)). A single `observeDeep` on the issues map ([src/lib/state/issues.svelte.ts](src/lib/state/issues.svelte.ts)) patches a `SvelteMap` of plain `Issue` snapshots — top-level events carry whole-issue add/deletes, nested events carry a field change whose `path[0]` is the issue id, so only the touched issues re-snapshot. The derived query index ([src/lib/state/queries.svelte.ts](src/lib/state/queries.svelte.ts)) is pure `$derived` over that projection. Writes never touch local state directly; they mutate the CRDT and the observer updates the view.
 - **Layering keeps the CRDT testable without a browser.** `model/` is plain types and pure filter/sort functions (no Yjs, no runes); `sync/` is the only place that (de)serialises a `Y.Map`; `state/` is the runes bridge. This let the CRDT round-trip, fractional ordering, and even two-replica convergence be unit-tested on a bare `Y.Doc` in Node.
-- **Persistence must attach synchronously.** y-indexeddb only captures doc updates emitted _after_ it subscribes. A `dynamic import('y-indexeddb')` created a lost-write window — a user who created an issue and reloaded within the chunk-load window lost it. The import is static and browser-guarded; esbuild dead-code-eliminates it from the workerd bundle anyway ([src/lib/sync/persistence.ts](src/lib/sync/persistence.ts)).
-- **SSR without a hydration mismatch.** `getIssueStore()` returns a fresh empty store per server render (never a shared singleton) so no request leaks `synced` state into another; the browser gets a session singleton. Both server and first client render show the same unsynced skeleton, then the client hydrates from IndexedDB.
+- **Persistence must attach synchronously.** y-indexeddb only captures doc updates emitted _after_ it subscribes. A `dynamic import('y-indexeddb')` created a lost-write window — a user who created an issue and reloaded within the chunk-load window lost it. The import is static and browser-guarded; esbuild dead-code-eliminated it from the server bundle, back when there was one ([src/lib/sync/persistence.ts](src/lib/sync/persistence.ts)).
+- **SSR without a hydration mismatch.** `getIssueStore()` returns a fresh empty store per server render (never a shared singleton) so no request leaks `synced` state into another; the browser gets a session singleton. Both server and first client render show the same unsynced skeleton, then the client hydrates from IndexedDB. (Since [ADR 0011](docs/adr/0011-serve-the-app-as-static-files.md) there is no server render: every page is one static file, drawn in the browser.)
 - **A deterministic persistence test.** The reload e2e waits for y-indexeddb's `updates` store to grow past its post-sync baseline before reloading, so it can't race the async IndexedDB commit ([e2e/issues.e2e.ts](e2e/issues.e2e.ts)).
 
 ### Phase 4 — the CRUD UI, and what was not obvious

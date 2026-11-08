@@ -3,20 +3,24 @@
 	"name": "syncticket",
 	// Max supported by the workerd bundled with the pinned wrangler; bump alongside wrangler upgrades.
 	"compatibility_date": "2026-07-06",
-	"compatibility_flags": ["nodejs_compat"],
-	"main": ".svelte-kit/cloudflare/_worker.js",
+	// No `main`: the app is static files and nothing else (ADR 0011). Cloudflare serves them
+	// without running a Worker, so page loads are free and no flood of them can use up the
+	// account's daily request budget.
+	//
 	// Not a build: `pnpm build` has already run. Wrangler runs this before every deploy, which makes
-	// it the one place a deploy without the gitignored search assets cannot get past. A custom
-	// command also stops `wrangler dev` watching the entry, so restart a running preview to pick up
-	// a new `pnpm build`.
-	"build": { "command": "node scripts/check-search-assets.mjs .svelte-kit/cloudflare" },
+	// it the one place a deploy without the gitignored search assets cannot get past.
+	"build": { "command": "node scripts/check-search-assets.mjs build" },
 	"assets": {
-		"binding": "ASSETS",
-		"directory": ".svelte-kit/cloudflare"
+		"directory": "build",
+		// Any address that is not a file gets the app's page, which then draws the route, or the
+		// not-found page, in the browser.
+		"not_found_handling": "single-page-application"
 	},
 	"routes": [{ "pattern": "syncticket.elbaymalik.com", "custom_domain": true }],
-	"workers_dev": true,
-	"preview_urls": true,
+	// Only the zone's host. A workers.dev address, or a preview one under it, is out of reach of
+	// the zone's rules and settings, among them Always Use HTTPS.
+	"workers_dev": false,
+	"preview_urls": false,
 	// Invocation logs off: each one records the request URL, and a workspace link's `?ws=` is
 	// the whole access control to that workspace. Errors and console output still reach the
 	// dashboard.
@@ -24,10 +28,4 @@
 		"enabled": true,
 		"logs": { "invocation_logs": false }
 	}
-	// FUTURE (Phase 9 — realtime relay): cross-script Durable Object binding to the separate
-	// relay worker. The DO class and its migrations (new_sqlite_classes — the free plan only
-	// allows SQLite-backed DOs) live in workers/relay/wrangler.jsonc, NOT here (ADR 0002).
-	// "durable_objects": {
-	// 	"bindings": [{ "name": "Y_DOC", "class_name": "YDocRoom", "script_name": "syncticket-relay" }]
-	// }
 }

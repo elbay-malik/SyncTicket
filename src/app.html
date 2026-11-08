@@ -23,6 +23,18 @@
 		<meta name="twitter:card" content="summary_large_image" />
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 		<script>
+			// First of all: a page reached over plain HTTP goes to HTTPS before it reads or sends
+			// anything. A workspace link carries its capability in `?ws=`, and over HTTP anyone on
+			// the network path could read it, or answer with a page of their own. The zone's Always
+			// Use HTTPS answers such a request with a redirect before any page is served, and the HSTS
+			// header keeps a browser from asking over HTTP again; this is the fallback should that
+			// setting ever be off, since there is no server of our own to redirect any more
+			// (ADR 0011). Only the live host: every local and LAN server is plain HTTP on purpose.
+			if (location.protocol === 'http:' && location.hostname === 'syncticket.elbaymalik.com') {
+				location.replace('https:' + location.href.slice('http:'.length));
+			}
+		</script>
+		<script>
 			// Before any other script: a browser set to block site data throws on any read of
 			// localStorage, and libraries the root layout imports (mode-watcher, and runed under it)
 			// read it while their modules load. That threw before the app could start, and SvelteKit
@@ -63,6 +75,25 @@
 						// Nothing more to do: the app's own reads are guarded.
 					}
 				});
+			})();
+		</script>
+		<script>
+			// The colour scheme, before the first paint. A server render used to put mode-watcher's
+			// own script here; with the page drawn in the browser (ADR 0011) it would only arrive
+			// with the app, and a dark-mode visitor would see a white page until then. The same
+			// logic and storage key as mode-watcher's `setInitialMode`, which takes over on mount.
+			(function () {
+				var mode = 'system';
+				try {
+					mode = localStorage.getItem('mode-watcher-mode') || 'system';
+				} catch (error) {
+					// Storage refused: follow the system.
+				}
+				var light =
+					mode === 'light' ||
+					(mode === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+				document.documentElement.classList.toggle('dark', !light);
+				document.documentElement.style.colorScheme = light ? 'light' : 'dark';
 			})();
 		</script>
 		%sveltekit.head%

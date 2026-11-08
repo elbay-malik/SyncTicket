@@ -33,7 +33,7 @@ export default defineConfig({
 			reuseExistingServer: false
 		},
 		{
-			// The built worker under real workerd, built against the relay above. Cold build
+			// The built static site, served the way Cloudflare serves it, built against the relay above. Cold build
 			// plus runtime boot can exceed Playwright's 60s default.
 			command: `PUBLIC_RELAY_HOST=localhost:${RELAY_PORT} pnpm build && pnpm preview`,
 			port: APP_PORT,

@@ -10,18 +10,16 @@
 	// 8-character tag. Errors and console output still reach the dashboard.
 	"observability": { "enabled": true, "logs": { "invocation_logs": false } },
 	// The pages allowed to open a socket here, checked by `screenUpgrade` in src/limits.ts. The
-	// live site, the older workers.dev address that serves the same build, and the two local
-	// ports (`vite dev`, and `pnpm preview`). Not inherited by the e2e environment, which
+	// live site and the two local ports (`vite dev`, and `pnpm preview`). Not inherited by the e2e environment, which
 	// declares its own.
 	"vars": {
-		"ALLOWED_ORIGINS": "https://syncticket.elbaymalik.com,https://syncticket.eleo-666.workers.dev,http://localhost:5173,http://localhost:4173"
+		"ALLOWED_ORIGINS": "https://syncticket.elbaymalik.com,http://localhost:5173,http://localhost:4173"
 	},
 	// Its own host on the owner's zone, so that zone rules (a rate limit, a block on anything that
 	// is not a socket upgrade) can stop a flood before it runs the Worker and counts against the
-	// daily request budget. Rules cannot touch a workers.dev address. The live build connects
-	// here; workers.dev stays on only until every open tab has picked that build up.
+	// daily request budget. Rules cannot touch a workers.dev address, so the relay has none.
 	"routes": [{ "pattern": "syncticket-relay.elbaymalik.com", "custom_domain": true }],
-	"workers_dev": true,
+	"workers_dev": false,
 	"durable_objects": {
 		// The binding name is load-bearing: partyserver derives the URL namespace by
 		// kebab-casing it, so this binding is reachable at /parties/y-doc-room/:room and the

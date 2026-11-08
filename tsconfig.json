@@ -3,9 +3,7 @@
 	"compilerOptions": {
 		"rewriteRelativeImportExtensions": true,
 		"allowJs": true,
-		// checkJs must stay off: wrangler's generated worker-configuration.d.ts imports the
-		// built worker entry (.svelte-kit/cloudflare/_worker.js), so after any build the JS
-		// bundle artifacts enter the TS program and would fail checking.
+		// checkJs stays off: plain-JS build scripts and config files are not written to pass it.
 		"checkJs": false,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,

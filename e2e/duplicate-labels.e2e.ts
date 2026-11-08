@@ -18,7 +18,7 @@ function collectProblems(page: Page): string[] {
 	const problems: string[] = [];
 	page.on('pageerror', (error) => problems.push(error.message));
 	page.on('console', (message) => {
-		if (message.text().includes('hydration')) problems.push(message.text());
+		if (message.type() === 'error') problems.push(message.text());
 	});
 	return problems;
 }
@@ -79,22 +79,23 @@ test('a label a peer repeats renders once everywhere, and on every load', async 
 	expect(problems).toEqual([]);
 });
 
-test('the Worker renders every guarded route, and none of them as a failure', async ({
+test('every guarded route renders, and none of them as a failure', async ({
 	page,
 	workspaceId
 }) => {
+	// Drawn in the browser from the one static page (ADR 0011); there is no server render to
+	// disagree with it.
 	const problems = collectProblems(page);
-	for (const path of ['/issues', '/board', `/issues/${crypto.randomUUID()}`]) {
-		const response = await page.request.get(`${path}?ws=${workspaceId}`);
-		expect(response.status(), path).toBe(200);
-		const html = await response.text();
-		expect(html, path).toContain('id="main-content"');
-		expect(html, path).not.toContain('view-failed');
-
-		// The hydration of that same markup is what could disagree with it.
-		await page.goto(path);
-		await expect(page.getByRole('main')).toBeVisible();
+	const routes = [
+		['/issues', page.getByText('No issues yet')],
+		['/board', page.getByTestId('board-columns')],
+		[`/issues/${crypto.randomUUID()}`, page.getByTestId('issue-sheet-missing')]
+	] as const;
+	for (const [path, content] of routes) {
+		await page.goto(`${path}?ws=${workspaceId}`);
+		// The route's own content, not just the layout around it.
+		await expect(content, path).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByTestId('view-failed'), path).toHaveCount(0);
 	}
-	await expect(page.getByTestId('view-failed')).toHaveCount(0);
 	expect(problems).toEqual([]);
 });

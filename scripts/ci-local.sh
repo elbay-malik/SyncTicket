@@ -163,7 +163,7 @@ if [ $run_e2e -eq 1 ]; then
 else
 	skip "E2E tests (Playwright)"
 fi
-step "Build (adapter-cloudflare)" pnpm build
+step "Build (static files)" pnpm build
 step "Validate worker bundle (dry-run)" pnpm exec wrangler deploy --dry-run --outdir=.wrangler/dist
 step "Typecheck the relay worker" pnpm --filter syncticket-relay run check
 step "Validate relay bundle (dry-run)" pnpm --filter syncticket-relay run dry-run

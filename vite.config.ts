@@ -1,8 +1,42 @@
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
+import type { Plugin } from 'vite';
 import { playwright } from '@vitest/browser-playwright';
-import adapter from '@sveltejs/adapter-cloudflare';
+import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
+
+/**
+ * `vite dev` doing what Cloudflare's asset server does for the built site (ADR 0011): a path
+ * `decodeURI` refuses goes to the same text with each `%` encoded. SvelteKit's client throws on
+ * such a path while it starts, so without this the dev server shows a bare error page where the
+ * live site shows an issue that was not found.
+ */
+function decodes(path: string): boolean {
+	try {
+		// The result is used on purpose: the config bundler drops a call to `decodeURI` whose
+		// result nothing reads, as free of side effects, and with it the throw.
+		return typeof decodeURI(path) === 'string';
+	} catch {
+		return false;
+	}
+}
+
+const malformedPaths: Plugin = {
+	name: 'syncticket:malformed-paths',
+	// Ahead of SvelteKit's own dev middleware, which is `pre` too and would answer first.
+	enforce: 'pre',
+	configureServer(server) {
+		server.middlewares.use((request, response, next) => {
+			const [path = '', query] = (request.url ?? '').split(/\?(.*)/s, 2);
+			if (decodes(path)) return next();
+			const location = path.replaceAll('%', '%25') + (query === undefined ? '' : `?${query}`);
+			response.statusCode = 307;
+			// Same-origin only: a path starting `//` would read as another host.
+			response.setHeader('location', location.replace(/^\/+/, '/'));
+			response.end();
+		});
+	}
+};
 
 export default defineConfig({
 	// Module workers must be code-split, not inlined. Vite's default worker format is 'iife',
@@ -25,6 +59,7 @@ export default defineConfig({
 		exclude: ['@huggingface/transformers']
 	},
 	plugins: [
+		malformedPaths,
 		tailwindcss(),
 		sveltekit({
 			compilerOptions: {
@@ -32,7 +67,9 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			adapter: adapter()
+			// Static files and one page for every address: Cloudflare serves them without running a
+			// Worker, so no number of page loads touches the daily request budget (ADR 0011).
+			adapter: adapter({ fallback: 'index.html' })
 		})
 	],
 	test: {

@@ -87,7 +87,7 @@ describe('check-search-assets.mjs', () => {
 describe('where the check is wired in', () => {
 	it('runs ahead of every wrangler deploy of the app, against what gets uploaded', () => {
 		expect(readFileSync('wrangler.jsonc', 'utf8')).toContain(
-			'"command": "node scripts/check-search-assets.mjs .svelte-kit/cloudflare"'
+			'"command": "node scripts/check-search-assets.mjs build"'
 		);
 	});
 

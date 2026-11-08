@@ -2,8 +2,11 @@
 
 Both workers deploy on the free plan — no paid tier, no account configuration beyond having a
 Cloudflare account at all. The live deploy puts each worker on a host in the owner's zone (the
-`routes` entry in each `wrangler.jsonc`), so that zone rules can stand in front of it; a fork
-without that zone removes both `routes` entries and deploys to `workers.dev` as below. This is a runbook, not a script:
+`routes` entry in each `wrangler.jsonc`), with `workers_dev` off, so that zone rules can stand
+in front of it. A fork without that zone removes both `routes` entries, sets `workers_dev` to
+`true` in both files, puts its own app's origin into `ALLOWED_ORIGINS` in
+`workers/relay/wrangler.jsonc` (the relay refuses sockets from any other page), and deploys to
+`workers.dev` as below. This is a runbook, not a script:
 every command below is meant to be read and run by a person, once, the first time. It is not
 something this repo's automation runs for you — `wrangler deploy` (unlike the `--dry-run`
 CI already does on pushes to `main` and on pull requests) changes what a live URL serves, and needs a logged-in,
@@ -126,7 +129,7 @@ PUBLIC_RELAY_HOST=syncticket-relay.<your-subdomain>.workers.dev pnpm build && pn
 
 Both forms get the search-asset check, because `wrangler.jsonc` runs
 `scripts/check-search-assets.mjs` as a custom build ahead of any `wrangler deploy` or
-`versions upload` of the app. It reads `.svelte-kit/cloudflare`, the directory that gets uploaded,
+`versions upload` of the app. It reads `build`, the directory that gets uploaded,
 and stays out of the way for `wrangler dev` and `wrangler types`.
 
 The relay's `wrangler.jsonc` migration (`new_sqlite_classes`) only runs once, on the first
