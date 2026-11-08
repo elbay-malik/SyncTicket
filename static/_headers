@@ -1,0 +1,48 @@
+# Response headers for everything the app serves.
+#
+# Every response is a static file now, the page included (ADR 0011), so this one file covers
+# them all. Cloudflare matches the rules against the address asked for, not the file that
+# answers it, so `/issues/*` applies to the single-page fallback served for an issue's address.
+
+/*
+  # Stops a browser from second-guessing a declared Content-Type.
+  X-Content-Type-Options: nosniff
+  # A workspace id is the only thing protecting a workspace (ADR 0004), and it lives in the URL,
+  # so the Referer sent to any third party must never carry the path.
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  # Once a browser has loaded this over HTTPS, it never asks over HTTP again. Not
+  # `includeSubDomains`: that is for the zone to decide, for every host under it.
+  Strict-Transport-Security: max-age=31536000
+  # Cloudflare must not rewrite a page. Without `no-transform` the zone injects its Web Analytics
+  # beacon into the HTML it serves, which reports the page's address, and a workspace's address
+  # is the access to it (ADR 0004). A rule for every path, because the page answers at any
+  # address; the scripts and model files below take it off again, so they keep edge compression.
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
+
+# An issue's address is one in a workspace: search engines should leave it out. A workspace link
+# on any other page (`?ws=`) cannot be matched here, since rules see no query string; the page
+# adds a robots tag for that itself (src/routes/+layout.svelte).
+#
+# One block per path: where two blocks name the same path, only the last one applies.
+/issues/*
+  X-Robots-Tag: noindex
+
+/_app/*
+  X-Robots-Tag: noindex
+  ! Cache-Control
+  Cache-Control: no-cache
+
+# Content-hashed file names: a file at one of these never changes.
+/_app/immutable/*
+  ! Cache-Control
+  Cache-Control: public, immutable, max-age=31536000
+
+/models/*
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate
+
+/ort/*
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate

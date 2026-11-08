@@ -110,17 +110,38 @@ test('a real id survives the round trip through the link, the router and a reloa
 	expect(errors).toEqual([]);
 });
 
+// Cloudflare's asset server decodes an encoded slash and sends the browser to the path it spells
+// (ADR 0011), so these leave the issue route. They must still stay on this site, in this
+// workspace, and say nothing more than that the page is not there.
+for (const [segment, landing] of [
+	['..%2Fissues%3Fws%3Dx', '/issues%3Fws%3Dx'],
+	['..%2F..%2Fboard', '/board']
+] as const) {
+	test(`typing /issues/${segment} goes to ${landing}, in the same workspace`, async ({
+		page,
+		workspaceId
+	}) => {
+		const errors = collectErrors(page);
+		await page.goto(`/issues/${segment}`);
+		await expect(page).toHaveURL((url) => url.pathname === landing);
+		if (landing === '/board') await expect(page.getByTestId('board-columns')).toBeVisible();
+		else await expect(page.getByTestId('route-error')).toHaveAttribute('data-status', '404');
+		expect(await remembered(page)).toBe(workspaceId);
+		await expect(page).toHaveURL((url) => url.searchParams.get('ws') === workspaceId);
+		expect(errors).toEqual([]);
+	});
+}
+
 for (const segment of [
-	'..%2Fissues%3Fws%3Dx',
-	'..%2F..%2Fboard',
 	'%2Fx',
 	'x%2F',
 	'%00',
 	'x%0A',
 	'corrupt',
 	'00000000-0000-4000-8000-00000000000A',
-	// decodeURI refuses these. SvelteKit's client would throw on them while starting and never
-	// hydrate, so the server sends them to the same text properly encoded (hooks.server.ts).
+	// decodeURI refuses these. SvelteKit's client would throw on them while starting, so
+	// Cloudflare's asset server sending them on to the same text properly encoded is what
+	// keeps them working (ADR 0011).
 	'%',
 	'%E0%A4%A',
 	'%ZZ',
@@ -144,3 +165,21 @@ for (const segment of [
 		expect(errors).toEqual([]);
 	});
 }
+
+test('a link with a malformed path keeps the workspace it names through the redirect', async ({
+	browser
+}) => {
+	// A fresh browser, so the workspace can only come from the link.
+	const context = await browser.newContext();
+	const page = await context.newPage();
+	const linked = `t${crypto.randomUUID().replace(/-/g, '')}`;
+	for (const path of [`/issues/%ZZ?ws=${linked}`, `/issues/..%2F..%2Fboard?ws=${linked}`]) {
+		const response = await page.request.get(path, { maxRedirects: 0 });
+		expect(response.status(), path).toBe(307);
+		const location = new URL(response.headers()['location']!, 'http://localhost');
+		expect(location.searchParams.get('ws'), path).toBe(linked);
+		await page.goto(path);
+		await expect(page).toHaveURL((url) => url.searchParams.get('ws') === linked);
+	}
+	await context.close();
+});

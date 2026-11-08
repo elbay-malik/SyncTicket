@@ -32,6 +32,10 @@
 
 	let main = $state<HTMLElement | null>(null);
 
+	// Read once, at the address the visit arrived at: a fresh visit writes its own `?ws=` into the
+	// address bar straight after, and that does not make the landing page a workspace link.
+	const arrivedThroughLink = page.url.searchParams.has('ws');
+
 	// `<main>` scrolls where the window used to, on a screen too short for what a route shows, and
 	// the window's position is the only one SvelteKit keeps. The list keeps its own, in its route.
 	export const snapshot: Snapshot<number> = {
@@ -186,6 +190,12 @@
 		name="description"
 		content="A local-first, real-time collaborative issue tracker built with Svelte 5."
 	/>
+	<!-- A workspace link, or an issue in one: search engines should leave it out. The headers
+	cannot say so for `?ws=`, which their rules never see (static/_headers). The bare `/issues` a
+	fresh visit lands on stays indexable. -->
+	{#if arrivedThroughLink || page.url.pathname.startsWith('/issues/')}
+		<meta name="robots" content="noindex" />
+	{/if}
 </svelte:head>
 
 <svelte:document onkeydown={(event) => shortcuts.handle(event)} />

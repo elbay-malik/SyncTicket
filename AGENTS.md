@@ -6,14 +6,14 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 
 - **pnpm only** (`packageManager` pins `pnpm@11.10.0`). Use `pnpm dlx` / `pnpm exec`, never npm/npx. Node 24 via `.nvmrc` (fnm auto-switches).
 - Postinstall build scripts are allowlisted in `pnpm-workspace.yaml` (`allowBuilds`: workerd, esbuild, …). If `pnpm install` reports newly blocked builds, add them there — don't run interactive `pnpm approve-builds`.
-- `pnpm check` must pass; both `check` and `build` regenerate `worker-configuration.d.ts` (`wrangler types`) rather than validate it — its content legitimately varies with build state (wrangler adds a `mainModule` import only when `.svelte-kit/cloudflare/_worker.js` exists), so `--check` can never be stable across CI and local. The file is committed (IDE needs it), prettier- and eslint-ignored; don't fight small diffs in it.
+- `pnpm check` must pass; both `check` and `build` regenerate `worker-configuration.d.ts` (`wrangler types`) rather than validate it — its content has varied with build state before, so `--check` is not relied on across CI and local. The file is committed (IDE needs it), prettier- and eslint-ignored; don't fight small diffs in it.
 
 ## Svelte / TypeScript
 
 - **Runes only** (`$state` / `$derived` / `$effect`); no legacy stores. Shared reactive state goes in `.svelte.ts` modules under `src/lib/state/`.
 - mode-watcher 1.x: read `mode.current` (not the old `$mode` store); set via `setMode()` / `resetMode()`.
 - TS is strict + extras; `exactOptionalPropertyTypes` is deliberately off (ADR 0003) — don't re-enable it.
-- `checkJs` must also stay off: `worker-configuration.d.ts` imports the built worker entry, so after any build the JS bundle artifacts enter the TS program and would fail `pnpm check`.
+- `checkJs` stays off: plain-JS build scripts and config files are not written to pass it.
 - Navigation needs `resolve()` from `$app/paths` (eslint `svelte/no-navigation-without-resolve`); the rule is disabled only for the generic `ui/` primitives.
 - Reactive collections use `SvelteMap`/`SvelteSet` from `svelte/reactivity` (eslint enforces it in `.svelte.ts`); a transient non-reactive `Set` still trips the rule, so avoid it — prefer `.clear()` + repopulate.
 
@@ -149,12 +149,12 @@ Commands, conventions, and stale-training-data traps. Rationale lives in `docs/a
 
 ## Cloudflare
 
-- **Two-worker rule**: never add Durable Object classes or migrations to the root `wrangler.jsonc`. DOs belong to `workers/relay/` with its own config; the app worker binds cross-script via `script_name` (ADR 0002).
+- **Two-worker rule**: never add Durable Object classes or migrations to the root `wrangler.jsonc`. DOs belong to `workers/relay/` with its own config (ADR 0002). The app has no Worker code at all, only static files (ADR 0011), and reaches the relay over its public WebSocket host.
 
 ## Tests
 
 - Vitest browser locators are `getByLabelText` / `getByPlaceholder` (Playwright's are `getByLabel` / `getByPlaceholder`) — chaining `getByLabel` off a Vitest locator throws at runtime, not at typecheck.
-- `src/**/*.test.ts` → Vitest node project. `src/**/*.svelte.test.ts` → Vitest browser mode (needs `pnpm exec playwright install chromium`). `e2e/*.e2e.ts` → Playwright, whose webServer runs the **built worker under workerd** (`pnpm build && pnpm preview`, port 4173) — not vite preview.
+- `src/**/*.test.ts` → Vitest node project. `src/**/*.svelte.test.ts` → Vitest browser mode (needs `pnpm exec playwright install chromium`). `e2e/*.e2e.ts` → Playwright, whose webServer serves the **built static site through `wrangler dev`** (`pnpm build && pnpm preview`, port 4173), the way Cloudflare serves it — not vite preview.
 - **`test.use({ reducedMotion })` is inert here — do not write a test that depends on it.** Measured with Playwright 1.61.1 and this config: at module scope, at describe scope, with and without this repo's `context` fixture, and on a freshly opened page from the same context, `matchMedia('(prefers-reduced-motion: reduce)').matches` stays `false`. `page.emulateMedia({ reducedMotion: 'reduce' })` works immediately. The failure mode is silent — the test passes while asserting the default preference twice — so `e2e/reduced-motion.e2e.ts` asserts the emulation took hold before asserting anything else, and any new motion test should do the same. The same trap voided an earlier A/B in this repo that tried to blame an e2e flake on the reduced-motion rule: both arms were the same arm.
 - **Reloading straight after a local write can lose it.** y-indexeddb stores each update in a fire-and-forget IndexedDB transaction, and a navigation that commits first aborts it, so the reloaded page never had the write — and offline, nothing ever sends it. An e2e that writes and then reloads, cold-loads with `page.goto`, or closes the page calls `waitForCommitAbove` (`e2e/fixtures.ts`) first, baselined just before the write and after the page shows its IndexedDB load (its empty state or its list). It polls with `expect.poll` because `page.waitForFunction` does not: handed a predicate that returns a promise, it resolves after one call with whatever the promise settles to, `false` included.
 - **`pnpm ci:local` (`scripts/ci-local.sh`) mirrors `.github/workflows/ci.yml` step for step, in the same order** — it exists so that "the tests pass" is a checkable claim when Actions is unavailable, and it is only worth having while it stays a faithful mirror. **Add a step to `ci.yml` and you must add it here too**, or the script quietly starts certifying less than it claims. Its `--help` prints the four things it deliberately does not check (chiefly: no clean checkout, so lockfile drift is invisible to it, and your platform is not `ubuntu-latest`); those are the only differences, and the summary reprints them after every run so a green local result is never mistaken for a green CI result.

@@ -162,11 +162,30 @@ test('forgetting a workspace removes it from this device and goes to the one bef
 	await Promise.all([alice.context().close(), page.context().close()]);
 });
 
-test('workspace links are kept out of search engines', async ({ request }) => {
-	const linked = await request.get(`/issues?ws=${room()}`);
-	expect(linked.headers()['x-robots-tag']).toBe('noindex');
-	const landing = await request.get('/issues');
-	expect(landing.headers()['x-robots-tag']).toBeUndefined();
+test('workspace links are kept out of search engines', async ({ browser, request }) => {
+	const robots = (page: Page) => page.locator('head meta[name="robots"]');
+	const page = await (await browser.newContext()).newPage();
+	// A header rule sees no query string, so a `?ws=` link says it in the page.
+	await page.goto(`/issues?ws=${room()}`);
+	await expect(robots(page)).toHaveAttribute('content', 'noindex');
+	// An issue's address says it both ways, with no `?ws=` in it too.
+	await page.goto(`/issues/${crypto.randomUUID()}`);
+	await expect(robots(page)).toHaveAttribute('content', 'noindex');
+	await page.goto(`/issues/00000000-0000-4000-8000-000000000000?ws=${room()}`);
+	await expect(robots(page)).toHaveAttribute('content', 'noindex');
+	expect((await request.get('/issues/x')).headers()['x-robots-tag']).toBe('noindex');
+	// An address with nothing at it is answered with the app's page and a 200, like every other.
+	await page.goto('/nothing-here');
+	await expect(page.getByTestId('route-error')).toBeVisible();
+	await expect(robots(page)).toHaveAttribute('content', 'noindex');
+	// The landing page stays indexable, after the visit has written its own `?ws=` into the
+	// address too: that one is the visitor's, not a link someone followed.
+	await page.goto('/issues');
+	await expect(page).toHaveURL(/[?&]ws=/);
+	await expect(page.getByText('No issues yet')).toBeVisible();
+	await expect(robots(page)).toHaveCount(0);
+	expect((await request.get('/issues')).headers()['x-robots-tag']).toBeUndefined();
+	await page.context().close();
 });
 
 test('a first visit through a link has nothing to go back to and says nothing', async ({
