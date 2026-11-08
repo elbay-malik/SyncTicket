@@ -134,5 +134,20 @@
 				</Sidebar.MenuButton>
 			</Sidebar.MenuItem>
 		</Sidebar.Menu>
+		<!-- The owner's legal pages, which cover this demo. Here because the footer is on every
+		     page, the error page included, and in the phone's sheet. Same tab: the workspace
+		     lives in this browser, so leaving loses nothing, and Back returns to it. The
+		     Referrer-Policy sends the other site only this origin, never the `?ws=` id. -->
+		<p class="flex gap-3 px-2 pb-1 text-xs text-muted-foreground">
+			<a
+				class="rounded-sm outline-hidden hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+				href="https://elbaymalik.com/impressum/"
+				lang="de">Impressum</a
+			>
+			<a
+				class="rounded-sm outline-hidden hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+				href="https://elbaymalik.com/datenschutz/">Privacy</a
+			>
+		</p>
 	</Sidebar.Footer>
 </Sidebar.Root>

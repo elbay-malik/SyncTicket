@@ -29,3 +29,43 @@ test('command menu opens with the keyboard shortcut', async ({ page }) => {
 	}).toPass({ timeout: 15_000 });
 	await expect(page.getByRole('heading', { name: 'Command Palette' })).toBeAttached();
 });
+
+test('the legal pages are linked from every page, on a phone too, without the workspace id', async ({
+	page
+}) => {
+	const imprint = page.getByRole('link', { name: 'Impressum' });
+	const privacy = page.getByRole('link', { name: 'Privacy' });
+
+	await page.goto('/issues');
+	await expect(imprint).toHaveAttribute('href', 'https://elbaymalik.com/impressum/');
+	await expect(imprint).toHaveAttribute('lang', 'de');
+	await expect(privacy).toHaveAttribute('href', 'https://elbaymalik.com/datenschutz/');
+	await expect(imprint).toBeVisible();
+
+	// The error page renders inside the same layout.
+	await page.goto('/no-such-page');
+	await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+	await expect(privacy).toBeVisible();
+
+	// On a phone the sidebar is a sheet behind the menu button.
+	await page.setViewportSize({ width: 390, height: 740 });
+	await page.goto('/board');
+	// Drawn on the client only, so wait for the page before saying the links are tucked away.
+	await expect(page.getByRole('button', { name: 'Toggle Sidebar' })).toBeVisible();
+	await expect(imprint).toBeHidden();
+	await page.getByRole('button', { name: 'Toggle Sidebar' }).click();
+	await expect(imprint).toBeVisible();
+	await expect(privacy).toBeVisible();
+
+	// Following one sends the other site this origin only, not the address with `?ws=`.
+	await expect(page).toHaveURL(/[?&]ws=/);
+	const origin = new URL(page.url()).origin;
+	let referer: string | null = null;
+	await page.route('https://elbaymalik.com/**', async (route) => {
+		referer = await route.request().headerValue('referer');
+		await route.fulfill({ status: 200, contentType: 'text/html', body: '<p>legal</p>' });
+	});
+	await privacy.click();
+	await expect(page.getByText('legal')).toBeVisible();
+	expect(referer).toBe(`${origin}/`);
+});
