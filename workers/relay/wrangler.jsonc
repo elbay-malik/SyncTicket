@@ -16,6 +16,11 @@
 	"vars": {
 		"ALLOWED_ORIGINS": "https://syncticket.elbaymalik.com,https://syncticket.eleo-666.workers.dev,http://localhost:5173,http://localhost:4173"
 	},
+	// Its own host on the owner's zone, so that zone rules (a rate limit, a block on anything that
+	// is not a socket upgrade) can stop a flood before it runs the Worker and counts against the
+	// daily request budget. Rules cannot touch a workers.dev address. The live build connects
+	// here; workers.dev stays on only until every open tab has picked that build up.
+	"routes": [{ "pattern": "syncticket-relay.elbaymalik.com", "custom_domain": true }],
 	"workers_dev": true,
 	"durable_objects": {
 		// The binding name is load-bearing: partyserver derives the URL namespace by
