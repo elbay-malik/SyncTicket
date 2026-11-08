@@ -103,10 +103,10 @@ migration that did not apply). Confirm, in order:
 
 If step 1 settles on anything else, the popover tells you which mistake you made:
 
-| What it says                       | Icon       | What it means                                                                                                                                                                                                                       |
-| ---------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "Local only — no relay configured" | hard drive | `PUBLIC_RELAY_HOST` was **not set on the build that got deployed**. This state is never transient — a correctly-built app never shows it at all. Rebuild and redeploy per step 2.                                                   |
-| "Not shared — you're offline"      | cloud-off  | `PUBLIC_RELAY_HOST` was set but is **wrong or unreachable**. Check it against the relay's deploy output: `host[:port]` only, no `https://`, no trailing slash. Confirm `https://<relay-host>/` returns the text `syncticket relay`. |
+| What it says                       | Icon       | What it means                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Local only — no relay configured" | hard drive | `PUBLIC_RELAY_HOST` was **not set on the build that got deployed**. This state is never transient — a correctly-built app never shows it at all. Rebuild and redeploy per step 2.                                                                                                                                                           |
+| "Not shared — you're offline"      | cloud-off  | `PUBLIC_RELAY_HOST` was set but is **wrong or unreachable**. Check it against the relay's deploy output: `host[:port]` only, no `https://`, no trailing slash. Then probe the relay with a socket upgrade, as below: `101` means it is up. On the live host, a plain request such as opening `https://<relay-host>/` gets `403`, by design. |
 
 ## Redeploying later
 
@@ -171,6 +171,17 @@ HTTP request to a room, while a well-formed one upgrades with `101` — both ref
 the Durable Object stub is fetched, so a probe creates nothing. The `101` is the half that makes
 the rest mean anything: without it a `400` proves only that something said no. (Probe over
 HTTP/1.1 — `curl --http1.1`. Over HTTP/2 there is no `Upgrade` header, so the request arrives as
-plain HTTP and is correctly answered `404`, which looks like a broken relay and is not one.) And the
-largest static asset is the 23.5 MB ONNX runtime, against Cloudflare's 25 MiB per-file cap:
+plain HTTP and is correctly answered `404`, which looks like a broken relay and is not one.)
+On the live host the zone now answers every request that is not a socket upgrade with `403`
+before it reaches the Worker, and limits upgrades per address, so the plain-HTTP `404` and the
+root page's `syncticket relay` text are only seen locally or on a fork. A probe for the `101`:
+
+```sh
+curl -s --http1.1 -o /dev/null -w '%{http_code}\n' --max-time 3 \
+  -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Origin: https://<app-host>' \
+  "https://<relay-host>/parties/y-doc-room/t$(openssl rand -hex 16)?_pk=abcdefghij"
+```
+
+The largest static asset is the 23.5 MB ONNX runtime, against Cloudflare's 25 MiB per-file cap:
 real headroom, but not much, and ADR 0009 put it there on purpose.
