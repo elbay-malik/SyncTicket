@@ -1,7 +1,9 @@
 # Deploying to Cloudflare
 
-Both workers deploy on the free plan — no custom domain, no paid tier, no account
-configuration beyond having a Cloudflare account at all. This is a runbook, not a script:
+Both workers deploy on the free plan — no paid tier, no account configuration beyond having a
+Cloudflare account at all. The live deploy puts each worker on a host in the owner's zone (the
+`routes` entry in each `wrangler.jsonc`), so that zone rules can stand in front of it; a fork
+without that zone removes both `routes` entries and deploys to `workers.dev` as below. This is a runbook, not a script:
 every command below is meant to be read and run by a person, once, the first time. It is not
 something this repo's automation runs for you — `wrangler deploy` (unlike the `--dry-run`
 CI already does on pushes to `main` and on pull requests) changes what a live URL serves, and needs a logged-in,
@@ -152,6 +154,10 @@ First deployed 2026-10-22, on the free plan, from the owner's Cloudflare account
 | ------------------ | ----------------------------------------- | ------------------------------- |
 | `syncticket`       | <https://syncticket.eleo-666.workers.dev> | 1,579.82 KiB + 42 static assets |
 | `syncticket-relay` | `syncticket-relay.eleo-666.workers.dev`   | 333.83 KiB                      |
+
+Both have since moved to the owner's zone, the app to `syncticket.elbaymalik.com` and the relay
+to `syncticket-relay.elbaymalik.com`. The live build is made with
+`PUBLIC_RELAY_HOST=syncticket-relay.elbaymalik.com`.
 
 Verified per step 3: the popover settled on "Ready to share — no one else here yet", and an
 issue created in a second browser given only the share link appeared in the first immediately.

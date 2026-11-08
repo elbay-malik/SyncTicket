@@ -59,8 +59,8 @@ Two commitments a neighbouring demo could not truthfully copy:
   popover is asserted as an exact string — so the documented demo cannot drift from the app.
 - **Sharing is a link.** Pressing Share copies an invite URL; opening it in another browser
   joins the same workspace. A browser never given the link sees nothing.
-- **Deployed and live.** App at `syncticket.eleo-666.workers.dev`, relay at
-  `syncticket-relay.eleo-666.workers.dev`, both on the free plan, first deployed 2026-10-22.
+- **Deployed and live.** App at `syncticket.elbaymalik.com`, relay at
+  `syncticket-relay.elbaymalik.com`, both on the free plan, first deployed 2026-10-22.
 
 ## Capabilities and Constraints
 
