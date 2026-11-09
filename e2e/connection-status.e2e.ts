@@ -162,7 +162,9 @@ test('a workspace this browser just started still offers examples with the relay
 	await expect(page.getByTestId('relay-status')).toHaveAttribute('data-connection', 'offline', {
 		timeout: 10_000
 	});
-	await expect(page.getByRole('button', { name: 'Load example issues' })).toBeVisible();
+	await expect(
+		page.getByRole('main').getByRole('button', { name: 'Load example issues' })
+	).toBeVisible();
 	await expect(page.getByTestId('issues-relay-unreachable')).toHaveCount(0);
 	await context.close();
 });

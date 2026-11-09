@@ -8,6 +8,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import AppSidebar from '$lib/components/shell/app-sidebar.svelte';
+	import LightbulbIcon from '@lucide/svelte/icons/lightbulb';
 	import Undo2Icon from '@lucide/svelte/icons/undo-2';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import BrandMark from '$lib/components/shell/brand-mark.svelte';
@@ -18,6 +19,8 @@
 	import ThemeToggle from '$lib/components/shell/theme-toggle.svelte';
 	import IssueCreateDialog from '$lib/components/issues/issue-create-dialog.svelte';
 	import ShortcutsHelp from '$lib/components/shell/shortcuts-help.svelte';
+	import FirstVisitGuide from '$lib/components/shell/first-visit-guide.svelte';
+	import { showGuide, startGuide } from '$lib/state/guide.svelte.js';
 	import { isApple } from '$lib/keyboard/keys.js';
 	import { shortcuts } from '$lib/keyboard/registry.svelte.js';
 	import { getSearchClient } from '$lib/search/client.svelte.js';
@@ -103,6 +106,7 @@
 		// when it is constructed, and a user who has already gone offline could never fetch
 		// them. Same reasoning as preloading every route below.
 		getSearchClient().start(store);
+		startGuide();
 		// Each route is a lazily imported chunk. Fetching them all now, wherever the visit
 		// started, is what lets every page open offline: a chunk first requested offline fails,
 		// and Chromium remembers the failed import for the life of the page, so even once the
@@ -252,6 +256,18 @@
 				>
 					<Undo2Icon />
 				</Button>
+				<!-- The way back to the "Try this" card once closed. Steps aside below `sm` with the
+				     theme toggle, for the same 320px reason; the palette's "Show the guide" stays. -->
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					class="hidden sm:inline-flex"
+					aria-label="Show the guide"
+					title="Show the guide"
+					onclick={showGuide}
+				>
+					<LightbulbIcon />
+				</Button>
 				<ShareWorkspace {store} />
 				<!-- Steps aside below `sm`, where the trailing group would otherwise wrap to a third
 				     line carrying this control alone — 36px of a 320px-wide screen for one icon.
@@ -270,3 +286,12 @@
 		</main>
 	</Sidebar.Inset>
 </Sidebar.Provider>
+
+<!-- After everything else: the last stop in the tab order, its heading after the page's. -->
+<FirstVisitGuide
+	ready={store.settled}
+	empty={store.all.length === 0}
+	paletteHint={shortcuts.hint('palette')}
+	workspaceId={store.workspaceId}
+	onLoadExamples={() => store.seedDemo()}
+/>

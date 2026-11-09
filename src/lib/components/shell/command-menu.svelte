@@ -23,6 +23,7 @@
 	import { getSearchClient } from '$lib/search/client.svelte.js';
 	import { getIssueStore } from '$lib/state/issues.svelte.js';
 	import { issueUi } from '$lib/state/ui.svelte.js';
+	import { showGuide } from '$lib/state/guide.svelte.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Command from '$lib/components/ui/command/index.js';
 	import StatusBadge from '$lib/components/issues/status-badge.svelte';
@@ -68,6 +69,7 @@
 		},
 		{ id: 'theme-dark', label: 'Dark theme', hint: '', group: 'Theme', run: () => setMode('dark') },
 		{ id: 'theme-system', label: 'System theme', hint: '', group: 'Theme', run: () => resetMode() },
+		{ id: 'guide', label: 'Show the guide', hint: '', group: 'Help', run: showGuide },
 		// The way back after following someone's link, which makes theirs the workspace a bare
 		// address opens. A full page load: a session is bound to one workspace for its lifetime.
 		{
@@ -102,7 +104,7 @@
 	);
 
 	const groupedCommands = $derived(
-		['Issues', 'Navigation', 'Workspace', 'Theme']
+		['Issues', 'Navigation', 'Workspace', 'Theme', 'Help']
 			.map((group) => ({ group, items: matchingCommands.filter((c) => c.group === group) }))
 			.filter((section) => section.items.length > 0)
 	);
