@@ -8,15 +8,22 @@
 
 import { test as base, expect, type Page } from '@playwright/test';
 import { WORKSPACE_STORAGE_KEY, workspaceDbName } from '../src/lib/model/workspace.js';
+import { GUIDE_KEY } from '../src/lib/state/guide-key.js';
 
 export interface WorkspaceFixtures {
 	/** The workspace this test owns. */
 	workspaceId: string;
 	/** The IndexedDB database backing it. */
 	workspaceDb: string;
+	/**
+	 * Whether the first-visit "Try this" card may appear. Off by default: a fixed card in the
+	 * corner would sit over whatever a test means to click. The guide's own tests turn it on.
+	 */
+	showGuide: boolean;
 }
 
 export const test = base.extend<WorkspaceFixtures>({
+	showGuide: [false, { option: true }],
 	// eslint-disable-next-line no-empty-pattern -- Playwright requires the fixture-args slot.
 	workspaceId: async ({}, use) => {
 		await use(`t${crypto.randomUUID().replace(/-/g, '')}`);
@@ -24,17 +31,18 @@ export const test = base.extend<WorkspaceFixtures>({
 	workspaceDb: async ({ workspaceId }, use) => {
 		await use(workspaceDbName(workspaceId));
 	},
-	context: async ({ context, workspaceId }, use) => {
+	context: async ({ context, workspaceId, showGuide }, use) => {
 		await context.addInitScript(
-			([key, id]) => {
+			([key, id, guideKey]) => {
 				try {
 					window.localStorage.setItem(key as string, id as string);
+					if (guideKey) window.localStorage.setItem(guideKey, 'dismissed');
 				} catch {
 					// A context that cannot use storage falls back to the default workspace, which
 					// only matters for relay tests — they assert on it explicitly.
 				}
 			},
-			[WORKSPACE_STORAGE_KEY, workspaceId]
+			[WORKSPACE_STORAGE_KEY, workspaceId, showGuide ? '' : GUIDE_KEY]
 		);
 		await use(context);
 	}
